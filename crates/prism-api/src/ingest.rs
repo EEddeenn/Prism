@@ -298,12 +298,10 @@ impl Prism {
             return Ok(existing);
         }
         let raw_id = self.store.intern_string_in(batch, version_raw)?;
-        // Decide prerelease via the SemVer engine, not a naive `contains('-')`
-        // (which misfires on build metadata like `1.0.0+2013-03-13`). An
-        // unparseable version is treated as non-prerelease.
-        let is_pre = prism_semver::Version::parse(version_raw)
-            .map(|v| v.is_prerelease())
-            .unwrap_or(false);
+        // Decide prerelease via the OWNING ecosystem's scheme — Python (uv) is
+        // PEP 440, not SemVer, so a `prism_semver` parse would silently miss
+        // `1.0rc1` / `1.0.dev0`. An unparseable version is non-prerelease.
+        let is_pre = is_prerelease_for(eco, version_raw);
         let flags = if is_pre {
             VersionFlags::PRERELEASE
         } else {
@@ -625,14 +623,37 @@ fn parse_manifest(
                 "bun has no manifest format (use package.json, which ingests as npm)".into(),
             ))
         }
+        // uv is lockfile-only here (a bare `pyproject.toml` is ambiguous across
+        // Python tools), so it has no manifest parser; this arm is unreachable.
+        Ecosystem::Uv => {
+            return Err(PrismError::Other(
+                "uv ingest is lockfile-only (use uv.lock)".into(),
+            ))
+        }
     };
     Ok(batch)
 }
 
-/// The ecosystem owning a known id (the facade only registers two).
+/// Whether `version_raw` is a pre-release under `eco`'s version scheme. Python
+/// (uv) is PEP 440, so dispatch to its plugin; Cargo/npm/Bun are SemVer.
+fn is_prerelease_for(eco: EcosystemId, version_raw: &str) -> bool {
+    match eco_of(eco) {
+        Ecosystem::Uv => Ecosystem::uv_plugin()
+            .version_scheme()
+            .is_prerelease(version_raw)
+            .unwrap_or(false),
+        _ => prism_semver::Version::parse(version_raw)
+            .map(|v| v.is_prerelease())
+            .unwrap_or(false),
+    }
+}
+
+/// The ecosystem owning a known id. (Bun shares npm's id; uv/PyPI is its own.)
 fn eco_of(id: EcosystemId) -> Ecosystem {
     if id == Ecosystem::Npm.id() {
         Ecosystem::Npm
+    } else if id == Ecosystem::Uv.id() {
+        Ecosystem::Uv
     } else {
         Ecosystem::Cargo
     }
@@ -650,7 +671,7 @@ fn canonical_name(name: &str, namespace: Option<&str>) -> String {
 
 /// The purl *base* (`pkg:<eco>/<name>`), without a version.
 fn purl_base(eco: EcosystemId, name: &str, namespace: Option<&str>) -> String {
-    let scheme = if eco == Ecosystem::Npm.id() { "npm" } else { "cargo" };
+    let scheme = eco_of(eco).purl_scheme();
     match namespace {
         Some(ns) => format!("pkg:{scheme}/@{ns}%2F{name}"),
         None => format!("pkg:{scheme}/{name}"),

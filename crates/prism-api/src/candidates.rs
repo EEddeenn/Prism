@@ -399,6 +399,9 @@ pub(crate) fn parse_constraint(ecosystem: Ecosystem, constraint: &str) -> Result
         Ecosystem::Npm | Ecosystem::Bun => Ecosystem::npm_plugin()
             .requirement_parser()
             .canonicalize(trimmed),
+        Ecosystem::Uv => Ecosystem::uv_plugin()
+            .requirement_parser()
+            .canonicalize(trimmed),
     }
     .map_err(|e| PrismError::Other(format!("bad constraint {constraint:?}: {e}")))?;
     // The canonical form is itself a parseable requirement; fall back to the raw
@@ -408,10 +411,13 @@ pub(crate) fn parse_constraint(ecosystem: Ecosystem, constraint: &str) -> Result
         .map_err(|e| PrismError::Other(format!("bad constraint {constraint:?}: {e}")))
 }
 
-/// The facade ecosystem owning a stored id (only two are registered).
+/// The facade ecosystem owning a stored id. (Bun shares npm's id, so a stored
+/// npm id maps to [`Ecosystem::Npm`]; that is correct for purls/semantics.)
 pub(crate) fn eco_of(id: EcosystemId) -> Ecosystem {
     if id == Ecosystem::Npm.id() {
         Ecosystem::Npm
+    } else if id == Ecosystem::Uv.id() {
+        Ecosystem::Uv
     } else {
         Ecosystem::Cargo
     }

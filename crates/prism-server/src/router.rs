@@ -281,11 +281,12 @@ fn api_run(state: &AppState, q: &Query) -> ApiResult<String> {
     })
 }
 
-/// Display name for an ecosystem id (only two are registered in v0.1).
+/// Display name for an ecosystem id. (npm and Bun share id 2; uv/PyPI is id 3.)
 fn ecosystem_name(id: prism_model::EcosystemId) -> &'static str {
     match id.get() {
         1 => "cargo",
         2 => "npm",
+        3 => "pypi",
         _ => "unknown",
     }
 }

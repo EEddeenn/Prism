@@ -15,6 +15,7 @@ use prism_plugin_api::ResolvedGraph;
 use prism_plugin_cargo::parse_lockfile_graph;
 use prism_plugin_cargo::parse_lockfile_packages;
 use prism_plugin_npm::{name_from_path as npm_name_from_path, parse_package_lock_value, NpmNames};
+use prism_plugin_uv::{parse_uv_graph, parse_uv_packages};
 use prism_textfmt::{parse_json, Json};
 
 use crate::ecosystem::Ecosystem;
@@ -45,6 +46,7 @@ pub(crate) fn parse_lockfile(eco: Ecosystem, bytes: &[u8]) -> Result<ParsedLockf
         Ecosystem::Cargo => parse_cargo(bytes),
         Ecosystem::Npm => parse_npm(bytes),
         Ecosystem::Bun => parse_bun(bytes),
+        Ecosystem::Uv => parse_uv(bytes),
     }
 }
 
@@ -63,6 +65,26 @@ fn parse_cargo(bytes: &[u8]) -> Result<ParsedLockfile> {
             name: p.name,
             namespace: None,
             version: Some(p.version),
+        })
+        .collect();
+    Ok(ParsedLockfile { graph, idents })
+}
+
+fn parse_uv(bytes: &[u8]) -> Result<ParsedLockfile> {
+    let text = std::str::from_utf8(bytes).map_err(|_| PrismError::Corrupt {
+        detail: "uv.lock is not utf-8".into(),
+    })?;
+    // `parse_uv_packages` preserves `[[package]]` order, which is the node order
+    // `parse_uv_graph` assigns (`local_id == index`). PyPI has no namespace.
+    let packages = parse_uv_packages(text)?;
+    let graph = parse_uv_graph(text)?;
+    debug_assert_eq!(packages.len(), graph.node_count());
+    let idents = packages
+        .into_iter()
+        .map(|p| NodeIdent {
+            name: p.name,
+            namespace: None,
+            version: p.version,
         })
         .collect();
     Ok(ParsedLockfile { graph, idents })

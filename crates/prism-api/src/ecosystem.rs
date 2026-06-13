@@ -11,11 +11,14 @@ use std::path::Path;
 use prism_model::EcosystemId;
 use prism_plugin_cargo::CargoPlugin;
 use prism_plugin_npm::NpmPlugin;
+use prism_plugin_uv::UvPlugin;
 
 /// The fixed [`EcosystemId`] for Cargo within a Prism workspace.
 pub const CARGO_ECOSYSTEM_ID: EcosystemId = EcosystemId::new(1);
 /// The fixed [`EcosystemId`] for npm within a Prism workspace.
 pub const NPM_ECOSYSTEM_ID: EcosystemId = EcosystemId::new(2);
+/// The fixed [`EcosystemId`] for PyPI (uv) within a Prism workspace.
+pub const PYPI_ECOSYSTEM_ID: EcosystemId = EcosystemId::new(3);
 
 /// One of the ecosystems the facade can ingest.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -27,6 +30,9 @@ pub enum Ecosystem {
     /// Bun (`bun.lock`). Bun installs npm packages, so it shares npm's store
     /// identity, purls, and semver semantics; only the lockfile format differs.
     Bun,
+    /// uv / PyPI (`uv.lock`). Python packages with PEP 440/503/508 semantics; its
+    /// own ecosystem id and `pkg:pypi/...` purls.
+    Uv,
 }
 
 impl Ecosystem {
@@ -39,6 +45,7 @@ impl Ecosystem {
         match self {
             Ecosystem::Cargo => CARGO_ECOSYSTEM_ID,
             Ecosystem::Npm | Ecosystem::Bun => NPM_ECOSYSTEM_ID,
+            Ecosystem::Uv => PYPI_ECOSYSTEM_ID,
         }
     }
 
@@ -48,6 +55,17 @@ impl Ecosystem {
             Ecosystem::Cargo => "cargo",
             Ecosystem::Npm => "npm",
             Ecosystem::Bun => "bun",
+            Ecosystem::Uv => "uv",
+        }
+    }
+
+    /// The purl scheme for this ecosystem's `pkg:<scheme>/...` keys.
+    pub const fn purl_scheme(self) -> &'static str {
+        match self {
+            Ecosystem::Cargo => "cargo",
+            // Bun installs npm packages.
+            Ecosystem::Npm | Ecosystem::Bun => "npm",
+            Ecosystem::Uv => "pypi",
         }
     }
 
@@ -55,14 +73,15 @@ impl Ecosystem {
     ///
     /// `Cargo.toml`/`Cargo.lock` → [`Ecosystem::Cargo`];
     /// `package.json`/`package-lock.json` → [`Ecosystem::Npm`]; `bun.lock` →
-    /// [`Ecosystem::Bun`]. Returns `None` for any other name (the caller maps
-    /// this to a clear error).
+    /// [`Ecosystem::Bun`]; `uv.lock` → [`Ecosystem::Uv`]. Returns `None` for any
+    /// other name (the caller maps this to a clear error).
     pub fn detect(path: &Path) -> Option<Ecosystem> {
         let name = path.file_name()?.to_str()?;
         match name {
             "Cargo.toml" | "Cargo.lock" => Some(Ecosystem::Cargo),
             "package.json" | "package-lock.json" | "npm-shrinkwrap.json" => Some(Ecosystem::Npm),
             "bun.lock" => Some(Ecosystem::Bun),
+            "uv.lock" => Some(Ecosystem::Uv),
             _ => None,
         }
     }
@@ -71,7 +90,13 @@ impl Ecosystem {
     pub fn is_lockfile(path: &Path) -> bool {
         matches!(
             path.file_name().and_then(|n| n.to_str()),
-            Some("Cargo.lock" | "package-lock.json" | "npm-shrinkwrap.json" | "bun.lock")
+            Some(
+                "Cargo.lock"
+                    | "package-lock.json"
+                    | "npm-shrinkwrap.json"
+                    | "bun.lock"
+                    | "uv.lock"
+            )
         )
     }
 
@@ -96,6 +121,11 @@ impl Ecosystem {
     pub(crate) fn npm_plugin() -> NpmPlugin {
         NpmPlugin::new(NPM_ECOSYSTEM_ID)
     }
+
+    /// Construct the uv / PyPI plugin for this ecosystem id.
+    pub(crate) fn uv_plugin() -> UvPlugin {
+        UvPlugin::new(PYPI_ECOSYSTEM_ID)
+    }
 }
 
 #[cfg(test)]
@@ -117,8 +147,19 @@ mod tests {
             Some(Ecosystem::Npm)
         );
         assert_eq!(Ecosystem::detect(&p("/x/bun.lock")), Some(Ecosystem::Bun));
+        assert_eq!(Ecosystem::detect(&p("/x/uv.lock")), Some(Ecosystem::Uv));
         assert_eq!(Ecosystem::detect(&p("/x/README.md")), None);
         assert_eq!(Ecosystem::detect(&p("/x")), None);
+    }
+
+    #[test]
+    fn uv_is_its_own_pypi_ecosystem() {
+        assert_ne!(Ecosystem::Uv.id(), Ecosystem::Npm.id());
+        assert_ne!(Ecosystem::Uv.id(), Ecosystem::Cargo.id());
+        assert_eq!(Ecosystem::Uv.label(), "uv");
+        assert_eq!(Ecosystem::Uv.purl_scheme(), "pypi");
+        assert!(Ecosystem::is_lockfile(&p("uv.lock")));
+        assert!(!Ecosystem::is_manifest(&p("uv.lock")));
     }
 
     #[test]

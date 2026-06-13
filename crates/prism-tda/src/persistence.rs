@@ -169,17 +169,27 @@ impl PersistenceResult {
         let mut next_pair = pair_id_base;
 
         // --- H0 via union-find over 0-cells, edges added in filtration order. ---
-        let mut uf = UnionFind::new(n);
-        // Birth tracked in union-find is by 0-cell id; map back to node index.
-        let cell_to_node: Vec<usize> = {
-            let mut m = vec![usize::MAX; cells.len()];
-            for (cid, cell) in cells.iter().enumerate() {
-                if cell.dim == 0 {
-                    m[cid] = cell.vertices[0].get() as usize;
-                }
+        //
+        // Map each cell id -> its node (for 0-cells) and the inverse node -> its
+        // 0-cell id. Cells are sorted by `(birth_value, dim, …)`, so a 0-cell id
+        // is NOT the node index under a non-uniform filtration.
+        let mut cell_to_node: Vec<usize> = vec![usize::MAX; cells.len()];
+        let mut node_to_cell0: Vec<u64> = vec![0; n];
+        for (cid, cell) in cells.iter().enumerate() {
+            if cell.dim == 0 {
+                let node = cell.vertices[0].get() as usize;
+                cell_to_node[cid] = node;
+                node_to_cell0[node] = cid as u64;
             }
-            m
-        };
+        }
+        // Seed the union-find so each node's component is "born" at its 0-cell id
+        // (already in filtration order). Without this, `birth` holds node indices,
+        // which differ from 0-cell ids whenever the filtration is non-uniform —
+        // corrupting H0 birth values, the older/younger pairing, and the mapped
+        // generator node (a node index used as a cell id could even hit the
+        // `usize::MAX` 1-cell sentinel, which truncates to `GraphNodeId::NULL`).
+        let mut uf = UnionFind::new(n);
+        uf.birth = node_to_cell0;
 
         // Track which 1-cells were "positive" (created a cycle) vs "negative"
         // (merged components) so H1 reduction can focus on positive ones. Here we
@@ -486,6 +496,43 @@ mod tests {
         assert!(h1.death_cell.is_none(), "no 2-cells -> essential");
         // Max edge value over {0,1}=1,{1,2}=2,{0,2}=2 is 2.
         assert_eq!(h1.birth_value, 2.0);
+    }
+
+    #[test]
+    fn generators_are_valid_nodes_under_nonuniform_filtration() {
+        // Root = node 2 (depth 0) -> node 1 (depth 1) -> node 0 (depth 2). The
+        // depth filtration sorts 0-cells by depth, so a 0-cell id is NOT the node
+        // index and 1-cells interleave. This is the case that used to seed the
+        // union-find with node indices and map an H0 generator onto a 1-cell
+        // slot's `usize::MAX` sentinel -> `GraphNodeId::NULL` (out of range).
+        let mut b = GraphBuilder::new();
+        for i in 0..3u64 {
+            b.add_node(BuildNode::new(VersionId::new(i), i as u32)).unwrap();
+        }
+        b.add_edge(BuildEdge::new(nid(2), nid(1), 0)).unwrap();
+        b.add_edge(BuildEdge::new(nid(1), nid(0), 0)).unwrap();
+        let g = b.finalize(RunId::new(1)).unwrap();
+        let f = depth_filtration(&g).unwrap();
+        let c = Complex::build(&g, f.values()).unwrap();
+        let r = PersistenceResult::compute(&c, 0).unwrap();
+
+        // Every node generator must name a real node (0..node_count), never the
+        // sentinel that truncates to GraphNodeId::NULL.
+        let nc = c.node_count() as u64;
+        for gen in r.generators() {
+            if matches!(gen.object_type, ObjectType::Node) {
+                assert!(gen.object_id < nc, "node generator out of range: {}", gen.object_id);
+            }
+        }
+        // H0 births are the real filtration depths (0..=2), not a misindexed
+        // cell's value.
+        for p in r.pairs().iter().filter(|p| p.dim == 0) {
+            assert!(
+                (0.0..=2.0).contains(&p.birth_value),
+                "bogus H0 birth_value {}",
+                p.birth_value
+            );
+        }
     }
 
     #[test]

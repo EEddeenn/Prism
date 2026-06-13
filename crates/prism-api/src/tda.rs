@@ -123,6 +123,13 @@ impl Prism {
         for gen in result.generators_for(pair) {
             match gen.object_type {
                 ObjectType::Node => {
+                    // Defensive: a generator that names no real node (a legacy or
+                    // corrupt `.ptda`, or an id past this snapshot) is skipped
+                    // rather than failing the whole request. A correct `.ptda`
+                    // never hits this.
+                    if gen.object_id >= g.node_count() as u64 {
+                        continue;
+                    }
                     let node = GraphNodeId::new(gen.object_id as u32);
                     objects.push(SupportObject::Node(self.node_view_for(&g, node)?));
                 }

@@ -1,0 +1,279 @@
+/* The single shared store for the explorer.
+ *
+ * Both the 2D and 3D views render from the SAME selection/highlight state here,
+ * so clicking a node, a duplicate family, a cycle member, or a TDA feature lights
+ * up in whichever view is active. Async actions call the typed `api` client. */
+
+import { create } from 'zustand';
+import { api, ApiError } from '@/lib/api';
+import { buildIndex, type GraphIndex } from '@/lib/graph';
+import { layout2d } from '@/lib/layout2d';
+import type {
+  Barcode, DuplicateCluster, GraphEdge, GraphNode, Mode3D, RunMeta, RunSummary,
+  SccComp, TdaPair, TerrainSignal, View,
+} from '@/lib/types';
+
+export interface FeatureHL {
+  pair: number;
+  dim: number;
+  nodeIds: Set<number>;
+  edgeKeys: Set<string>;
+}
+
+interface GraphState {
+  // status
+  statusText: string;
+  statusError: boolean;
+
+  // runs + current graph
+  runs: RunSummary[];
+  run: number | null;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  index: GraphIndex | null;
+  pos2d: Map<number, { x: number; y: number }>;
+  world2d: { w: number; h: number };
+
+  // selection / highlight (shared by 2D + 3D)
+  sel: number | null;
+  fwd: Set<number>;
+  impact: Set<number>;
+  matches: Set<number>;
+  dupVersionIds: Set<number>;
+  feature: FeatureHL | null;
+
+  // view controls
+  view: View;
+  mode3d: Mode3D;
+  signal: TerrainSignal;
+  activeTab: string;
+  query: string;
+
+  // camera/viewport focus request (a nonce the views watch to recenter)
+  focusTarget: number | null;
+  focusNonce: number;
+
+  // side-panel data
+  runMeta: RunMeta | null;
+  stats: import('@/lib/types').GraphStats | null;
+  duplicates: DuplicateCluster[];
+  sccs: SccComp[];
+  barcode: Barcode | null;
+  pairs: TdaPair[];
+
+  // actions
+  setStatus: (text: string, error?: boolean) => void;
+  loadRuns: () => Promise<void>;
+  selectRun: (run: number) => Promise<void>;
+  selectNode: (id: number) => Promise<void>;
+  highlightSet: (ids: number[], label: string) => void;
+  clearSelection: () => void;
+  setView: (v: View) => void;
+  setMode3d: (m: Mode3D) => void;
+  setSignal: (s: TerrainSignal) => void;
+  setActiveTab: (tab: string) => void;
+  runSearch: (term: string) => void;
+  selectFeature: (pair: number, dim: number) => Promise<void>;
+  requestFocus: (id: number) => void;
+}
+
+function errMsg(e: unknown): string {
+  return e instanceof ApiError || e instanceof Error ? e.message : String(e);
+}
+
+export const useGraphStore = create<GraphState>((set, get) => ({
+  statusText: '',
+  statusError: false,
+  runs: [],
+  run: null,
+  nodes: [],
+  edges: [],
+  index: null,
+  pos2d: new Map(),
+  world2d: { w: 1, h: 1 },
+  sel: null,
+  fwd: new Set(),
+  impact: new Set(),
+  matches: new Set(),
+  dupVersionIds: new Set(),
+  feature: null,
+  view: '2d',
+  mode3d: 'layered',
+  signal: 'centrality',
+  activeTab: 'overview',
+  query: '',
+  focusTarget: null,
+  focusNonce: 0,
+  runMeta: null,
+  stats: null,
+  duplicates: [],
+  sccs: [],
+  barcode: null,
+  pairs: [],
+
+  setStatus: (text, error = false) => set({ statusText: text, statusError: error }),
+
+  loadRuns: async () => {
+    set({ statusText: 'Loading runs…', statusError: false });
+    try {
+      const runs = await api.runs();
+      set({ runs, statusText: '' });
+      if (runs.length) await get().selectRun(runs[0].run);
+      else set({ statusText: 'No runs — ingest a lockfile with the CLI first.' });
+    } catch (e) {
+      set({ statusText: errMsg(e), statusError: true });
+    }
+  },
+
+  selectRun: async (run) => {
+    set({ statusText: 'Loading graph…', statusError: false, run });
+    try {
+      const data = await api.exportGraph(run);
+      // The user may have switched runs while this was in flight — if so, drop
+      // this stale result rather than clobbering the newer run's graph.
+      if (get().run !== run) return;
+      const nodes = data.graph_nodes || [];
+      const edges = data.graph_edges || [];
+      const index = buildIndex(nodes, edges);
+      const { pos, world } = layout2d(nodes, edges, index);
+      set({
+        nodes,
+        edges,
+        index,
+        pos2d: pos,
+        world2d: world,
+        sel: null,
+        fwd: new Set(),
+        impact: new Set(),
+        matches: new Set(),
+        feature: null,
+        dupVersionIds: new Set(),
+        activeTab: 'overview',
+        query: '',
+      });
+
+      // Side-panel data in parallel; one failure must not blank the others.
+      const [meta, stats, dups, sccs, barcode, pairs] = await Promise.allSettled([
+        api.run(run),
+        api.stats(run),
+        api.duplicates(run),
+        api.scc(run),
+        api.barcode(run),
+        api.tdaPairs(run),
+      ]);
+      if (get().run !== run) return; // a newer run won the race
+      const dupVersionIds = new Set<number>();
+      const duplicates = dups.status === 'fulfilled' ? dups.value : [];
+      for (const c of duplicates) for (const v of c.versions) dupVersionIds.add(v.version_id);
+      set({
+        runMeta: meta.status === 'fulfilled' ? meta.value : null,
+        stats: stats.status === 'fulfilled' ? stats.value : null,
+        duplicates,
+        dupVersionIds,
+        sccs: sccs.status === 'fulfilled' ? sccs.value : [],
+        barcode: barcode.status === 'fulfilled' ? barcode.value : null,
+        pairs: pairs.status === 'fulfilled' ? pairs.value.pairs : [],
+        statusText: '',
+      });
+    } catch (e) {
+      set({ statusText: errMsg(e), statusError: true });
+    }
+  },
+
+  selectNode: async (id) => {
+    const { run } = get();
+    if (run == null) return;
+    // An explicit node pick drops any TDA feature lens so the selection shows in
+    // 3D too (the feature highlight otherwise takes precedence over selection).
+    set({ sel: id, feature: null, activeTab: 'node', statusText: 'Tracing dependencies…' });
+    try {
+      const [nb, imp] = await Promise.all([api.neighborhood(run, id), api.impact(run, id)]);
+      const cur = get();
+      if (cur.run !== run || cur.sel !== id) return; // selection moved on
+      const fwd = new Set<number>([id]);
+      for (const n of nb.nodes || []) fwd.add(n.id);
+      const impact = new Set<number>([id]);
+      for (const n of imp.nodes || []) impact.add(n.id);
+      set({ fwd, impact, statusText: '' });
+    } catch (e) {
+      set({ statusText: errMsg(e), statusError: true });
+    }
+  },
+
+  highlightSet: (ids, label) => {
+    if (!ids.length) {
+      set({ statusText: `No occurrences of ${label} in this graph.` });
+      return;
+    }
+    set({ sel: ids[0], fwd: new Set(ids), impact: new Set(), feature: null });
+    get().requestFocus(ids[0]);
+    const short = label.replace(/^pkg:[^/]+\//, '');
+    set({ statusText: `${ids.length} occurrence(s) of ${short} highlighted.` });
+  },
+
+  clearSelection: () => set({ sel: null, fwd: new Set(), impact: new Set() }),
+
+  setView: (view) => set({ view }),
+  setMode3d: (mode3d) => {
+    set((s) => ({ mode3d, feature: mode3d === 'tda' ? s.feature : null }));
+    if (mode3d === 'tda') set({ activeTab: 'tda' });
+  },
+  setSignal: (signal) => set({ signal }),
+  setActiveTab: (activeTab) => set({ activeTab }),
+
+  runSearch: (term) => {
+    set({ query: term });
+    const t = term.trim().toLowerCase();
+    if (!t) {
+      set({ matches: new Set() });
+      return;
+    }
+    const matches = new Set<number>();
+    let first: number | null = null;
+    for (const n of get().nodes) {
+      if (n.purl.toLowerCase().includes(t)) {
+        matches.add(n.id);
+        if (first == null) first = n.id;
+      }
+    }
+    set({ matches });
+    if (first != null) {
+      get().requestFocus(first);
+      void get().selectNode(first);
+    }
+  },
+
+  selectFeature: async (pair, dim) => {
+    const { run } = get();
+    if (run == null) return;
+    set({ statusText: 'Resolving feature generators…', statusError: false });
+    try {
+      const sup = await api.tdaSupport(run, pair);
+      const nodeIds = new Set<number>();
+      const edgeKeys = new Set<string>();
+      for (const o of sup.objects) {
+        if (o.type === 'node') nodeIds.add(o.id);
+        else {
+          edgeKeys.add(`${o.source}>${o.target}`);
+          nodeIds.add(o.source);
+          nodeIds.add(o.target);
+        }
+      }
+      const nN = sup.objects.filter((o) => o.type === 'node').length;
+      const nE = sup.objects.filter((o) => o.type === 'edge').length;
+      set({
+        feature: { pair, dim: sup.dim, nodeIds, edgeKeys },
+        view: '3d',
+        mode3d: 'tda',
+        statusText: `H${dim} generator lit: ${nN} node(s), ${nE} edge(s).`,
+      });
+      // Recenter on the lit generator, like search/duplicate highlight do.
+      const firstId = nodeIds.values().next().value;
+      if (firstId != null) get().requestFocus(firstId);
+    } catch (e) {
+      set({ statusText: errMsg(e), statusError: true });
+    }
+  },
+
+  requestFocus: (id) => set((s) => ({ focusTarget: id, focusNonce: s.focusNonce + 1 })),
+}));

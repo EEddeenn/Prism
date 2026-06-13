@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  @apply bg-bg text-ink;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* The faint dotted backdrop of the graph pane (matches the original UI). */
+.dot-grid {
+  background-image: radial-gradient(circle at 1px 1px, #191e2a 1px, transparent 0);
+  background-size: 26px 26px;
+}
+
+/* Thin dark scrollbars for the side panel. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #353c4d transparent;
+}
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #2a2f3c;
+  border-radius: 6px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #353c4d;
+}
+
+/* 2D graph: labels are noisy on big graphs — show them only when the graph is
+ * small, zoomed in, the node is highlighted (class `on`), or hovered. */
+.g2d text {
+  fill: #e7e9f0;
+  font-size: 11px;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: #0b0d12;
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  opacity: 0;
+}
+.g2d.small text,
+.g2d.zoomed text,
+.g2d text.on {
+  opacity: 1;
+}
+.g2d .nodeg {
+  cursor: pointer;
+}
+.g2d .nodeg:hover text {
+  opacity: 1;
+}
+.g2d .nodeg:hover circle {
+  stroke: #5aa9ff;
+}
+
+/* Form controls inherit the dark theme. */
+select,
+button,
+input[type='search'] {
+  @apply bg-panel-2 text-ink border border-line-2 rounded-md;
+}
+select:focus,
+button:focus,
+input:focus {
+  outline: none;
+  @apply border-accent;
+}

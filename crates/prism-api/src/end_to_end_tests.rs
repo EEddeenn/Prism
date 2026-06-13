@@ -182,6 +182,34 @@ fn unknown_filename_is_a_clear_error() {
 }
 
 #[test]
+fn read_only_open_rejects_all_mutations() {
+    // A read-only facade must refuse every mutating entry point at the boundary,
+    // BEFORE any blob/disk side effect — not silently write attacker-controlled
+    // content into the workspace.
+    let td = TempDir::new("e2e-readonly");
+    let lock = td.path().join("Cargo.lock");
+    std::fs::write(&lock, CARGO_LOCK).unwrap();
+    let run = {
+        let mut prism = Prism::init(td.path()).unwrap();
+        prism.ingest_lockfile(&lock).unwrap()
+    };
+
+    let mut ro = Prism::open_readonly(td.path()).unwrap();
+    assert!(ro.is_read_only());
+    // Reads still work.
+    assert_eq!(ro.graph_stats(run).unwrap().nodes, 4);
+    // Every mutation is rejected.
+    assert!(ro.ingest_lockfile(&lock).is_err());
+    assert!(ro
+        .ingest_lockfile_bytes(Ecosystem::Cargo, CARGO_LOCK.as_bytes())
+        .is_err());
+    assert!(ro.tda_run(run, "depth").is_err());
+    let man = td.path().join("Cargo.toml");
+    std::fs::write(&man, "[package]\nname=\"x\"\nversion=\"0.1.0\"\n").unwrap();
+    assert!(ro.resolve_manifest(&man, "highest").is_err());
+}
+
+#[test]
 fn npm_lockfile_ingests_too() {
     let td = TempDir::new("e2e-npm");
     let lock = td.path().join("package-lock.json");

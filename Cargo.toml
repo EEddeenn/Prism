@@ -7,6 +7,10 @@ members = [
     "crates/prism-plugin-api",
     "crates/prism-graph",
     "crates/prism-semver",
+    "crates/prism-resolve",
+    "crates/prism-tda",
+    "crates/prism-api",
+    "crates/prism-cli",
 ]
 
 [workspace.package]

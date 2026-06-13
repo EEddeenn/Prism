@@ -1,0 +1,17 @@
+[package]
+name = "prism-resolve"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Native and synthetic resolver adapters that produce resolved graphs"
+
+[dependencies]
+prism-model = { path = "../prism-model" }
+prism-codec = { path = "../prism-codec" }
+prism-plugin-api = { path = "../prism-plugin-api" }
+prism-semver = { path = "../prism-semver" }
+prism-graph = { path = "../prism-graph" }
+
+[lints]
+workspace = true

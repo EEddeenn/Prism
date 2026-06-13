@@ -1,0 +1,20 @@
+[package]
+name = "prism-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "High-level Prism API exposed to the CLI and bindings"
+
+[dependencies]
+prism-model = { path = "../prism-model" }
+prism-codec = { path = "../prism-codec" }
+prism-store = { path = "../prism-store" }
+prism-graph = { path = "../prism-graph" }
+prism-tda = { path = "../prism-tda" }
+prism-resolve = { path = "../prism-resolve" }
+prism-semver = { path = "../prism-semver" }
+prism-plugin-api = { path = "../prism-plugin-api" }
+
+[lints]
+workspace = true

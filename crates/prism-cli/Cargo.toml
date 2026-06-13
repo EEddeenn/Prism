@@ -1,0 +1,19 @@
+[package]
+name = "prism-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Prism command-line interface"
+
+[[bin]]
+name = "prism"
+path = "src/main.rs"
+
+[dependencies]
+prism-model = { path = "../prism-model" }
+prism-store = { path = "../prism-store" }
+prism-api = { path = "../prism-api" }
+
+[lints]
+workspace = true

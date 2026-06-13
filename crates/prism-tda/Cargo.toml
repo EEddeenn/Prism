@@ -1,0 +1,15 @@
+[package]
+name = "prism-tda"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Topological data analysis: filtrations, persistence, generator support"
+
+[dependencies]
+prism-model = { path = "../prism-model" }
+prism-codec = { path = "../prism-codec" }
+prism-graph = { path = "../prism-graph" }
+
+[lints]
+workspace = true

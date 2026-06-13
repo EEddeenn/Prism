@@ -17,6 +17,7 @@ prism-semver = { path = "../prism-semver" }
 prism-plugin-api = { path = "../prism-plugin-api" }
 prism-plugin-cargo = { path = "../prism-plugin-cargo" }
 prism-plugin-npm = { path = "../prism-plugin-npm" }
+prism-plugin-bun = { path = "../prism-plugin-bun" }
 prism-textfmt = { path = "../prism-textfmt" }
 
 [lints]

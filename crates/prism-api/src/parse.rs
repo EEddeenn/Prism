@@ -14,7 +14,7 @@ use prism_model::{PrismError, Result};
 use prism_plugin_api::ResolvedGraph;
 use prism_plugin_cargo::parse_lockfile_graph;
 use prism_plugin_cargo::parse_lockfile_packages;
-use prism_plugin_npm::{parse_package_lock, NpmNames};
+use prism_plugin_npm::{name_from_path as npm_name_from_path, parse_package_lock_value, NpmNames};
 use prism_textfmt::{parse_json, Json};
 
 use crate::ecosystem::Ecosystem;
@@ -44,6 +44,7 @@ pub(crate) fn parse_lockfile(eco: Ecosystem, bytes: &[u8]) -> Result<ParsedLockf
     match eco {
         Ecosystem::Cargo => parse_cargo(bytes),
         Ecosystem::Npm => parse_npm(bytes),
+        Ecosystem::Bun => parse_bun(bytes),
     }
 }
 
@@ -68,16 +69,32 @@ fn parse_cargo(bytes: &[u8]) -> Result<ParsedLockfile> {
 }
 
 fn parse_npm(bytes: &[u8]) -> Result<ParsedLockfile> {
-    let doc = crate::raw::raw_document("file:///package-lock.json", bytes.to_vec());
-    let graph = parse_package_lock(&doc)?;
-
-    // Re-derive identity in the same `packages` map order the plugin used.
     let text = std::str::from_utf8(bytes).map_err(|_| PrismError::Corrupt {
         detail: "package-lock.json is not utf-8".into(),
     })?;
     let json = parse_json(text).map_err(|e| PrismError::Corrupt {
         detail: format!("invalid package-lock.json: {e}"),
     })?;
+    let graph = parse_package_lock_value(&json)?;
+    let idents = idents_from_npm_value(&json)?;
+    debug_assert_eq!(idents.len(), graph.node_count());
+    Ok(ParsedLockfile { graph, idents })
+}
+
+/// Parse a `bun.lock` by reshaping it to an npm `package-lock.json` value and
+/// reusing the npm topology + identity derivation (purls stay `pkg:npm/...`).
+fn parse_bun(bytes: &[u8]) -> Result<ParsedLockfile> {
+    let json = prism_plugin_bun::bun_lock_to_npm_value(bytes)?;
+    let graph = parse_package_lock_value(&json)?;
+    let idents = idents_from_npm_value(&json)?;
+    debug_assert_eq!(idents.len(), graph.node_count());
+    Ok(ParsedLockfile { graph, idents })
+}
+
+/// Re-derive the per-node identity column from an npm-shaped lockfile [`Json`],
+/// in the same `packages` map order the plugin assigns node ids. Shared by the
+/// npm and Bun lockfile paths (Bun's document is npm-shaped after reshaping).
+fn idents_from_npm_value(json: &Json) -> Result<Vec<NodeIdent>> {
     let packages = json
         .get("packages")
         .and_then(Json::as_object)
@@ -135,22 +152,7 @@ fn parse_npm(bytes: &[u8]) -> Result<ParsedLockfile> {
             }
         }
     }
-
-    debug_assert_eq!(idents.len(), graph.node_count());
-    Ok(ParsedLockfile { graph, idents })
-}
-
-/// The package name for a `packages` path: the segment after the last
-/// `node_modules/`, or `None` for the root entry. Mirrors the npm plugin's own
-/// (private) rule so identity lines up with the resolved node order.
-fn npm_name_from_path(path: &str) -> Option<&str> {
-    let idx = path.rfind("node_modules/")?;
-    let tail = &path[idx + "node_modules/".len()..];
-    if tail.is_empty() {
-        None
-    } else {
-        Some(tail)
-    }
+    Ok(idents)
 }
 
 #[cfg(test)]
@@ -241,5 +243,56 @@ mod tests {
     fn malformed_input_is_an_error_not_a_panic() {
         assert!(parse_lockfile(Ecosystem::Npm, b"{ not json").is_err());
         assert!(parse_lockfile(Ecosystem::Cargo, &[0xff, 0xfe]).is_err());
+        assert!(parse_lockfile(Ecosystem::Bun, &[0xff, 0xfe]).is_err());
+    }
+
+    const BUN_LOCK: &str = r#"{
+      "lockfileVersion": 1,
+      "workspaces": {
+        "": { "name": "app", "dependencies": { "@scope/left-pad": "1.3.0" } },
+      },
+      "packages": {
+        "@scope/left-pad": ["@scope/left-pad@1.3.0", "", {}, "sha512-x"],
+        "rxjs": ["rxjs@7.8.1", "", {}, "sha512-y"],
+      },
+    }"#;
+
+    #[test]
+    fn idents_use_segment_based_naming_not_substring() {
+        // A package path whose parent name *contains* "node_modules" as a
+        // substring. The identity column must use the npm plugin's segment-based
+        // rule (-> "a-node_modules/x"), the same rule the graph/facts use, not a
+        // naive rfind("node_modules/") (which would wrongly yield "x"). This is
+        // the regression the bun review surfaced.
+        let lock = r#"{
+          "lockfileVersion": 3,
+          "packages": {
+            "": { "name": "app" },
+            "node_modules/a-node_modules/x": { "version": "9.9.9" }
+          }
+        }"#;
+        let p = parse_lockfile(Ecosystem::Npm, lock.as_bytes()).unwrap();
+        let tricky = p.idents.iter().find(|i| i.version.as_deref() == Some("9.9.9")).unwrap();
+        assert_eq!(tricky.name, "a-node_modules/x");
+        assert!(tricky.namespace.is_none());
+    }
+
+    #[test]
+    fn bun_idents_align_and_split_scope() {
+        // bun.lock parses (JSONC + trailing commas) into the same identity column
+        // npm would produce for the equivalent package-lock.json.
+        let p = parse_lockfile(Ecosystem::Bun, BUN_LOCK.as_bytes()).unwrap();
+        // root + @scope/left-pad (+ a root->workspace... no workspace here) + rxjs
+        assert_eq!(p.graph.node_count(), p.idents.len());
+        // The scoped package is split into namespace + bare name.
+        let lp = p
+            .idents
+            .iter()
+            .find(|i| i.name == "left-pad")
+            .expect("left-pad present");
+        assert_eq!(lp.namespace.as_deref(), Some("scope"));
+        assert_eq!(lp.version.as_deref(), Some("1.3.0"));
+        // The root edge to @scope/left-pad resolves (root depends on it).
+        assert!(p.graph.edge_count() >= 1);
     }
 }

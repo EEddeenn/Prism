@@ -395,7 +395,8 @@ pub(crate) fn parse_constraint(ecosystem: Ecosystem, constraint: &str) -> Result
         Ecosystem::Cargo => Ecosystem::cargo_plugin()
             .requirement_parser()
             .canonicalize(trimmed),
-        Ecosystem::Npm => Ecosystem::npm_plugin()
+        // Bun reuses npm's requirement semantics.
+        Ecosystem::Npm | Ecosystem::Bun => Ecosystem::npm_plugin()
             .requirement_parser()
             .canonicalize(trimmed),
     }

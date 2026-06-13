@@ -56,57 +56,65 @@ impl LockfileParser for NpmLockfile {
     /// Emit canonical version + requirement facts for every locked package.
     /// (The resolved *graph* is produced by [`parse_package_lock`].)
     fn parse_lockfile(&self, raw: &RawDocument) -> Result<CanonicalBatch, ParseError> {
-        let json = parse_root(raw)?;
-        // Validate the lockfile version on BOTH entry points so the facts path and
-        // the graph path agree on what is supported (was only checked in
-        // parse_package_lock).
-        let _ = check_lockfile_version(&json)?;
-        let packages = packages_map(&json)?;
+        lockfile_facts_value(&parse_root(raw)?)
+    }
+}
 
-        let mut batch = CanonicalBatch::new();
-        for (path, entry) in packages {
-            let Some(name) = name_from_path(path) else {
-                // The root entry ("") has no node_modules name; skip as a fact.
-                continue;
-            };
-            let Some(version) = entry.get("version").and_then(Json::as_str) else {
-                continue;
-            };
-            batch.push(CanonicalEvent::VersionSeen(VersionFact {
-                name: name.into(),
-                version_raw: version.to_string(),
-                released_at_unix: None,
-                license_expr: entry.get("license").and_then(Json::as_str).map(str::to_string),
-                is_prerelease: version.contains('-'),
-            }));
+/// Emit version + requirement facts from an already-parsed lockfile [`Json`].
+///
+/// Split out from [`NpmLockfile::parse_lockfile`] so another ecosystem that
+/// reuses npm's `package-lock.json` shape (e.g. a Bun lockfile reshaped into it)
+/// can emit the same facts without re-serializing to bytes.
+pub fn lockfile_facts_value(json: &Json) -> Result<CanonicalBatch, ParseError> {
+    // Validate the lockfile version on BOTH entry points so the facts path and
+    // the graph path agree on what is supported (was only checked in
+    // parse_package_lock).
+    let _ = check_lockfile_version(json)?;
+    let packages = packages_map(json)?;
 
-            for (field, kind) in [
-                ("dependencies", DependencyKind::Runtime),
-                ("optionalDependencies", DependencyKind::Optional),
-                ("peerDependencies", DependencyKind::Peer),
-            ] {
-                if let Some(deps) = entry.get(field).and_then(Json::as_object) {
-                    for (dep, req) in deps {
-                        if let Some(rr) = req.as_str() {
-                            batch.push(CanonicalEvent::RequirementSeen(RequirementFact {
-                                src_name: name.into(),
-                                src_version_raw: version.to_string(),
-                                declared_target: dep.clone(),
-                                target_alias: None,
-                                raw_requirement: rr.to_string(),
-                                kind,
-                                scope: None,
-                                condition_kind: prism_model::ConditionKind::None,
-                                raw_condition: None,
-                                features_or_extras: Vec::new(),
-                            }));
-                        }
+    let mut batch = CanonicalBatch::new();
+    for (path, entry) in packages {
+        let Some(name) = name_from_path(path) else {
+            // The root entry ("") has no node_modules name; skip as a fact.
+            continue;
+        };
+        let Some(version) = entry.get("version").and_then(Json::as_str) else {
+            continue;
+        };
+        batch.push(CanonicalEvent::VersionSeen(VersionFact {
+            name: name.into(),
+            version_raw: version.to_string(),
+            released_at_unix: None,
+            license_expr: entry.get("license").and_then(Json::as_str).map(str::to_string),
+            is_prerelease: version.contains('-'),
+        }));
+
+        for (field, kind) in [
+            ("dependencies", DependencyKind::Runtime),
+            ("optionalDependencies", DependencyKind::Optional),
+            ("peerDependencies", DependencyKind::Peer),
+        ] {
+            if let Some(deps) = entry.get(field).and_then(Json::as_object) {
+                for (dep, req) in deps {
+                    if let Some(rr) = req.as_str() {
+                        batch.push(CanonicalEvent::RequirementSeen(RequirementFact {
+                            src_name: name.into(),
+                            src_version_raw: version.to_string(),
+                            declared_target: dep.clone(),
+                            target_alias: None,
+                            raw_requirement: rr.to_string(),
+                            kind,
+                            scope: None,
+                            condition_kind: prism_model::ConditionKind::None,
+                            raw_condition: None,
+                            features_or_extras: Vec::new(),
+                        }));
                     }
                 }
             }
         }
-        Ok(batch)
     }
+    Ok(batch)
 }
 
 /// Parse a `package-lock.json` into a plain [`ResolvedGraph`].
@@ -115,9 +123,17 @@ impl LockfileParser for NpmLockfile {
 /// nearest-ancestor `node_modules` lookup. See the module docs for fidelity
 /// caveats. Returns [`ParseError`] on malformed input; never panics.
 pub fn parse_package_lock(raw: &RawDocument) -> Result<ResolvedGraph, ParseError> {
-    let json = parse_root(raw)?;
-    let _ = check_lockfile_version(&json)?;
-    let packages = packages_map(&json)?;
+    parse_package_lock_value(&parse_root(raw)?)
+}
+
+/// Build a [`ResolvedGraph`] from an already-parsed lockfile [`Json`].
+///
+/// Split out from [`parse_package_lock`] so another ecosystem that reuses npm's
+/// `package-lock.json` shape (e.g. a Bun lockfile reshaped into it) can build the
+/// same topology without re-serializing to bytes.
+pub fn parse_package_lock_value(json: &Json) -> Result<ResolvedGraph, ParseError> {
+    let _ = check_lockfile_version(json)?;
+    let packages = packages_map(json)?;
 
     // Pass 1: a node per entry; index by install dir for ancestor lookups. The
     // install *dir* of a `node_modules/x` entry is `node_modules/x`; a dep `d`
@@ -249,7 +265,11 @@ fn packages_map(json: &Json) -> Result<&[(String, Json)], ParseError> {
 /// Matching on path-segment boundaries (not the `"node_modules/"` substring) means
 /// a package legitimately named `my-node_modules`, or a crafted trailing slash,
 /// cannot produce a stray-slashed or wrong name.
-fn name_from_path(path: &str) -> Option<&str> {
+///
+/// Exposed so the facade's lockfile ingest re-derives its per-node identity
+/// column with the *exact* naming rule the graph builder and facts emitter use —
+/// they cannot drift apart.
+pub fn name_from_path(path: &str) -> Option<&str> {
     // Byte offset just after the last segment that is exactly "node_modules".
     let mut start: Option<usize> = None;
     let mut seg_begin = 0usize;

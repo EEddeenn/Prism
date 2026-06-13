@@ -34,7 +34,9 @@ mod version;
 
 pub use cond::NpmConditions;
 pub use detect::NpmDetector;
-pub use lockfile::{parse_package_lock, NpmLockfile};
+pub use lockfile::{
+    lockfile_facts_value, name_from_path, parse_package_lock, parse_package_lock_value, NpmLockfile,
+};
 pub use manifest::NpmManifest;
 pub use name::NpmNames;
 pub use req::NpmReqs;

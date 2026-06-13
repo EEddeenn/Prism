@@ -24,35 +24,45 @@ pub enum Ecosystem {
     Cargo,
     /// npm (`package.json` / `package-lock.json`).
     Npm,
+    /// Bun (`bun.lock`). Bun installs npm packages, so it shares npm's store
+    /// identity, purls, and semver semantics; only the lockfile format differs.
+    Bun,
 }
 
 impl Ecosystem {
     /// The store-stable [`EcosystemId`] for this ecosystem.
+    ///
+    /// Bun deliberately shares [`NPM_ECOSYSTEM_ID`]: a `bun.lock` and a
+    /// `package-lock.json` of the same project resolve the same npm packages, so
+    /// their interned identities and `pkg:npm/...` purls must coincide.
     pub const fn id(self) -> EcosystemId {
         match self {
             Ecosystem::Cargo => CARGO_ECOSYSTEM_ID,
-            Ecosystem::Npm => NPM_ECOSYSTEM_ID,
+            Ecosystem::Npm | Ecosystem::Bun => NPM_ECOSYSTEM_ID,
         }
     }
 
-    /// A short stable label (used in resolver-run names and purls).
+    /// A short stable label (used in resolver-run names and ingest messages).
     pub const fn label(self) -> &'static str {
         match self {
             Ecosystem::Cargo => "cargo",
             Ecosystem::Npm => "npm",
+            Ecosystem::Bun => "bun",
         }
     }
 
     /// Detect the owning ecosystem from a path's *file name*.
     ///
     /// `Cargo.toml`/`Cargo.lock` → [`Ecosystem::Cargo`];
-    /// `package.json`/`package-lock.json` → [`Ecosystem::Npm`]. Returns `None`
-    /// for any other name (the caller maps this to a clear error).
+    /// `package.json`/`package-lock.json` → [`Ecosystem::Npm`]; `bun.lock` →
+    /// [`Ecosystem::Bun`]. Returns `None` for any other name (the caller maps
+    /// this to a clear error).
     pub fn detect(path: &Path) -> Option<Ecosystem> {
         let name = path.file_name()?.to_str()?;
         match name {
             "Cargo.toml" | "Cargo.lock" => Some(Ecosystem::Cargo),
             "package.json" | "package-lock.json" | "npm-shrinkwrap.json" => Some(Ecosystem::Npm),
+            "bun.lock" => Some(Ecosystem::Bun),
             _ => None,
         }
     }
@@ -61,7 +71,7 @@ impl Ecosystem {
     pub fn is_lockfile(path: &Path) -> bool {
         matches!(
             path.file_name().and_then(|n| n.to_str()),
-            Some("Cargo.lock" | "package-lock.json" | "npm-shrinkwrap.json")
+            Some("Cargo.lock" | "package-lock.json" | "npm-shrinkwrap.json" | "bun.lock")
         )
     }
 
@@ -79,6 +89,10 @@ impl Ecosystem {
     }
 
     /// Construct the boxed npm plugin for this ecosystem id.
+    ///
+    /// Bun reuses this plugin's npm semantics (name/version/requirement); a Bun
+    /// `bun.lock` is reshaped to an npm document in [`crate::parse`], so no
+    /// separate Bun plugin instance is needed here.
     pub(crate) fn npm_plugin() -> NpmPlugin {
         NpmPlugin::new(NPM_ECOSYSTEM_ID)
     }
@@ -102,8 +116,19 @@ mod tests {
             Ecosystem::detect(&p("/x/package-lock.json")),
             Some(Ecosystem::Npm)
         );
+        assert_eq!(Ecosystem::detect(&p("/x/bun.lock")), Some(Ecosystem::Bun));
         assert_eq!(Ecosystem::detect(&p("/x/README.md")), None);
         assert_eq!(Ecosystem::detect(&p("/x")), None);
+    }
+
+    #[test]
+    fn bun_shares_npm_identity_but_keeps_its_label() {
+        // A bun.lock and a package-lock.json must intern under the same id (so
+        // their pkg:npm purls coincide) while still labelling as "bun".
+        assert_eq!(Ecosystem::Bun.id(), Ecosystem::Npm.id());
+        assert_eq!(Ecosystem::Bun.label(), "bun");
+        assert!(Ecosystem::is_lockfile(&p("bun.lock")));
+        assert!(!Ecosystem::is_manifest(&p("bun.lock")));
     }
 
     #[test]

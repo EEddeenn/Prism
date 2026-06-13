@@ -12,6 +12,7 @@ members = [
     "crates/prism-textfmt",
     "crates/prism-plugin-cargo",
     "crates/prism-plugin-npm",
+    "crates/prism-plugin-bun",
     "crates/prism-api",
     "crates/prism-cli",
     "crates/prism-server",

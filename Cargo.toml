@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/prism-model",
     "crates/prism-codec",
+    "crates/prism-store",
 ]
 
 [workspace.package]

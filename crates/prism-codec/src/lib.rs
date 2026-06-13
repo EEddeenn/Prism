@@ -8,9 +8,11 @@
 pub mod bytes;
 pub mod checksum;
 pub mod section;
+pub mod sha256;
 pub mod varint;
 
 pub use bytes::{ByteReader, ByteWriter};
 pub use checksum::crc32;
-pub use section::{RecordHeader, RECORD_MAGIC};
+pub use section::{read_record, write_record, Record, RecordHeader, RECORD_MAGIC};
+pub use sha256::{sha256, Sha256};
 pub use varint::{read_uvarint, uvarint_len, write_uvarint};

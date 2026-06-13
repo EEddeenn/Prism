@@ -1,19 +1,38 @@
 'use client';
 
+import { useState } from 'react';
 import { useGraphStore } from '@/store/useGraphStore';
+import { EDGE_FILTER_LABELS } from '@/lib/edges';
+import type { EdgeFilter, View } from '@/lib/types';
+
+const VIEW_LABELS: Record<View, string> = { '2d': '2D', '3d': '3D', map: 'Map' };
+const EDGE_FILTERS: EdgeFilter[] = ['all', 'runtime', 'nondev', 'flagged'];
 
 export default function Topbar() {
   const runs = useGraphStore((s) => s.runs);
   const run = useGraphStore((s) => s.run);
   const view = useGraphStore((s) => s.view);
+  const edgeFilter = useGraphStore((s) => s.edgeFilter);
   const statusText = useGraphStore((s) => s.statusText);
   const statusError = useGraphStore((s) => s.statusError);
   const matches = useGraphStore((s) => s.matches);
   const query = useGraphStore((s) => s.query);
   const selectRun = useGraphStore((s) => s.selectRun);
   const setView = useGraphStore((s) => s.setView);
+  const setEdgeFilter = useGraphStore((s) => s.setEdgeFilter);
   const runSearch = useGraphStore((s) => s.runSearch);
   const loadRuns = useGraphStore((s) => s.loadRuns);
+  const [copied, setCopied] = useState(false);
+
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      /* clipboard may be unavailable; ignore */
+    }
+  };
 
   return (
     <header className="flex flex-wrap items-center gap-3 px-4 py-2 border-b border-line bg-gradient-to-b from-[#181c28] to-panel">
@@ -41,20 +60,38 @@ export default function Topbar() {
       </div>
 
       <div className="flex" role="group" aria-label="View mode">
-        {(['2d', '3d'] as const).map((v, i) => (
+        {(['2d', '3d', 'map'] as const).map((v, i, arr) => (
           <button
             key={v}
             type="button"
             onClick={() => setView(v)}
             className={`px-3 py-1.5 text-xs font-bold border border-line-2 ${
-              i === 0 ? 'rounded-l-md border-r-0' : 'rounded-r-md'
+              i === 0 ? 'rounded-l-md border-r-0' : i === arr.length - 1 ? 'rounded-r-md' : 'border-r-0'
             } ${
               view === v ? 'bg-accent text-[#06203f] border-accent' : 'bg-panel-2 text-muted'
             }`}
           >
-            {v.toUpperCase()}
+            {VIEW_LABELS[v]}
           </button>
         ))}
+      </div>
+
+      <div className="flex items-center gap-1.5" title="Edge lens: filter/colour edges by dependency kind">
+        <span className="text-xs text-muted">Edges</span>
+        <div className="flex" role="group" aria-label="Edge filter">
+          {EDGE_FILTERS.map((f, i, arr) => (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setEdgeFilter(f)}
+              className={`px-2 py-1.5 text-[11px] border border-line-2 ${
+                i === 0 ? 'rounded-l-md border-r-0' : i === arr.length - 1 ? 'rounded-r-md' : 'border-r-0'
+              } ${edgeFilter === f ? 'bg-panel-3 text-ink border-accent' : 'bg-panel-2 text-muted'}`}
+            >
+              {EDGE_FILTER_LABELS[f]}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="flex items-center gap-1.5 flex-1 min-w-0 basis-[200px] max-w-[280px]">
@@ -78,6 +115,11 @@ export default function Topbar() {
           {matches.size ? `${matches.size} hit${matches.size === 1 ? '' : 's'}` : ''}
         </span>
       </div>
+
+      <button type="button" onClick={copyLink} title="Copy a deep link to this exact view"
+        className="px-2.5 py-1.5 text-sm hover:border-accent">
+        {copied ? 'Copied ✓' : 'Copy link'}
+      </button>
 
       <button type="button" onClick={() => loadRuns()} className="px-2.5 py-1.5 text-sm hover:border-accent">
         Reload

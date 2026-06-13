@@ -22,6 +22,11 @@ export interface GraphIndex {
   inn: Map<number, number[]>;
   rootIds: Set<number>;
   metrics: Map<number, NodeMetrics>;
+  /** `"source>target"` → edge kind/flags, for semantics-aware UI. */
+  edgeMeta: Map<string, { kind: number; flags: number }>;
+  /** True when transitive reach fell back to degree proxies (graph over cap), so
+   *  revReach/fwdReach-derived rankings must be flagged as approximate. */
+  approximate: boolean;
 }
 
 /** Family identity: the package id when present, else the purl's name part. */
@@ -33,14 +38,16 @@ export function familyKey(n: GraphNode): string {
 }
 
 /** Cap above which transitive reach falls back to degree proxies (keeps big
- * graphs interactive). */
-const TRANSITIVE_CAP = 1500;
+ * graphs interactive). The DFS is O(n·(n+m)); 4000 nodes stays well under ~100ms,
+ * and rankings flag themselves as approximate beyond it. */
+const TRANSITIVE_CAP = 4000;
 
 export function buildIndex(nodes: GraphNode[], edges: GraphEdge[]): GraphIndex {
   const byId = new Map<number, GraphNode>();
   const out = new Map<number, number[]>();
   const inn = new Map<number, number[]>();
   const rootIds = new Set<number>();
+  const edgeMeta = new Map<string, { kind: number; flags: number }>();
   for (const n of nodes) {
     byId.set(n.id, n);
     out.set(n.id, []);
@@ -50,6 +57,7 @@ export function buildIndex(nodes: GraphNode[], edges: GraphEdge[]): GraphIndex {
   for (const e of edges) {
     out.get(e.source)?.push(e.target);
     inn.get(e.target)?.push(e.source);
+    edgeMeta.set(`${e.source}>${e.target}`, { kind: e.kind, flags: e.flags });
   }
 
   // Family sizes (distinct versions per family).
@@ -75,7 +83,8 @@ export function buildIndex(nodes: GraphNode[], edges: GraphEdge[]): GraphIndex {
 
   // Bounded transitive reach via a forward DFS from every source: fwdReach[src]
   // = #reachable, and tallying each visited node yields revReach[t] = #ancestors.
-  if (nodes.length <= TRANSITIVE_CAP) {
+  const approximate = nodes.length > TRANSITIVE_CAP;
+  if (!approximate) {
     const idx = new Map<number, number>();
     nodes.forEach((n, i) => idx.set(n.id, i));
     for (const n of nodes) metrics.get(n.id)!.revReach = 0;
@@ -99,5 +108,5 @@ export function buildIndex(nodes: GraphNode[], edges: GraphEdge[]): GraphIndex {
     }
   }
 
-  return { byId, out, inn, rootIds, metrics };
+  return { byId, out, inn, rootIds, metrics, edgeMeta, approximate };
 }

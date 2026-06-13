@@ -137,8 +137,9 @@ export interface TdaSupport {
 
 // --- UI-side enums ----------------------------------------------------------
 
-export type View = '2d' | '3d';
+export type View = '2d' | '3d' | 'map';
 export type Mode3D = 'layered' | 'fiber' | 'terrain' | 'tda';
+export type EdgeFilter = 'all' | 'runtime' | 'nondev' | 'flagged';
 export type TerrainSignal =
   | 'centrality' | 'reach' | 'fanin' | 'fanout' | 'duplicates' | 'depth' | 'risk';
 

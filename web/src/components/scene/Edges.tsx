@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useGraphStore } from '@/store/useGraphStore';
 import { PALETTE, hexToRgb, mixHex } from '@/lib/palette';
-import { EDGE_FLAG_BACK_EDGE } from '@/lib/types';
+import { edgeVisible, isFlagged, kindColor } from '@/lib/edges';
 import type { Layout3D } from '@/lib/layout3d';
 
 export default function Edges({ layout }: { layout: Layout3D }) {
@@ -18,6 +18,7 @@ export default function Edges({ layout }: { layout: Layout3D }) {
   const impact = useGraphStore((s) => s.impact);
   const mode = useGraphStore((s) => s.mode3d);
   const feature = useGraphStore((s) => s.feature);
+  const edgeFilter = useGraphStore((s) => s.edgeFilter);
 
   const geom = useMemo(() => new THREE.BufferGeometry(), []);
   const matRef = useRef<THREE.LineBasicMaterial>(null);
@@ -33,15 +34,19 @@ export default function Edges({ layout }: { layout: Layout3D }) {
       if (!a || !b) continue;
       let hex = PALETTE.edge;
       let fade = 0.4; // toward bg
-      if (feat) {
+      if (!edgeVisible(e, edgeFilter)) {
+        // Filtered out by the edge lens — fade nearly to the background.
+        hex = PALETTE.edge; fade = 0.93;
+      } else if (feat) {
         if (feature!.edgeKeys.has(`${e.source}>${e.target}`)) { hex = PALETTE.gen; fade = 0; }
         else fade = 0.86;
       } else if (hasSel) {
         if (fwd.has(e.source) && fwd.has(e.target)) { hex = PALETTE.fwd; fade = 0; }
         else if (impact.has(e.source) && impact.has(e.target)) { hex = PALETTE.impact; fade = 0; }
         else fade = 0.86;
-      } else if ((e.flags & EDGE_FLAG_BACK_EDGE) !== 0) {
-        hex = PALETTE.impact; fade = 0.25;
+      } else {
+        // Neutral state: colour by dependency kind; brighten flagged smells.
+        hex = kindColor(e.kind); fade = isFlagged(e) ? 0.05 : 0.5;
       }
       const [r, g, bl] = hexToRgb(mixHex(hex, PALETTE.bg, fade));
       pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
@@ -50,7 +55,7 @@ export default function Edges({ layout }: { layout: Layout3D }) {
     geom.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     geom.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     geom.computeBoundingSphere();
-  }, [edges, layout, sel, fwd, impact, mode, feature, geom]);
+  }, [edges, layout, sel, fwd, impact, mode, feature, edgeFilter, geom]);
 
   useEffect(() => () => geom.dispose(), [geom]);
 

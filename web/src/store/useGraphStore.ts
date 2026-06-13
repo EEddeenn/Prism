@@ -9,7 +9,7 @@ import { api, ApiError } from '@/lib/api';
 import { buildIndex, type GraphIndex } from '@/lib/graph';
 import { layout2d } from '@/lib/layout2d';
 import type {
-  Barcode, DuplicateCluster, GraphEdge, GraphNode, Mode3D, RunMeta, RunSummary,
+  Barcode, DuplicateCluster, EdgeFilter, GraphEdge, GraphNode, Mode3D, RunMeta, RunSummary,
   SccComp, TdaPair, TerrainSignal, View,
 } from '@/lib/types';
 
@@ -48,6 +48,7 @@ interface GraphState {
   signal: TerrainSignal;
   activeTab: string;
   query: string;
+  edgeFilter: EdgeFilter;
 
   // camera/viewport focus request (a nonce the views watch to recenter)
   focusTarget: number | null;
@@ -63,7 +64,7 @@ interface GraphState {
 
   // actions
   setStatus: (text: string, error?: boolean) => void;
-  loadRuns: () => Promise<void>;
+  loadRuns: (preferRun?: number) => Promise<void>;
   selectRun: (run: number) => Promise<void>;
   selectNode: (id: number) => Promise<void>;
   highlightSet: (ids: number[], label: string) => void;
@@ -72,6 +73,7 @@ interface GraphState {
   setMode3d: (m: Mode3D) => void;
   setSignal: (s: TerrainSignal) => void;
   setActiveTab: (tab: string) => void;
+  setEdgeFilter: (f: EdgeFilter) => void;
   runSearch: (term: string) => void;
   selectFeature: (pair: number, dim: number) => Promise<void>;
   requestFocus: (id: number) => void;
@@ -102,6 +104,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   signal: 'centrality',
   activeTab: 'overview',
   query: '',
+  edgeFilter: 'all',
   focusTarget: null,
   focusNonce: 0,
   runMeta: null,
@@ -113,13 +116,17 @@ export const useGraphStore = create<GraphState>((set, get) => ({
 
   setStatus: (text, error = false) => set({ statusText: text, statusError: error }),
 
-  loadRuns: async () => {
+  loadRuns: async (preferRun) => {
     set({ statusText: 'Loading runs…', statusError: false });
     try {
       const runs = await api.runs();
       set({ runs, statusText: '' });
-      if (runs.length) await get().selectRun(runs[0].run);
-      else set({ statusText: 'No runs — ingest a lockfile with the CLI first.' });
+      if (!runs.length) {
+        set({ statusText: 'No runs — ingest a lockfile with the CLI first.' });
+        return;
+      }
+      const target = preferRun != null && runs.some((r) => r.run === preferRun) ? preferRun : runs[0].run;
+      await get().selectRun(target);
     } catch (e) {
       set({ statusText: errMsg(e), statusError: true });
     }
@@ -205,7 +212,15 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       set({ statusText: `No occurrences of ${label} in this graph.` });
       return;
     }
-    set({ sel: ids[0], fwd: new Set(ids), impact: new Set(), feature: null });
+    // The treemap shows only the single `sel` ring, not the multi-node fwd set,
+    // so a highlight there would be invisible — drop back to the 2D graph.
+    set((s) => ({
+      view: s.view === 'map' ? '2d' : s.view,
+      sel: ids[0],
+      fwd: new Set(ids),
+      impact: new Set(),
+      feature: null,
+    }));
     get().requestFocus(ids[0]);
     const short = label.replace(/^pkg:[^/]+\//, '');
     set({ statusText: `${ids.length} occurrence(s) of ${short} highlighted.` });
@@ -220,6 +235,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   },
   setSignal: (signal) => set({ signal }),
   setActiveTab: (activeTab) => set({ activeTab }),
+  setEdgeFilter: (edgeFilter) => set({ edgeFilter }),
 
   runSearch: (term) => {
     set({ query: term });

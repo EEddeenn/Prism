@@ -404,18 +404,34 @@ impl Store {
     /// is returned; otherwise a new atom record and its `STRING_BY_ID`/
     /// `STRING_BY_TEXT` index entries are committed.
     pub fn intern_string(&mut self, text: &str) -> Result<StringId> {
+        let mut batch = self.batch();
+        let id = self.intern_string_in(&mut batch, text)?;
+        self.commit_batch(batch)?;
+        Ok(id)
+    }
+
+    /// Batch-aware interning: like [`Store::intern_string`] but stages the new atom
+    /// into `batch` instead of committing immediately, so a whole ingest interns
+    /// many strings and publishes them in **one** segment + index. Deduplicates
+    /// against both already-committed atoms and atoms staged earlier in `batch`.
+    pub fn intern_string_in(&mut self, batch: &mut WriteBatch, text: &str) -> Result<StringId> {
         let text_hash = *sha256(text.as_bytes()).as_bytes();
         let rev_key = keys::string_by_text(&text_hash);
+
+        // Already committed in a prior epoch/batch?
         if let Some(bytes) = self.index.get(&rev_key) {
             let arr: [u8; 4] = bytes.try_into().map_err(|_| PrismError::Corrupt {
                 detail: "string_by_text value not 4 bytes".into(),
             })?;
             return Ok(StringId::new(u32::from_be_bytes(arr)));
         }
+        // Already staged earlier in this same uncommitted batch?
+        if let Some(&id) = batch.pending_strings.get(&text_hash) {
+            return Ok(id);
+        }
 
         let id = self.alloc_string_id();
         let value = records::encode_string_atom(text);
-        let mut batch = self.batch();
         // The atom record is keyed by its StringId so STRING_BY_ID can point at it
         // and resolve_string can read the value back.
         let id_key = keys::string_by_id(id);
@@ -426,7 +442,7 @@ impl Store {
         ));
         batch.put_index(id_key, value);
         batch.put_index(rev_key, id.get().to_be_bytes().to_vec());
-        self.commit_batch(batch)?;
+        batch.pending_strings.insert(text_hash, id);
         Ok(id)
     }
 

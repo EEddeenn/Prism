@@ -101,9 +101,23 @@ impl Prism {
         // Intern every occurrence's real (name, version) -> VersionId, writing
         // Package/PackageVersion records. `real_version[local_id]` is the dense
         // node's true VersionId for the CSR builder.
+        // One batch for the whole ingest: intern every string and write all
+        // Package/PackageVersion/ResolverRun records, then publish them in a
+        // single manifest swap. The within-batch caches dedup families/versions
+        // that the committed-only `find_*` cannot yet see.
+        let mut batch = self.store.batch();
+        let mut pkg_cache: HashMap<(u32, u32), PackageId> = HashMap::new();
+        let mut ver_cache: HashMap<u32, VersionId> = HashMap::new();
+
         let mut real_version: Vec<VersionId> = Vec::with_capacity(parsed.idents.len());
         for ident in &parsed.idents {
-            let vid = self.intern_occurrence(eco.id(), ident)?;
+            let vid = self.intern_occurrence(
+                &mut batch,
+                &mut pkg_cache,
+                &mut ver_cache,
+                eco.id(),
+                ident,
+            )?;
             real_version.push(vid);
         }
 
@@ -137,15 +151,18 @@ impl Prism {
         let nodes = snapshot.node_count();
         let edges = snapshot.edge_count();
 
-        // Persist the .pcsr image.
-        let image = write_pcsr(&snapshot);
-        self.store.publish_graph(run, &image)?;
-
-        // Record the LockfileExact resolver run.
+        // Stage the LockfileExact resolver-run record into the same batch and
+        // commit ONCE — all interned strings + package/version/run records land
+        // in a single .pseg + .pidx.
         let fidelity = graph
             .fidelity
             .unwrap_or_else(|| GraphFidelity::exact(FidelityTier::LockfileExact));
-        self.write_run(run, eco.id(), bytes, fidelity)?;
+        self.write_run(&mut batch, run, eco.id(), bytes, fidelity)?;
+        self.store.commit_batch(batch)?;
+
+        // Persist the .pcsr image (a derived file, published separately).
+        let image = write_pcsr(&snapshot);
+        self.store.publish_graph(run, &image)?;
 
         Ok(LockfileIngest {
             run,
@@ -191,30 +208,55 @@ impl Prism {
     /// Find-or-create the `Package`/`PackageVersion` for one occurrence's
     /// identity, returning the concrete [`VersionId`]. Records are written only
     /// when newly created (interning is idempotent across calls and sessions).
-    fn intern_occurrence(&mut self, eco: EcosystemId, ident: &NodeIdent) -> Result<VersionId> {
-        let package_id = self.intern_package(eco, &ident.name, ident.namespace.as_deref())?;
+    fn intern_occurrence(
+        &mut self,
+        batch: &mut prism_store::WriteBatch,
+        pkg_cache: &mut HashMap<(u32, u32), PackageId>,
+        ver_cache: &mut HashMap<u32, VersionId>,
+        eco: EcosystemId,
+        ident: &NodeIdent,
+    ) -> Result<VersionId> {
+        let package_id =
+            self.intern_package(batch, pkg_cache, eco, &ident.name, ident.namespace.as_deref())?;
         let version_raw = ident.version.as_deref().unwrap_or("0.0.0");
-        self.intern_version(eco, package_id, &ident.name, ident.namespace.as_deref(), version_raw)
+        self.intern_version(
+            batch,
+            ver_cache,
+            eco,
+            package_id,
+            &ident.name,
+            ident.namespace.as_deref(),
+            version_raw,
+        )
     }
 
-    /// Find-or-create a package family, returning its [`PackageId`].
+    /// Find-or-create a package family in `batch`, returning its [`PackageId`].
     fn intern_package(
         &mut self,
+        batch: &mut prism_store::WriteBatch,
+        pkg_cache: &mut HashMap<(u32, u32), PackageId>,
         eco: EcosystemId,
         name: &str,
         namespace: Option<&str>,
     ) -> Result<PackageId> {
         let canonical = canonical_name(name, namespace);
-        let canon_id = self.store.intern_string(&canonical)?;
+        let canon_id = self.store.intern_string_in(batch, &canonical)?;
         let ns_id = match namespace {
-            Some(ns) => Some(self.store.intern_string(ns)?),
+            Some(ns) => Some(self.store.intern_string_in(batch, ns)?),
             None => None,
         };
+        let cache_key = (ns_id.map(|s| s.get()).unwrap_or(0), canon_id.get());
+        if let Some(&id) = pkg_cache.get(&cache_key) {
+            return Ok(id);
+        }
         if let Some(existing) = self.store.find_package(eco, ns_id, canon_id) {
+            pkg_cache.insert(cache_key, existing);
             return Ok(existing);
         }
-        let name_id = self.store.intern_string(name)?;
-        let purl_base = self.store.intern_string(&purl_base(eco, name, namespace))?;
+        let name_id = self.store.intern_string_in(batch, name)?;
+        let purl_base = self
+            .store
+            .intern_string_in(batch, &purl_base(eco, name, namespace))?;
         let pkg = Package {
             id: self.store.alloc_package_id(),
             ecosystem: eco,
@@ -227,27 +269,33 @@ impl Prism {
             metadata_ref: None,
         };
         let id = pkg.id;
-        let mut batch = self.store.batch();
-        self.store.put_package(&mut batch, &pkg);
-        self.store.commit_batch(batch)?;
+        self.store.put_package(batch, &pkg);
+        pkg_cache.insert(cache_key, id);
         Ok(id)
     }
 
-    /// Find-or-create a concrete version, returning its [`VersionId`].
+    /// Find-or-create a concrete version in `batch`, returning its [`VersionId`].
+    #[allow(clippy::too_many_arguments)] // intrinsic identity params for a find-or-create
     fn intern_version(
         &mut self,
+        batch: &mut prism_store::WriteBatch,
+        ver_cache: &mut HashMap<u32, VersionId>,
         eco: EcosystemId,
         package_id: PackageId,
         name: &str,
         namespace: Option<&str>,
         version_raw: &str,
     ) -> Result<VersionId> {
-        let purl = purl(eco, name, namespace, version_raw);
-        let purl_id = self.store.intern_string(&purl)?;
+        let purl_s = purl(eco, name, namespace, version_raw);
+        let purl_id = self.store.intern_string_in(batch, &purl_s)?;
+        if let Some(&id) = ver_cache.get(&purl_id.get()) {
+            return Ok(id);
+        }
         if let Some(existing) = self.store.find_version_by_purl(purl_id) {
+            ver_cache.insert(purl_id.get(), existing);
             return Ok(existing);
         }
-        let raw_id = self.store.intern_string(version_raw)?;
+        let raw_id = self.store.intern_string_in(batch, version_raw)?;
         let flags = if version_raw.contains('-') {
             VersionFlags::PRERELEASE
         } else {
@@ -267,21 +315,21 @@ impl Prism {
             metadata_ref: None,
         };
         let id = ver.id;
-        let mut batch = self.store.batch();
-        self.store.put_version(&mut batch, &ver);
-        self.store.commit_batch(batch)?;
+        self.store.put_version(batch, &ver);
+        ver_cache.insert(purl_id.get(), id);
         Ok(id)
     }
 
-    /// Write the `ResolverRun` record for a lockfile ingest.
+    /// Stage the `ResolverRun` record for a lockfile ingest into `batch`.
     fn write_run(
         &mut self,
+        batch: &mut prism_store::WriteBatch,
         run: RunId,
         eco: EcosystemId,
         lockfile_bytes: &[u8],
         fidelity: GraphFidelity,
     ) -> Result<()> {
-        let resolver_name = self.store.intern_string("lockfile")?;
+        let resolver_name = self.store.intern_string_in(batch, "lockfile")?;
         let lockfile_ref = self.store.blobs().put(lockfile_bytes)?;
         let record = ResolverRun {
             id: run,
@@ -301,17 +349,16 @@ impl Prism {
             created_at_unix: 0,
             metadata_ref: None,
         };
-        let mut batch = self.store.batch();
-        self.store.put_run(&mut batch, &record);
-        self.store.commit_batch(batch)?;
+        self.store.put_run(batch, &record);
         Ok(())
     }
 
-    /// Write a manifest's package/version/requirement facts into the store.
+    /// Write a manifest's package/version/requirement facts into the store in a
+    /// single atomic batch (one `.pseg` + `.pidx` for the whole manifest).
     fn write_manifest_batch(
         &mut self,
         eco: EcosystemId,
-        batch: &CanonicalBatch,
+        events: &CanonicalBatch,
     ) -> Result<ManifestIngest> {
         let mut packages = 0usize;
         let mut versions = 0usize;
@@ -319,13 +366,24 @@ impl Prism {
         // Cache the (src_name@version) -> VersionId for requirement linkage.
         let mut version_of: HashMap<(String, String), VersionId> = HashMap::new();
 
-        for event in batch.iter() {
+        let mut batch = self.store.batch();
+        let mut pkg_cache: HashMap<(u32, u32), PackageId> = HashMap::new();
+        let mut ver_cache: HashMap<u32, VersionId> = HashMap::new();
+
+        for event in events.iter() {
             match event {
                 CanonicalEvent::PackageSeen(fact) => {
-                    packages += usize::from(self.write_package_fact(eco, fact)?);
+                    packages +=
+                        usize::from(self.write_package_fact(&mut batch, &mut pkg_cache, eco, fact)?);
                 }
                 CanonicalEvent::VersionSeen(fact) => {
-                    let (vid, created) = self.write_version_fact(eco, fact)?;
+                    let (vid, created) = self.write_version_fact(
+                        &mut batch,
+                        &mut pkg_cache,
+                        &mut ver_cache,
+                        eco,
+                        fact,
+                    )?;
                     if created {
                         versions += 1;
                     }
@@ -341,8 +399,16 @@ impl Prism {
                         None => {
                             // The declaring version wasn't emitted as a fact;
                             // intern it so the requirement has a source.
-                            let src_pkg = self.intern_package(eco, fact.src_name.as_str(), None)?;
+                            let src_pkg = self.intern_package(
+                                &mut batch,
+                                &mut pkg_cache,
+                                eco,
+                                fact.src_name.as_str(),
+                                None,
+                            )?;
                             let vid = self.intern_version(
+                                &mut batch,
+                                &mut ver_cache,
                                 eco,
                                 src_pkg,
                                 fact.src_name.as_str(),
@@ -353,12 +419,14 @@ impl Prism {
                             vid
                         }
                     };
-                    self.write_requirement_fact(eco, src_vid, fact)?;
+                    self.write_requirement_fact(&mut batch, &mut pkg_cache, eco, src_vid, fact)?;
                     requirements += 1;
                 }
                 _ => {}
             }
         }
+
+        self.store.commit_batch(batch)?;
 
         Ok(ManifestIngest {
             ecosystem: eco_of(eco),
@@ -368,57 +436,70 @@ impl Prism {
         })
     }
 
-    /// Intern a package fact; returns `true` if it was newly created.
-    fn write_package_fact(&mut self, eco: EcosystemId, fact: &PackageFact) -> Result<bool> {
+    /// Intern a package fact into `wb`; returns `true` if it was newly created.
+    fn write_package_fact(
+        &mut self,
+        wb: &mut prism_store::WriteBatch,
+        pkg_cache: &mut HashMap<(u32, u32), PackageId>,
+        eco: EcosystemId,
+        fact: &PackageFact,
+    ) -> Result<bool> {
         let canon = canonical_name(fact.name.as_str(), fact.namespace.as_deref());
-        let canon_id = self.store.intern_string(&canon)?;
+        let canon_id = self.store.intern_string_in(wb, &canon)?;
         let ns_id = match &fact.namespace {
-            Some(ns) => Some(self.store.intern_string(ns)?),
+            Some(ns) => Some(self.store.intern_string_in(wb, ns)?),
             None => None,
         };
-        if self.store.find_package(eco, ns_id, canon_id).is_some() {
-            return Ok(false);
-        }
-        self.intern_package(eco, fact.name.as_str(), fact.namespace.as_deref())?;
-        Ok(true)
+        let cache_key = (ns_id.map(|s| s.get()).unwrap_or(0), canon_id.get());
+        let existed =
+            pkg_cache.contains_key(&cache_key) || self.store.find_package(eco, ns_id, canon_id).is_some();
+        self.intern_package(wb, pkg_cache, eco, fact.name.as_str(), fact.namespace.as_deref())?;
+        Ok(!existed)
     }
 
-    /// Intern a version fact; returns its id and whether it was newly created.
+    /// Intern a version fact into `wb`; returns its id and whether it was new.
     fn write_version_fact(
         &mut self,
+        wb: &mut prism_store::WriteBatch,
+        pkg_cache: &mut HashMap<(u32, u32), PackageId>,
+        ver_cache: &mut HashMap<u32, VersionId>,
         eco: EcosystemId,
         fact: &VersionFact,
     ) -> Result<(VersionId, bool)> {
-        let pkg = self.intern_package(eco, fact.name.as_str(), None)?;
+        let pkg = self.intern_package(wb, pkg_cache, eco, fact.name.as_str(), None)?;
         let purl_id = self
             .store
-            .intern_string(&purl(eco, fact.name.as_str(), None, &fact.version_raw))?;
-        if let Some(existing) = self.store.find_version_by_purl(purl_id) {
-            return Ok((existing, false));
-        }
-        let vid = self.intern_version(eco, pkg, fact.name.as_str(), None, &fact.version_raw)?;
-        Ok((vid, true))
+            .intern_string_in(wb, &purl(eco, fact.name.as_str(), None, &fact.version_raw))?;
+        let existed = ver_cache.contains_key(&purl_id.get())
+            || self.store.find_version_by_purl(purl_id).is_some();
+        let vid =
+            self.intern_version(wb, ver_cache, eco, pkg, fact.name.as_str(), None, &fact.version_raw)?;
+        Ok((vid, !existed))
     }
 
-    /// Write a `Requirement` record linking `src_vid` to its declared target.
+    /// Stage a `Requirement` record linking `src_vid` to its declared target.
     fn write_requirement_fact(
         &mut self,
+        wb: &mut prism_store::WriteBatch,
+        pkg_cache: &mut HashMap<(u32, u32), PackageId>,
         eco: EcosystemId,
         src_vid: VersionId,
         fact: &RequirementFact,
     ) -> Result<()> {
-        let declared_target = self.store.intern_string(&fact.declared_target)?;
-        let raw_requirement = self.store.intern_string(&fact.raw_requirement)?;
+        let declared_target = self.store.intern_string_in(wb, &fact.declared_target)?;
+        let raw_requirement = self.store.intern_string_in(wb, &fact.raw_requirement)?;
         let target_alias = match &fact.target_alias {
-            Some(a) => Some(self.store.intern_string(a)?),
+            Some(a) => Some(self.store.intern_string_in(wb, a)?),
             None => None,
         };
         let scope = match &fact.scope {
-            Some(s) => Some(self.store.intern_string(s)?),
+            Some(s) => Some(self.store.intern_string_in(wb, s)?),
             None => None,
         };
         // The declared target's resolved family (so REQS_BY_DST_PACKAGE indexes).
-        let dst = self.intern_package(eco, &fact.declared_target, None).ok();
+        let dst = self
+            .intern_package(wb, pkg_cache, eco, &fact.declared_target, None)
+            .ok();
         let constraint_ref = self.store.blobs().put(fact.raw_requirement.as_bytes())?;
         let condition_ref = match &fact.raw_condition {
             Some(c) => Some(self.store.blobs().put(c.as_bytes())?),
@@ -445,9 +526,7 @@ impl Prism {
             features_or_extras_ref,
             metadata_ref: None,
         };
-        let mut batch = self.store.batch();
-        self.store.put_requirement(&mut batch, &req);
-        self.store.commit_batch(batch)?;
+        self.store.put_requirement(wb, &req);
         Ok(())
     }
 }

@@ -7,6 +7,8 @@
 //! record.
 
 use crate::RawRecord;
+use prism_model::StringId;
+use std::collections::HashMap;
 
 /// A pending index put or delete, recorded with its key. The `logical_ts` is
 /// assigned by the store at commit time from the recovered high-water mark.
@@ -25,6 +27,9 @@ pub(crate) struct IndexOp {
 pub struct WriteBatch {
     pub(crate) records: Vec<RawRecord>,
     pub(crate) index_ops: Vec<IndexOp>,
+    /// Within-batch intern dedup: text SHA-256 -> the id assigned earlier in this
+    /// same uncommitted batch, so repeated interns of one string don't re-allocate.
+    pub(crate) pending_strings: HashMap<[u8; 32], StringId>,
 }
 
 impl WriteBatch {

@@ -239,10 +239,16 @@ mod tests {
         let addr = server.addr();
         assert_eq!(addr.ip().to_string(), "127.0.0.1");
 
-        // The SPA shell.
-        let html = roundtrip(addr, "GET / HTTP/1.1\r\nHost: x\r\n\r\n");
-        assert!(html.starts_with("HTTP/1.1 200 OK"), "{html}");
-        assert!(html.contains("<html"), "{html}");
+        // The root is a JSON service descriptor (the UI is the separate web app).
+        let root = roundtrip(addr, "GET / HTTP/1.1\r\nHost: x\r\n\r\n");
+        assert!(root.starts_with("HTTP/1.1 200 OK"), "{root}");
+        assert!(root.contains(r#""kind":"json-api""#), "{root}");
+        assert!(root.contains("application/json"), "{root}");
+
+        // A CORS preflight is answered 204 with the allow headers.
+        let pre = roundtrip(addr, "OPTIONS /api/status HTTP/1.1\r\nHost: x\r\n\r\n");
+        assert!(pre.starts_with("HTTP/1.1 204"), "{pre}");
+        assert!(pre.contains("Access-Control-Allow-Origin: *"), "{pre}");
 
         // Graph stats for the ingested run: 4 nodes / 3 edges.
         let req = format!("GET /api/graph/stats?run={} HTTP/1.1\r\nHost: x\r\n\r\n", run.get());

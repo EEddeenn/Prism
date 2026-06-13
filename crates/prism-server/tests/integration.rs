@@ -2,8 +2,8 @@
 //!
 //! Builds a `TempDir` workspace, ingests an inline `Cargo.lock` through the
 //! public `prism-api`, starts the server on an ephemeral port (port 0 -> read
-//! the bound addr), connects with a raw `TcpStream`, and asserts the JSON/HTML
-//! responses. Hermetic (loopback only, self-cleaning temp dir) and fast; the
+//! the bound addr), connects with a raw `TcpStream`, and asserts the JSON
+//! responses. Loopback only, self-cleaning temp dir, and fast; the
 //! server thread is shut down at the end.
 
 use std::io::{Read, Write};
@@ -117,12 +117,14 @@ fn serve_workspace_end_to_end() {
     assert_eq!(addr.ip().to_string(), "127.0.0.1", "must bind loopback only");
     assert_ne!(addr.port(), 0, "an ephemeral port must have been chosen");
 
-    // GET / returns the HTML shell.
+    // GET / returns the JSON service descriptor (UI is the separate web app).
     let home = roundtrip(addr, "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
     let (status, body) = split(&home);
     assert!(status.starts_with("HTTP/1.1 200"), "home status: {status}");
-    assert!(body.contains("<!DOCTYPE html>"), "home body: {body}");
-    assert!(body.contains("Prism"), "home body should name the app");
+    assert!(body.contains(r#""name":"prism-serve""#), "home body: {body}");
+    assert!(body.contains("/api/export?run="), "home should list endpoints: {body}");
+    // CORS is open so the Next.js app (a different origin) can call the API.
+    assert!(home.contains("Access-Control-Allow-Origin: *"), "home headers: {home}");
 
     // (c) GET /api/graph/stats?run=<id> returns the right node/edge counts.
     let req = format!(
@@ -176,12 +178,6 @@ fn serve_workspace_end_to_end() {
     let (status, body) = split(&tda);
     assert!(status.starts_with("HTTP/1.1 200"), "tda status: {status}");
     assert!(body.contains(r#""component_count":1"#), "tda body: {body}");
-
-    // The 3D renderer is served as a hermetic, same-origin asset.
-    let scene = roundtrip(addr, "GET /scene3d.js HTTP/1.1\r\nHost: localhost\r\n\r\n");
-    let (status, body) = split(&scene);
-    assert!(status.starts_with("HTTP/1.1 200"), "scene3d status: {status}");
-    assert!(body.contains("Scene3D"), "scene3d body should define Scene3D");
 
     // /api/tda/pairs lists individual persistence bars with birth/death/essential.
     let req = format!(

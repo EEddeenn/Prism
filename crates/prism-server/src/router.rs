@@ -2,7 +2,7 @@
 //!
 //! All state is one [`Prism`] behind a [`Mutex`] (it owns the workspace write
 //! lock, so only one may exist; reads still go through the lock). The router is
-//! read-only over the facade: it serves graph/TDA queries and static assets, and
+//! read-only over the facade: it serves graph/TDA queries as JSON, and
 //! turns any [`PrismError`] into a JSON `{"error": ...}` body with a mapped
 //! status. It never panics on input — unknown routes and bad params are `400`/
 //! `404` JSON errors.
@@ -12,7 +12,6 @@ use std::sync::Mutex;
 use prism_api::Prism;
 use prism_model::{FiltrationId, GraphNodeId, PairId, PrismError, RunId};
 
-use crate::assets;
 use crate::http::{Request, Response, Status};
 use crate::json::{error_body, JsonWriter};
 use crate::query::Query;
@@ -102,16 +101,24 @@ type ApiResult<T> = Result<T, ApiError>;
 
 /// The top-level entry: dispatch a request to a response. Method, route, and
 /// param validation all funnel through here; no path panics.
+///
+/// This is a pure JSON API (the UI is the separate Next.js app): `OPTIONS` is a
+/// CORS preflight, `GET /` is a small service descriptor, `GET /api/...` is the
+/// data surface, and everything else is a JSON `404`/`405`.
 pub fn handle(state: &AppState, req: &Request) -> Response {
-    // Only GET is served; everything else is 405.
+    // CORS preflight: answer 204 with the allow-* headers (added by write_to).
+    if req.method == "OPTIONS" {
+        return Response::no_content();
+    }
+    // Only GET is otherwise served; everything else is 405.
     if req.method != "GET" {
         return ApiError::status(Status::METHOD_NOT_ALLOWED, "only GET is supported")
             .into_response();
     }
 
-    // Static assets (and the SPA shell) first.
-    if let Some((content_type, body)) = assets::lookup(&req.path) {
-        return Response::text(content_type, body);
+    // Root: a tiny machine-readable descriptor pointing at the API.
+    if req.path == "/" {
+        return Response::json(Status::OK, api_index_body());
     }
 
     // JSON API.
@@ -124,6 +131,37 @@ pub fn handle(state: &AppState, req: &Request) -> Response {
     }
 
     ApiError::not_found("no such route").into_response()
+}
+
+/// The `GET /` body: identifies the service and lists the JSON endpoints so a
+/// human (or a probe) hitting the bare host learns where the data lives.
+fn api_index_body() -> String {
+    let mut w = JsonWriter::new();
+    w.begin_object();
+    w.field_str("name", "prism-serve");
+    w.field_str("kind", "json-api");
+    w.field_str("ui", "the Prism web app (Next.js) consumes this API");
+    w.key("endpoints");
+    w.begin_array();
+    for ep in [
+        "/api/status",
+        "/api/runs",
+        "/api/run?run=",
+        "/api/graph/stats?run=",
+        "/api/graph/neighborhood?run=&node=",
+        "/api/graph/impact?run=&node=",
+        "/api/graph/scc?run=",
+        "/api/graph/duplicates?run=",
+        "/api/tda?run=",
+        "/api/tda/pairs?run=",
+        "/api/tda/support?run=&pair=",
+        "/api/export?run=",
+    ] {
+        w.str_value(ep);
+    }
+    w.end_array();
+    w.end_object();
+    w.finish()
 }
 
 /// Dispatch the `/api/...` namespace, returning a JSON body on success.

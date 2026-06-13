@@ -233,6 +233,8 @@ pub struct Status(pub u16, pub &'static str);
 impl Status {
     /// `200 OK`.
     pub const OK: Status = Status(200, "OK");
+    /// `204 No Content` (used for CORS preflight replies).
+    pub const NO_CONTENT: Status = Status(204, "No Content");
     /// `400 Bad Request`.
     pub const BAD_REQUEST: Status = Status(400, "Bad Request");
     /// `404 Not Found`.
@@ -263,16 +265,21 @@ impl Response {
         }
     }
 
-    /// A `200` response of static text with an explicit content type.
-    pub fn text(content_type: &'static str, body: &str) -> Response {
+    /// An empty `204 No Content` response — the reply to a CORS preflight.
+    pub fn no_content() -> Response {
         Response {
-            status: Status::OK,
-            content_type,
-            body: body.as_bytes().to_vec(),
+            status: Status::NO_CONTENT,
+            content_type: "text/plain; charset=utf-8",
+            body: Vec::new(),
         }
     }
 
     /// Serialize the response to `w` as HTTP/1.1 with `Connection: close`.
+    ///
+    /// CORS is wide-open (`Access-Control-Allow-Origin: *`): this service binds
+    /// loopback only and is strictly read-only, so any local origin (the Next.js
+    /// dev server, another tool) may call the JSON API directly. Only `GET` is
+    /// ever served, so preflight advertises just `GET, OPTIONS`.
     pub fn write_to<W: Write>(&self, w: &mut W) -> io::Result<()> {
         let head = format!(
             "HTTP/1.1 {} {}\r\n\
@@ -280,6 +287,10 @@ impl Response {
              Content-Length: {}\r\n\
              Connection: close\r\n\
              X-Content-Type-Options: nosniff\r\n\
+             Access-Control-Allow-Origin: *\r\n\
+             Access-Control-Allow-Methods: GET, OPTIONS\r\n\
+             Access-Control-Allow-Headers: *\r\n\
+             Access-Control-Max-Age: 86400\r\n\
              \r\n",
             self.status.0,
             self.status.1,
@@ -404,7 +415,19 @@ mod tests {
         assert!(text.contains("Content-Length: 2\r\n"));
         assert!(text.contains("Content-Type: application/json; charset=utf-8\r\n"));
         assert!(text.contains("Connection: close\r\n"));
+        assert!(text.contains("Access-Control-Allow-Origin: *\r\n"));
         assert!(text.ends_with("\r\n\r\n{}"));
+    }
+
+    #[test]
+    fn no_content_response_is_empty_204() {
+        let mut out = Vec::new();
+        Response::no_content().write_to(&mut out).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.starts_with("HTTP/1.1 204 No Content\r\n"));
+        assert!(text.contains("Content-Length: 0\r\n"));
+        assert!(text.contains("Access-Control-Allow-Methods: GET, OPTIONS\r\n"));
+        assert!(text.ends_with("\r\n\r\n"));
     }
 
     #[test]

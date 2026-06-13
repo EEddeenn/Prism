@@ -1,19 +1,18 @@
-//! A hermetic, local-only web UI over a Prism workspace (architecture doc's
+//! A local-only, read-only JSON API over a Prism workspace (architecture doc's
 //! *local HTTP/IPC service* option).
 //!
-//! Zero external crates: a minimal HTTP/1.1 server in pure std serves a vanilla-
-//! JS single-page graph explorer (baked in via `include_str!`) plus a read-only
-//! JSON API over [`prism_api::Prism`]. The facade owns the workspace write lock,
-//! so it lives behind a [`std::sync::Mutex`] and the server only ever reads from
-//! it. Untrusted requests never panic: a malformed request is answered `400`,
-//! and every [`prism_model::PrismError`] maps to a `{"error": ...}` JSON body.
+//! Zero external crates: a minimal HTTP/1.1 server in pure std exposes a
+//! read-only, CORS-enabled JSON API over [`prism_api::Prism`]. The interactive
+//! UI is the separate Next.js app under `web/`, which consumes this API. The
+//! facade owns the workspace write lock, so it lives behind a
+//! [`std::sync::Mutex`] and the server only ever reads from it. Untrusted
+//! requests never panic: a malformed request is answered `400`, and every
+//! [`prism_model::PrismError`] maps to a `{"error": ...}` JSON body.
 //!
 //! Wiring: [`server::Server::start`] binds `127.0.0.1:<port>` and dispatches each
-//! request through [`router::handle`] to either a static asset or a JSON
-//! endpoint.
+//! request through [`router::handle`] to a JSON endpoint (or a CORS preflight).
 
 pub mod args;
-mod assets;
 mod http;
 mod json;
 mod query;

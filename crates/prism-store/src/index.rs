@@ -153,6 +153,15 @@ impl IndexReader {
         let _created_at = r.read_i64()?;
         let count = r.read_u32()? as usize;
 
+        // Each entry encodes to at least 11 bytes (1B klen varint + 1B flags + 8B
+        // logical_ts + 1B vlen varint); reject a count that cannot fit so a forged
+        // header cannot drive a multi-GB reservation before the element reads fail.
+        const MIN_ENTRY_BYTES: usize = 11;
+        if count > r.remaining() / MIN_ENTRY_BYTES {
+            return Err(PrismError::Corrupt {
+                detail: format!("index entry count {count} exceeds remaining bytes"),
+            });
+        }
         let mut entries = Vec::with_capacity(count);
         let mut prev: Option<Vec<u8>> = None;
         for _ in 0..count {
@@ -246,26 +255,28 @@ impl IndexSet {
         self.readers.push(reader);
     }
 
-    /// Resolve `key` across memtable then segments newest→oldest. Returns the live
-    /// value, or `None` if absent or the newest entry is a tombstone.
+    /// Resolve `key` to its live value across the memtable and every segment.
+    ///
+    /// The winner is the entry with the highest `logical_ts` (the documented
+    /// "newest wins" total order), not merely the first source that holds the key.
+    /// Today production readers are only ever `push_newest` in publish order, so
+    /// file order already equals `logical_ts` order — but comparing `logical_ts`
+    /// keeps `get` correct (and consistent with `scan_prefix`) regardless of
+    /// insertion order or any future compaction. Returns `None` if absent or the
+    /// winning entry is a tombstone.
     pub fn get(&self, key: &[u8]) -> Option<&[u8]> {
-        if let Some(e) = self.memtable.get(key) {
-            return if e.tombstone {
-                None
-            } else {
-                Some(e.value.as_slice())
-            };
-        }
+        let mut best: Option<&IndexEntry> = self.memtable.get(key);
         for r in &self.readers {
             if let Some(e) = r.get(key) {
-                return if e.tombstone {
-                    None
-                } else {
-                    Some(e.value.as_slice())
-                };
+                if best.map_or(true, |b| e.logical_ts > b.logical_ts) {
+                    best = Some(e);
+                }
             }
         }
-        None
+        match best {
+            Some(e) if !e.tombstone => Some(e.value.as_slice()),
+            _ => None,
+        }
     }
 
     /// Merge all list-fragment entries whose key starts with `prefix` across the

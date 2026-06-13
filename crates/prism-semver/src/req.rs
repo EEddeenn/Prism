@@ -337,14 +337,14 @@ fn parse_hyphen_range(s: &str) -> Result<Option<Vec<Comparator>>> {
             // `... - 2.3` => < 2.4.0
             op: Op::Less,
             major: umaj,
-            minor: Some(min + 1),
+            minor: Some(bump(min)?),
             patch: Some(0),
             pre: Vec::new(),
         },
         (None, _) => Comparator {
             // `... - 2` => < 3.0.0
             op: Op::Less,
-            major: umaj + 1,
+            major: bump(umaj)?,
             minor: Some(0),
             patch: Some(0),
             pre: Vec::new(),
@@ -450,7 +450,7 @@ fn parse_wildcard(t: &str) -> Result<Option<Vec<Comparator>>> {
             },
             Comparator {
                 op: Op::Less,
-                major: nums[0] + 1,
+                major: bump(nums[0])?,
                 minor: Some(0),
                 patch: Some(0),
                 pre: Vec::new(),
@@ -468,7 +468,7 @@ fn parse_wildcard(t: &str) -> Result<Option<Vec<Comparator>>> {
             Comparator {
                 op: Op::Less,
                 major: nums[0],
-                minor: Some(nums[1] + 1),
+                minor: Some(bump(nums[1])?),
                 patch: Some(0),
                 pre: Vec::new(),
             },
@@ -499,17 +499,17 @@ fn parse_caret(rest: &str) -> Result<Vec<Comparator>> {
     };
 
     let upper = if major > 0 {
-        ver_lt(major + 1, 0, 0)
+        ver_lt(bump(major)?, 0, 0)
     } else {
         // major == 0
         match minor {
             None => ver_lt(1, 0, 0), // ^0 => <1.0.0
-            Some(min) if min > 0 => ver_lt(0, min + 1, 0),
+            Some(min) if min > 0 => ver_lt(0, bump(min)?, 0),
             Some(_) => {
                 // minor == 0
                 match patch {
                     None => ver_lt(0, 1, 0), // ^0.0 => <0.1.0
-                    Some(p) => ver_lt(0, 0, p + 1),
+                    Some(p) => ver_lt(0, 0, bump(p)?),
                 }
             }
         }
@@ -534,8 +534,8 @@ fn parse_tilde(rest: &str) -> Result<Vec<Comparator>> {
         pre,
     };
     let upper = match minor {
-        Some(min) => ver_lt(major, min + 1, 0),
-        None => ver_lt(major + 1, 0, 0),
+        Some(min) => ver_lt(major, bump(min)?, 0),
+        None => ver_lt(bump(major)?, 0, 0),
     };
     Ok(vec![lower, upper])
 }
@@ -548,6 +548,16 @@ fn ver_lt(major: u64, minor: u64, patch: u64) -> Comparator {
         patch: Some(patch),
         pre: Vec::new(),
     }
+}
+
+/// `x + 1` with overflow rejected: version components come verbatim from an
+/// untrusted requirement string (`num` accepts the whole `u64` range), so a
+/// component at `u64::MAX` must not wrap an upper bound — it would panic in debug
+/// and silently produce a nonsensical (empty-matching) comparator in release.
+fn bump(x: u64) -> Result<u64> {
+    x.checked_add(1).ok_or_else(|| {
+        PrismError::Other("version component too large to form an upper bound".into())
+    })
 }
 
 /// Parses a possibly-partial version string `MAJOR[.MINOR[.PATCH]][-pre]`,
@@ -756,6 +766,29 @@ mod tests {
         assert!(r3.matches(&v("2.9.9")));
         assert!(!r3.matches(&v("3.0.0")));
         assert!(r3.matches(&v("1.2.0")));
+    }
+
+    #[test]
+    fn extreme_components_error_not_panic_or_wrap() {
+        // u64::MAX in an upper-bound-forming position must be a typed error, never
+        // a panic (debug) or a wrapped nonsensical comparator (release).
+        let m = "18446744073709551615";
+        for s in [
+            format!("^{m}"),                 // caret major
+            format!("^0.{m}"),               // caret minor
+            format!("^0.0.{m}"),             // caret patch
+            format!("~{m}"),                 // tilde major
+            format!("~1.{m}"),               // tilde minor
+            format!("{m}.x"),                // wildcard major
+            format!("1.{m}.x"),              // wildcard minor
+            format!("1.0.0 - {m}"),          // hyphen upper major
+            format!("1.0.0 - 1.{m}"),        // hyphen upper minor
+        ] {
+            let r = VersionReq::parse(&s);
+            assert!(r.is_err(), "expected typed error for {s:?}, got {r:?}");
+        }
+        // One below the max still forms a valid bound.
+        assert!(VersionReq::parse("^18446744073709551614").is_ok());
     }
 
     #[test]

@@ -35,6 +35,10 @@ impl RecordHeader {
 }
 
 /// Encode a complete record (header + key + value) into `w`.
+///
+/// Errors with [`PrismError::OutOfBounds`] if `key` or `value` is `>= 4 GiB`:
+/// the on-disk header stores each length as a `u32`, so a larger slice would be
+/// silently truncated and produce an internally-inconsistent, unreadable record.
 pub fn write_record(
     w: &mut ByteWriter,
     record_type: u16,
@@ -42,7 +46,14 @@ pub fn write_record(
     logical_ts: u64,
     key: &[u8],
     value: &[u8],
-) {
+) -> Result<()> {
+    let key_len = u32::try_from(key.len()).map_err(|_| PrismError::OutOfBounds {
+        detail: format!("record key length {} exceeds u32", key.len()),
+    })?;
+    let value_len = u32::try_from(value.len()).map_err(|_| PrismError::OutOfBounds {
+        detail: format!("record value length {} exceeds u32", value.len()),
+    })?;
+
     let mut crc = Crc32::new();
     crc.update(key);
     crc.update(value);
@@ -50,12 +61,13 @@ pub fn write_record(
     w.write_u32(RECORD_MAGIC);
     w.write_u16(record_type);
     w.write_u16(flags);
-    w.write_u32(key.len() as u32);
-    w.write_u32(value.len() as u32);
+    w.write_u32(key_len);
+    w.write_u32(value_len);
     w.write_u64(logical_ts);
     w.write_u32(crc.finalize());
     w.write_bytes(key);
     w.write_bytes(value);
+    Ok(())
 }
 
 /// A decoded record borrowed from the underlying buffer.
@@ -87,12 +99,14 @@ pub fn read_record<'a>(r: &mut ByteReader<'a>) -> Result<Record<'a>> {
     let logical_ts = r.read_u64()?;
     let crc = r.read_u32()?;
 
-    // Bounds-check before reading the variable-length payload.
-    if key_len + value_len > r.remaining() {
+    // Bounds-check before reading the variable-length payload. Sum in u64 so the
+    // check itself cannot wrap usize on a 32-bit target.
+    let payload = key_len as u64 + value_len as u64;
+    if payload > r.remaining() as u64 {
         return Err(PrismError::OutOfBounds {
             detail: format!(
                 "record payload {} exceeds remaining {}",
-                key_len + value_len,
+                payload,
                 r.remaining()
             ),
         });
@@ -130,7 +144,7 @@ mod tests {
     #[test]
     fn record_roundtrip() {
         let mut w = ByteWriter::new();
-        write_record(&mut w, 7, 0, 99, b"key-bytes", b"value-bytes-here");
+        write_record(&mut w, 7, 0, 99, b"key-bytes", b"value-bytes-here").unwrap();
         let buf = w.into_vec();
 
         let mut r = ByteReader::new(&buf);
@@ -145,8 +159,8 @@ mod tests {
     #[test]
     fn multiple_records_in_sequence() {
         let mut w = ByteWriter::new();
-        write_record(&mut w, 1, 0, 1, b"a", b"1");
-        write_record(&mut w, 2, 0, 2, b"bb", b"22");
+        write_record(&mut w, 1, 0, 1, b"a", b"1").unwrap();
+        write_record(&mut w, 2, 0, 2, b"bb", b"22").unwrap();
         let buf = w.into_vec();
         let mut r = ByteReader::new(&buf);
         assert_eq!(read_record(&mut r).unwrap().key, b"a");
@@ -159,7 +173,7 @@ mod tests {
     #[test]
     fn corrupted_value_fails_crc() {
         let mut w = ByteWriter::new();
-        write_record(&mut w, 1, 0, 1, b"k", b"value");
+        write_record(&mut w, 1, 0, 1, b"k", b"value").unwrap();
         let mut buf = w.into_vec();
         *buf.last_mut().unwrap() ^= 0xFF; // flip a byte in the value
         let mut r = ByteReader::new(&buf);
@@ -172,11 +186,27 @@ mod tests {
     #[test]
     fn bogus_length_does_not_panic() {
         let mut w = ByteWriter::new();
-        write_record(&mut w, 1, 0, 1, b"k", b"v");
+        write_record(&mut w, 1, 0, 1, b"k", b"v").unwrap();
         let mut buf = w.into_vec();
         // Corrupt value_len (offset 12..16) to a huge number.
         buf[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
         let mut r = ByteReader::new(&buf);
         assert!(read_record(&mut r).is_err());
+    }
+
+    #[test]
+    fn oversized_payload_count_does_not_overflow_bounds_check() {
+        // Both lengths set near u32::MAX: their u64 sum must not wrap, and the
+        // bounds check must reject rather than under-count the remaining buffer.
+        let mut w = ByteWriter::new();
+        write_record(&mut w, 1, 0, 1, b"k", b"v").unwrap();
+        let mut buf = w.into_vec();
+        buf[8..12].copy_from_slice(&(u32::MAX - 1).to_le_bytes()); // key_len
+        buf[12..16].copy_from_slice(&(u32::MAX - 1).to_le_bytes()); // value_len
+        let mut r = ByteReader::new(&buf);
+        assert!(matches!(
+            read_record(&mut r),
+            Err(PrismError::OutOfBounds { .. })
+        ));
     }
 }

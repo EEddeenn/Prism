@@ -449,9 +449,12 @@ impl<'a> Parser<'a> {
                 return Ok(Json::Int(i));
             }
         }
+        // RFC 8259 has no infinity/NaN: an in-grammar but oversized literal like
+        // `1e999` parses to f64::INFINITY, which cannot be re-serialized as valid
+        // JSON and would hand callers a non-finite value. Reject non-finite results.
         match text.parse::<f64>() {
-            Ok(f) => Ok(Json::Float(f)),
-            Err(_) => Err(self.err("number out of range")),
+            Ok(f) if f.is_finite() => Ok(Json::Float(f)),
+            _ => Err(self.err("number out of range")),
         }
     }
 }
@@ -493,6 +496,17 @@ mod tests {
         // Too big for i64 falls back to float.
         let big = parse_json("99999999999999999999999").unwrap();
         assert!(matches!(big, Json::Float(_)));
+    }
+
+    #[test]
+    fn out_of_range_exponent_is_rejected_not_infinity() {
+        // `1e999` is in-grammar but overflows f64 to INFINITY; RFC 8259 has no
+        // infinity, so it must be a typed error, never a stored non-finite float.
+        assert!(parse_json("1e999").is_err());
+        assert!(parse_json("-1e999").is_err());
+        assert!(parse_json("1E400").is_err());
+        // A normal large-but-finite float still parses.
+        assert!(matches!(parse_json("1e300").unwrap(), Json::Float(f) if f.is_finite()));
     }
 
     #[test]

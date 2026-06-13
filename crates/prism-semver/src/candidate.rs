@@ -54,8 +54,11 @@ pub fn candidate_ranges(sorted: &[Version], req: &VersionReq) -> CandidateRanges
     let mut prerelease_excluded = Vec::new();
     let mut run_start: Option<u32> = None;
 
-    for (i, v) in sorted.iter().enumerate() {
-        let idx = i as u32;
+    // Candidate ordinals are `u32` by contract; a version list longer than
+    // `u32::MAX` cannot be addressed, so cap the scan rather than wrap an ordinal.
+    let len = sorted.len().min(u32::MAX as usize);
+    for (i, v) in sorted.iter().enumerate().take(len) {
+        let idx = i as u32; // safe: i < u32::MAX
         let matched = req.matches(v);
         if matched {
             // Extend or open the current run.
@@ -76,7 +79,7 @@ pub fn candidate_ranges(sorted: &[Version], req: &VersionReq) -> CandidateRanges
         }
     }
     if let Some(start) = run_start.take() {
-        ranges.push(start..sorted.len() as u32);
+        ranges.push(start..len as u32);
     }
 
     CandidateRanges {

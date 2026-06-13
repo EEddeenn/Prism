@@ -51,12 +51,20 @@ impl SegmentWriter {
     }
 
     /// Append a record. The byte offset of this record within the finished
-    /// segment is returned so the caller can build index `RecordRef`s.
-    pub fn append(&mut self, record_type: u16, flags: u16, logical_ts: u64, key: &[u8], value: &[u8]) -> u64 {
+    /// segment is returned so the caller can build index `RecordRef`s. Errors if a
+    /// key/value is too large for the `u32` length fields (see `write_record`).
+    pub fn append(
+        &mut self,
+        record_type: u16,
+        flags: u16,
+        logical_ts: u64,
+        key: &[u8],
+        value: &[u8],
+    ) -> Result<u64> {
         let offset = (Self::header_len() + self.body.len()) as u64;
-        write_record(&mut self.body, record_type, flags, logical_ts, key, value);
+        write_record(&mut self.body, record_type, flags, logical_ts, key, value)?;
         self.record_count += 1;
-        offset
+        Ok(offset)
     }
 
     /// Number of records appended so far.
@@ -203,8 +211,8 @@ mod tests {
     #[test]
     fn segment_roundtrip() {
         let mut w = SegmentWriter::new(3, 1_700_000_000);
-        let off0 = w.append(1, 0, 10, b"k0", b"v0");
-        let off1 = w.append(2, 0, 11, b"k1", b"value-one");
+        let off0 = w.append(1, 0, 10, b"k0", b"v0").unwrap();
+        let off1 = w.append(2, 0, 11, b"k1", b"value-one").unwrap();
         assert!(off1 > off0);
         assert_eq!(w.record_count(), 2);
         let bytes = w.finish();
@@ -222,7 +230,7 @@ mod tests {
     #[test]
     fn corrupt_body_detected() {
         let mut w = SegmentWriter::new(1, 0);
-        w.append(1, 0, 1, b"k", b"v");
+        w.append(1, 0, 1, b"k", b"v").unwrap();
         let mut bytes = w.finish();
         // Flip a byte inside the record body (header is 29 bytes; body starts there).
         bytes[40] ^= 0xFF;

@@ -119,15 +119,10 @@ fn bfs(
     let mut q: VecDeque<(GraphNodeId, u32)> = VecDeque::new();
 
     seen[root_idx] = true;
-    if opts.include_root {
+    // `max_nodes == 0` is a zero budget: nothing fits. We still explore so we can
+    // report `truncated` honestly (there was reachable content we could not emit).
+    if opts.include_root && opts.max_nodes > 0 {
         out.push(root);
-        if out.len() as u64 >= opts.max_nodes as u64 {
-            // include_root alone can hit a max_nodes of 0/1.
-            return Ok(Reachable {
-                nodes: out,
-                truncated: false,
-            });
-        }
     }
     q.push_back((root, 0));
 
@@ -153,12 +148,16 @@ fn bfs(
             }
             let vi = v.get() as usize;
             if !seen[vi] {
-                seen[vi] = true;
-                out.push(v);
+                // Check the budget BEFORE adding, so the result never exceeds
+                // `max_nodes` (the old post-push check over-shot by one whenever
+                // `include_root` had already consumed a slot), and so hitting the
+                // cap with reachable nodes left is correctly reported as truncated.
                 if out.len() as u64 >= opts.max_nodes as u64 {
                     truncated = true;
                     break 'outer;
                 }
+                seen[vi] = true;
+                out.push(v);
                 q.push_back((v, depth + 1));
             }
         }

@@ -170,14 +170,6 @@ impl PersistenceResult {
 
         // --- H0 via union-find over 0-cells, edges added in filtration order. ---
         let mut uf = UnionFind::new(n);
-        // Map node index -> its 0-cell id, for birth lookups.
-        let mut node_to_cell = vec![0u64; n];
-        for (cid, cell) in cells.iter().enumerate() {
-            if cell.dim == 0 {
-                let node = cell.vertices[0].get() as usize;
-                node_to_cell[node] = cid as u64;
-            }
-        }
         // Birth tracked in union-find is by 0-cell id; map back to node index.
         let cell_to_node: Vec<usize> = {
             let mut m = vec![usize::MAX; cells.len()];

@@ -221,6 +221,14 @@ impl Store {
             }
             fsutil::fsync_dir(&tmp)?;
         }
+        // The manifest swap stages directly in `.prism/` (not tmp/), so a crash
+        // mid-swap can leave `.prism/.MANIFEST.tmp`; sweep it too. The live MANIFEST
+        // is already durable, so removing the orphan staging file is always safe.
+        let manifest_tmp = layout.manifest_tmp();
+        if manifest_tmp.exists() {
+            let _ = std::fs::remove_file(&manifest_tmp);
+            fsutil::fsync_dir(&layout.prism_dir())?;
+        }
         Ok(())
     }
 
@@ -248,7 +256,7 @@ impl Store {
         let mut ts = self.manifest.logical_ts_hwm;
         for rec in records {
             ts += 1;
-            writer.append(rec.record_type, rec.flags, ts, &rec.key, &rec.value);
+            writer.append(rec.record_type, rec.flags, ts, &rec.key, &rec.value)?;
         }
         let image = writer.finish();
         let digest = sha256(&image);
@@ -262,7 +270,10 @@ impl Store {
 
         // Build the next manifest and publish it atomically.
         let mut next = self.manifest.clone();
-        next.next_segment_id += 1;
+        next.next_segment_id = next
+            .next_segment_id
+            .checked_add(1)
+            .ok_or_else(|| PrismError::Other("segment id space exhausted".into()))?;
         next.logical_ts_hwm = ts;
         next.files.push(FileEntry {
             kind: FileKind::Segment,
@@ -365,11 +376,14 @@ impl Store {
 
         // Build the .pseg (may be empty if the batch only writes index entries).
         let seg_id = next.next_segment_id;
-        next.next_segment_id += 1;
+        next.next_segment_id = next
+            .next_segment_id
+            .checked_add(1)
+            .ok_or_else(|| PrismError::Other("segment id space exhausted".into()))?;
         let mut writer = SegmentWriter::new(seg_id, created_at);
         for rec in &batch.records {
             ts += 1;
-            writer.append(rec.record_type, rec.flags, ts, &rec.key, &rec.value);
+            writer.append(rec.record_type, rec.flags, ts, &rec.key, &rec.value)?;
         }
         let seg_image = writer.finish();
         let seg_rel = format!("segments/{}", Layout::segment_file_name(seg_id));
@@ -386,7 +400,10 @@ impl Store {
 
         // Build the .pidx over a memtable; the entries share the same ts sweep.
         let idx_id = next.next_segment_id;
-        next.next_segment_id += 1;
+        next.next_segment_id = next
+            .next_segment_id
+            .checked_add(1)
+            .ok_or_else(|| PrismError::Other("segment id space exhausted".into()))?;
         let mut mt = Memtable::new();
         for op in &batch.index_ops {
             ts += 1;
@@ -447,9 +464,18 @@ impl Store {
         for dir in &dirs {
             fsutil::fsync_dir(dir)?;
         }
-        // 5-7: append entries and atomically swap the manifest.
+        // 5-7: upsert entries by rel_path, then atomically swap the manifest.
+        // Graph/TDA files are named deterministically from their RunId/FiltrationId
+        // (content-independent), so re-publishing the same id overwrites the file on
+        // disk; we must replace the existing manifest entry rather than append a
+        // second one with a fresh digest — a stale-digest duplicate would make the
+        // workspace fail its own checksum check on reopen and become unopenable.
         for (_, _, entry) in staged {
-            next.files.push(entry.clone());
+            if let Some(slot) = next.files.iter_mut().find(|e| e.rel_path == entry.rel_path) {
+                *slot = entry.clone();
+            } else {
+                next.files.push(entry.clone());
+            }
         }
         fsutil::atomic_write(&self.layout.manifest(), &next.encode())?;
         Ok(())
@@ -713,7 +739,10 @@ impl Store {
 
         // GRAPH_BY_RUN index entry lives in its own .pidx published in the same swap.
         let idx_id = next.next_segment_id;
-        next.next_segment_id += 1;
+        next.next_segment_id = next
+            .next_segment_id
+            .checked_add(1)
+            .ok_or_else(|| PrismError::Other("segment id space exhausted".into()))?;
         let mut mt = Memtable::new();
         ts += 1;
         mt.put(keys::graph_by_run(run), rel.into_bytes(), ts);
@@ -771,7 +800,10 @@ impl Store {
         );
 
         let idx_id = next.next_segment_id;
-        next.next_segment_id += 1;
+        next.next_segment_id = next
+            .next_segment_id
+            .checked_add(1)
+            .ok_or_else(|| PrismError::Other("segment id space exhausted".into()))?;
         let mut mt = Memtable::new();
         ts += 1;
         mt.put(keys::tda_by_run(run, filtration), rel.into_bytes(), ts);
@@ -1188,6 +1220,31 @@ mod tests {
         }
         let s = Store::open(td.path()).unwrap();
         assert_eq!(s.open_graph(run).unwrap(), image);
+    }
+
+    #[test]
+    fn re_publishing_same_run_id_does_not_corrupt_the_manifest() {
+        // Re-publishing the same RunId overwrites the file on disk; the manifest
+        // must UPSERT the entry, not append a second one with a stale digest (which
+        // would make reopen fail its own checksum check and become unopenable).
+        let td = TempDir::new("store-republish");
+        let run = RunId::new(42);
+        let a = b"PRISMCSR-graph-A".to_vec();
+        let b = b"PRISMCSR-graph-B-different".to_vec();
+        {
+            let mut s = Store::init(td.path()).unwrap();
+            s.publish_graph(run, &a).unwrap();
+            s.publish_graph(run, &b).unwrap(); // re-publish same id, new content
+            assert_eq!(s.open_graph(run).unwrap(), b);
+        }
+        // Reopen must succeed (no duplicate stale-digest entry) and serve B.
+        let s = Store::open(td.path()).expect("workspace must stay openable after re-publish");
+        assert_eq!(s.open_graph(run).unwrap(), b);
+        assert_eq!(
+            s.manifest().files.iter().filter(|f| f.rel_path.contains("run_")).count(),
+            1,
+            "exactly one manifest entry for the re-published run"
+        );
     }
 
     #[test]

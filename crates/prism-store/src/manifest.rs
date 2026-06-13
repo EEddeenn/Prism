@@ -153,6 +153,17 @@ impl Manifest {
         let next_string_id = if version >= 2 { r.read_u32()? } else { 1 };
         let count = r.read_u32()? as usize;
 
+        // Don't pre-reserve from an unvalidated count: a `FileEntry` encodes to at
+        // least 45 bytes (1 kind + 4 path_len + 8 len + 32 digest), so a count that
+        // could not possibly fit in the remaining body is rejected, and the
+        // reservation is bounded by what is actually there. (The CRC above is not a
+        // MAC, so a forged count must not drive a huge allocation.)
+        const MIN_ENTRY_BYTES: usize = 1 + 4 + 8 + 32;
+        if count > r.remaining() / MIN_ENTRY_BYTES {
+            return Err(PrismError::Corrupt {
+                detail: format!("manifest file count {count} exceeds remaining bytes"),
+            });
+        }
         let mut files = Vec::with_capacity(count);
         for _ in 0..count {
             let kind = FileKind::from_u8(r.read_u8()?)?;
@@ -163,6 +174,7 @@ impl Manifest {
                     detail: "non-utf8 manifest path".into(),
                 })?
                 .to_owned();
+            validate_rel_path(&rel_path)?;
             let len = r.read_u64()?;
             let digest = HashDigest::from_bytes(r.read_array()?);
             files.push(FileEntry {
@@ -182,6 +194,26 @@ impl Manifest {
             files,
         })
     }
+}
+
+/// Reject a manifest `rel_path` that could escape the workspace directory when
+/// joined to `.prism/`. The path is always built by the store from a fixed set of
+/// templates, so a hostile value can only arrive via a crafted (but CRC-valid)
+/// MANIFEST opened read-only; this is defense-in-depth so the store never `read`s
+/// outside its own directory regardless.
+fn validate_rel_path(rel_path: &str) -> Result<()> {
+    let bad = rel_path.is_empty()
+        || rel_path.starts_with('/')
+        || rel_path.contains('\\')
+        || rel_path.contains(':') // drive-letter / scheme forms
+        || rel_path.split('/').any(|c| c == ".." || c == ".");
+    // Absolute Windows-style or UNC paths are caught by the ':' / '\\' checks.
+    if bad {
+        return Err(PrismError::Corrupt {
+            detail: format!("unsafe manifest path {rel_path:?}"),
+        });
+    }
+    Ok(())
 }
 
 #[cfg(test)]

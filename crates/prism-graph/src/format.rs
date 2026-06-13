@@ -183,6 +183,17 @@ pub fn read_pcsr(bytes: &[u8]) -> Result<GraphSnapshot> {
             detail: format!("pcsr edge_count {m} exceeds MAX_EDGES"),
         });
     }
+    // Also bound the counts against the bytes that actually remain: each node
+    // contributes at least 16 body bytes (version 8 + depth 4 + flags 4) and each
+    // edge at least 2 (edge_kind u16), so a forged count far larger than the file
+    // cannot drive a huge `Vec::with_capacity` before the element reads fail. (The
+    // CRC is not a MAC; this is the allocation guard the comment above promised.)
+    let body = r.remaining();
+    if n > body / 16 || m > body / 2 {
+        return Err(PrismError::Corrupt {
+            detail: format!("pcsr counts (n={n}, m={m}) exceed remaining {body} bytes"),
+        });
+    }
 
     let mut node_version_id = Vec::with_capacity(n);
     for _ in 0..n {
@@ -229,7 +240,12 @@ pub fn read_pcsr(bytes: &[u8]) -> Result<GraphSnapshot> {
     }
     let mut edge_kind = Vec::with_capacity(m);
     for _ in 0..m {
-        edge_kind.push(r.read_u16()?);
+        let k = r.read_u16()?;
+        // Reject an unknown dependency-kind discriminant at load time (consistent
+        // with the other structural validation) rather than silently round-tripping
+        // a value that BFS would never admit.
+        crate::builder::kind_from_u16(k)?;
+        edge_kind.push(k);
     }
     let edge_scope = read_u32_vec(&mut r, m)?
         .into_iter()

@@ -267,6 +267,13 @@ pub fn write_ptda(doc: &Ptda) -> Vec<u8> {
 }
 
 fn read_u64_vec(r: &mut ByteReader<'_>, n: usize) -> Result<Vec<u64>> {
+    // Don't reserve from a count the body can't possibly hold (8 bytes/element):
+    // a forged length must not drive a huge allocation before the reads fail.
+    if n > r.remaining() / 8 {
+        return Err(PrismError::Corrupt {
+            detail: format!("ptda u64 array length {n} exceeds remaining bytes"),
+        });
+    }
     let mut v = Vec::with_capacity(n);
     for _ in 0..n {
         v.push(r.read_u64()?);
@@ -319,6 +326,17 @@ pub fn read_ptda(bytes: &[u8]) -> Result<Ptda> {
     let p = read_count(r.read_u64()?, "pair_count")?;
     let g = read_count(r.read_u64()?, "gen_count")?;
 
+    // Bound the counts against the bytes that remain: every cell, pair, and
+    // generator carries at least an 8-byte field, so a count larger than
+    // `remaining/8` cannot be backed by real data and must not drive a giant
+    // reservation. (The CRC over the image is not a MAC.)
+    let avail = r.remaining();
+    if c > avail / 8 || p > avail / 8 || g > avail / 8 {
+        return Err(PrismError::Corrupt {
+            detail: format!("ptda counts (c={c}, p={p}, g={g}) exceed remaining {avail} bytes"),
+        });
+    }
+
     // Cell arrays.
     let mut cell_dim = Vec::with_capacity(c);
     for _ in 0..c {
@@ -331,6 +349,11 @@ pub fn read_ptda(bytes: &[u8]) -> Result<Ptda> {
     let vertex_start = read_u64_vec(&mut r, c + 1)?;
     validate_csr(&vertex_start, "cell_vertex_start")?;
     let total_vertices = vertex_start[c] as usize;
+    if total_vertices > r.remaining() / 4 {
+        return Err(PrismError::Corrupt {
+            detail: format!("ptda total_vertices {total_vertices} exceeds remaining bytes"),
+        });
+    }
     let mut cell_vertices = Vec::with_capacity(total_vertices);
     for _ in 0..total_vertices {
         cell_vertices.push(GraphNodeId::new(r.read_u32()?));
@@ -338,6 +361,11 @@ pub fn read_ptda(bytes: &[u8]) -> Result<Ptda> {
     let boundary_start = read_u64_vec(&mut r, c + 1)?;
     validate_csr(&boundary_start, "cell_boundary_start")?;
     let total_faces = boundary_start[c] as usize;
+    if total_faces > r.remaining() / 8 {
+        return Err(PrismError::Corrupt {
+            detail: format!("ptda total_faces {total_faces} exceeds remaining bytes"),
+        });
+    }
     let mut boundary_faces = Vec::with_capacity(total_faces);
     for _ in 0..total_faces {
         boundary_faces.push(r.read_u64()?);
@@ -424,6 +452,25 @@ pub fn read_ptda(bytes: &[u8]) -> Result<Ptda> {
                 ),
             });
         }
+        // The birth cell, and the death cell of a finite pair, must reference a
+        // real cell; the birth value must be finite. The writer never violates
+        // these, but the reader must reject a structurally inconsistent image
+        // rather than admit a dangling cell / NaN into an immutable snapshot.
+        if birth_cell[i] >= c as u64 {
+            return Err(PrismError::Corrupt {
+                detail: format!("pair {i}: birth_cell {} out of range", birth_cell[i]),
+            });
+        }
+        if !is_essential && dc >= c as u64 {
+            return Err(PrismError::Corrupt {
+                detail: format!("pair {i}: death_cell {dc} out of range"),
+            });
+        }
+        if !birth_value[i].is_finite() {
+            return Err(PrismError::Corrupt {
+                detail: format!("pair {i}: non-finite birth_value"),
+            });
+        }
         pairs.push(PersistencePair {
             pair_id: PairId::new(pair_id[i]),
             dim: pair_dim[i],
@@ -449,8 +496,15 @@ pub fn read_ptda(bytes: &[u8]) -> Result<Ptda> {
     for _ in 0..g {
         gen_contribution.push(r.read_u8()? as i8);
     }
+    // Every generator must attach to a pair present in this document.
+    let pair_ids: std::collections::BTreeSet<u64> = pairs.iter().map(|p| p.pair_id.get()).collect();
     let mut generators = Vec::with_capacity(g);
     for i in 0..g {
+        if !pair_ids.contains(&gen_pair_id[i]) {
+            return Err(PrismError::Corrupt {
+                detail: format!("generator {i}: pair_id {} not present", gen_pair_id[i]),
+            });
+        }
         generators.push(GeneratorEntry {
             pair_id: PairId::new(gen_pair_id[i]),
             object_type: gen_object_type[i],
@@ -465,7 +519,18 @@ pub fn read_ptda(bytes: &[u8]) -> Result<Ptda> {
         });
     }
 
-    // Re-validate the cell complex (monotonicity / cell order) via the reader.
+    // The self-describing `max_dimension` header must match the actual cells
+    // (v0.1 supports only dims 0 and 1), so an inconsistent claim is rejected.
+    let actual_max_dim = cells.iter().map(|c| c.dim).max().unwrap_or(0);
+    if max_dimension != actual_max_dim || actual_max_dim > 1 {
+        return Err(PrismError::Corrupt {
+            detail: format!(
+                "ptda max_dimension {max_dimension} disagrees with actual {actual_max_dim}"
+            ),
+        });
+    }
+
+    // Re-validate the cell complex (monotonicity / cell order / arity / ranges).
     let _ = Complex::from_cells(cells.clone(), node_count)?;
 
     Ok(Ptda {

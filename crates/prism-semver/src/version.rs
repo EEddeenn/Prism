@@ -235,7 +235,12 @@ fn parse_pre_identifier(part: &str) -> Result<Identifier> {
         match part.parse::<u64>() {
             Ok(n) => Ok(Identifier::Numeric(n)),
             // Too large to fit u64: keep it as an alphanumeric identifier so we
-            // never lose information or panic on untrusted input.
+            // never lose information or panic on untrusted input. SemVer says
+            // numeric identifiers compare numerically, so two distinct >u64
+            // all-digit identifiers (>19-20 digits) then compare by ASCII rather
+            // than magnitude — an accepted, internally-consistent tie-break for
+            // these pathological versions (sort_key stays consistent with Ord, so
+            // no index/ordering corruption results).
             Err(_) => Ok(Identifier::AlphaNumeric(part.to_string())),
         }
     } else {

@@ -25,7 +25,11 @@ pub fn write_uvarint(w: &mut ByteWriter, mut v: u64) {
 ///
 /// Returns [`PrismError::OutOfBounds`] on truncation, and
 /// [`PrismError::Corrupt`] if the encoding would overflow `u64` (more than 10
-/// bytes, or a 10th byte with bits above bit 63 set).
+/// bytes, or a 10th byte with bits above bit 63 set) or is **overlong** — a
+/// non-minimal multi-byte encoding whose terminating group is `0x00`. Rejecting
+/// overlong forms keeps the decoder injective, so a re-encoded segment cannot map
+/// a value to bytes that fail to round-trip (canonical byte form is the basis of
+/// content addressing).
 pub fn read_uvarint(r: &mut ByteReader<'_>) -> Result<u64> {
     let mut result: u64 = 0;
     let mut shift: u32 = 0;
@@ -45,6 +49,13 @@ pub fn read_uvarint(r: &mut ByteReader<'_>) -> Result<u64> {
         }
         result |= payload << shift;
         if byte & 0x80 == 0 {
+            // A terminating `0x00` continuation group past the first byte is a
+            // non-minimal (overlong) encoding.
+            if shift > 0 && byte == 0 {
+                return Err(PrismError::Corrupt {
+                    detail: "overlong (non-canonical) uvarint encoding".into(),
+                });
+            }
             return Ok(result);
         }
         shift += 7;
@@ -88,6 +99,23 @@ mod tests {
         let mut w = ByteWriter::new();
         write_uvarint(&mut w, 300);
         assert_eq!(w.as_slice(), &[0xAC, 0x02]);
+    }
+
+    #[test]
+    fn overlong_encoding_is_rejected() {
+        // [0x80, 0x00] and [0x81, 0x00] decode to 0 / 1 but are non-minimal; the
+        // minimal forms are [0x00] and [0x01]. Decoding must reject the overlong
+        // forms so the byte representation stays canonical.
+        for bytes in [&[0x80u8, 0x00][..], &[0x81, 0x00][..], &[0xAC, 0x80, 0x00][..]] {
+            let mut r = ByteReader::new(bytes);
+            assert!(
+                matches!(read_uvarint(&mut r), Err(PrismError::Corrupt { .. })),
+                "overlong {bytes:?} must be rejected"
+            );
+        }
+        // The minimal single-byte zero is still fine.
+        let mut r = ByteReader::new(&[0x00]);
+        assert_eq!(read_uvarint(&mut r).unwrap(), 0);
     }
 
     #[test]

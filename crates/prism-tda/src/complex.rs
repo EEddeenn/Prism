@@ -276,6 +276,42 @@ impl Complex {
     /// [`PrismError::Corrupt`].
     fn assert_monotone(&self) -> Result<()> {
         for (cid, cell) in self.cells.iter().enumerate() {
+            // Structural validation: `compute` indexes `cell.vertices[0]`/`[1]` and
+            // a union-find of length `node_count`, so a wrong arity or an
+            // out-of-range vertex (which the `.ptda` reader cannot catch — it
+            // derives node_count from 0-cells only) would panic. Reject here.
+            match cell.dim {
+                0 if cell.vertices.len() != 1 => {
+                    return Err(PrismError::Corrupt {
+                        detail: format!("0-cell {cid} must have exactly 1 vertex"),
+                    });
+                }
+                1 if cell.vertices.len() != 2 => {
+                    return Err(PrismError::Corrupt {
+                        detail: format!("1-cell {cid} must have exactly 2 vertices"),
+                    });
+                }
+                d if d > 1 => {
+                    return Err(PrismError::Corrupt {
+                        detail: format!("cell {cid} has unsupported dimension {d}"),
+                    });
+                }
+                _ => {}
+            }
+            for v in &cell.vertices {
+                if v.get() as usize >= self.node_count {
+                    return Err(PrismError::Corrupt {
+                        detail: format!("cell {cid} vertex {} >= node_count", v.get()),
+                    });
+                }
+            }
+            // A non-finite birth value would make filtration ordering undefined and
+            // can slip past the face-based monotonicity check on a faceless 0-cell.
+            if !cell.birth_value.is_finite() {
+                return Err(PrismError::Corrupt {
+                    detail: format!("cell {cid} has non-finite birth value"),
+                });
+            }
             for &face in &cell.faces {
                 let fi = face as usize;
                 if fi >= self.cells.len() {

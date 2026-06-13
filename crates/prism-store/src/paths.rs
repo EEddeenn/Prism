@@ -30,9 +30,11 @@ impl Layout {
         self.prism_dir().join("MANIFEST")
     }
 
-    /// The staging name for an atomic manifest swap.
+    /// The staging name an atomic manifest swap actually uses. `fsutil::atomic_write`
+    /// stages every file as a dotted sibling `.{name}.tmp`, so the manifest stages
+    /// as `.prism/.MANIFEST.tmp` — recovery sweeps this exact name.
     pub fn manifest_tmp(&self) -> PathBuf {
-        self.prism_dir().join("MANIFEST.tmp")
+        self.prism_dir().join(".MANIFEST.tmp")
     }
 
     /// The `.prism/LOCK` file.

@@ -375,12 +375,21 @@ impl<'a> Parser<'a> {
     // ---- keys ----
 
     /// Parse a dotted key path: `a.b.c`. Stops before `=`, `]`, or EOL.
+    ///
+    /// The number of segments is capped at [`MAX_TOML_DEPTH`]: a dotted path of
+    /// length N descends (and, for inline tables, builds) an N-deep table chain,
+    /// so an unbounded path would otherwise overflow the stack (in parsing AND in
+    /// the recursive drop of the built structure). Capping here bounds every
+    /// dotted-key form — table headers, bare key-values, and inline tables.
     fn parse_key_path(&mut self) -> Result<Vec<String>> {
         let mut keys = Vec::new();
         loop {
             self.skip_inline_ws();
             let key = self.parse_key_component()?;
             keys.push(key);
+            if keys.len() >= MAX_TOML_DEPTH {
+                return Err(self.err("toml: dotted key path too deep"));
+            }
             self.skip_inline_ws();
             if self.peek() == Some(b'.') {
                 self.pos += 1;
@@ -808,32 +817,41 @@ fn follow_last_array_element(node: &mut Toml) -> &mut Toml {
 }
 
 /// Insert a (possibly dotted) key into an inline-table being built.
+///
+/// Iterative (walks the slot chain with a loop) rather than recursive, so a
+/// long dotted key cannot overflow the stack regardless of the parser's depth
+/// cap — `parse_key_path` already bounds the segment count, and this keeps the
+/// builder safe independently.
 fn insert_dotted_inline(
     table: &mut Vec<(String, Toml)>,
     dotted: &[String],
     value: Toml,
 ) -> core::result::Result<(), String> {
-    if dotted.len() == 1 {
-        let key = &dotted[0];
-        if table.iter().any(|(k, _)| k == key) {
-            return Err(format!("duplicate key '{key}' in inline table"));
+    debug_assert!(!dotted.is_empty());
+    let mut current = table;
+    for (i, key) in dotted.iter().enumerate() {
+        let is_last = i == dotted.len() - 1;
+        if is_last {
+            if current.iter().any(|(k, _)| k == key) {
+                return Err(format!("duplicate key '{key}' in inline table"));
+            }
+            current.push((key.clone(), value));
+            return Ok(());
         }
-        table.push((key.clone(), value));
-        return Ok(());
+        // Descend (creating an intermediate table if absent).
+        let idx = match current.iter().position(|(k, _)| k == key) {
+            Some(idx) => idx,
+            None => {
+                current.push((key.clone(), Toml::Table(Vec::new())));
+                current.len() - 1
+            }
+        };
+        current = match &mut current[idx].1 {
+            Toml::Table(inner) => inner,
+            _ => return Err(format!("dotted key '{key}' conflicts with a value")),
+        };
     }
-    let key = &dotted[0];
-    let slot = match table.iter().position(|(k, _)| k == key) {
-        Some(idx) => &mut table[idx].1,
-        None => {
-            table.push((key.clone(), Toml::Table(Vec::new())));
-            let last = table.len() - 1;
-            &mut table[last].1
-        }
-    };
-    match slot {
-        Toml::Table(inner) => insert_dotted_inline(inner, &dotted[1..], value),
-        _ => Err(format!("dotted key '{key}' conflicts with a value")),
-    }
+    Ok(())
 }
 
 /// Classify a bare scalar token (no strings/arrays/inline tables here).
@@ -1322,6 +1340,39 @@ mod tests {
     }
 
     #[test]
+    fn deep_dotted_key_is_graceful_error_not_overflow() {
+        // The dotted-key chain (inline-table, table-header, and bare key-val
+        // forms) must be depth-bounded — an unbounded chain previously overflowed
+        // the stack. Run on a deliberately small-stack thread so a regression
+        // aborts here as a thread panic rather than passing by luck on a big stack.
+        let n = MAX_TOML_DEPTH + 5000;
+        let body = move || {
+            let segs = (0..n).map(|i| format!("k{i}")).collect::<Vec<_>>().join(".");
+            // inline-table dotted key: a = { k0.k1.....kN = 1 }
+            assert!(matches!(
+                parse_toml(&format!("a = {{ {segs} = 1 }}\n")),
+                Err(PrismError::Corrupt { .. })
+            ));
+            // bare dotted key-val: k0.k1.....kN = 1
+            assert!(matches!(
+                parse_toml(&format!("{segs} = 1\n")),
+                Err(PrismError::Corrupt { .. })
+            ));
+            // dotted table header: [k0.k1.....kN]
+            assert!(matches!(
+                parse_toml(&format!("[{segs}]\n")),
+                Err(PrismError::Corrupt { .. })
+            ));
+        };
+        std::thread::Builder::new()
+            .stack_size(256 * 1024)
+            .spawn(body)
+            .unwrap()
+            .join()
+            .expect("must return a typed error, not overflow the stack");
+    }
+
+    #[test]
     fn at_depth_limit_ok() {
         let n = MAX_TOML_DEPTH;
         let mut s = String::from("a = ");
@@ -1344,3 +1395,4 @@ mod tests {
         assert_eq!(t2, Toml::Table(vec![]));
     }
 }
+

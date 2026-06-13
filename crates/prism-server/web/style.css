@@ -110,6 +110,79 @@ button:hover { border-color: var(--accent); background: var(--panel-3); }
 #graph-svg { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
 #graph-svg.panning { cursor: grabbing; }
 
+/* generic visibility helper (the empty-state has its own more-specific rule) */
+.hidden { display: none !important; }
+
+/* 3D canvas overlays the pane in the same box as the SVG. */
+#graph-3d {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  display: block; cursor: grab; touch-action: none;
+}
+
+/* ---- 2D / 3D view toggle (top bar) --------------------------------------- */
+
+.viewtoggle { gap: 0; }
+.viewtoggle .vt {
+  padding: 6px 11px; border-radius: 0; border-right-width: 0;
+  color: var(--muted); font-weight: 700; font-size: 12px;
+}
+.viewtoggle .vt:first-child { border-top-left-radius: 7px; border-bottom-left-radius: 7px; }
+.viewtoggle .vt:last-child { border-right-width: 1px; border-top-right-radius: 7px; border-bottom-right-radius: 7px; }
+.viewtoggle .vt.active { color: #06203f; background: var(--accent); border-color: var(--accent); }
+
+/* ---- 3D control panel (graph overlay) ------------------------------------ */
+
+.v3d {
+  position: absolute; left: 14px; top: 14px; z-index: 3;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px; max-width: 320px;
+  background: rgba(21, 24, 35, 0.9); border: 1px solid var(--line);
+  border-radius: 10px; box-shadow: var(--shadow); backdrop-filter: blur(4px);
+}
+.v3d-modes { display: flex; gap: 0; }
+.v3d-mode {
+  flex: 1; padding: 6px 8px; font-size: 11.5px; font-weight: 600;
+  border-radius: 0; border-right-width: 0; color: var(--muted);
+}
+.v3d-mode:first-child { border-top-left-radius: 8px; border-bottom-left-radius: 8px; }
+.v3d-mode:last-child { border-right-width: 1px; border-top-right-radius: 8px; border-bottom-right-radius: 8px; }
+.v3d-mode.active { color: var(--ink); background: var(--panel-3); border-color: var(--accent); }
+.v3d-row { display: flex; align-items: center; gap: 7px; }
+.v3d-row label { color: var(--muted); font-size: 11.5px; flex: none; }
+.v3d-row select { flex: 1; font-size: 11.5px; padding: 4px 7px; max-width: none; }
+.v3d-row button { flex: 1; font-size: 11.5px; padding: 5px 8px; }
+.v3d-row #v3d-spin.active { color: #06203f; background: var(--accent); border-color: var(--accent); }
+.v3d-hint { color: var(--muted); font-size: 10.5px; line-height: 1.4; display: block; }
+.v3d-hint.hidden { display: none; }
+
+/* ---- TDA feature list (side panel) --------------------------------------- */
+
+#tda-features { margin-top: 6px; }
+.feat-group-h {
+  font-size: 11px; color: var(--muted); text-transform: uppercase;
+  letter-spacing: 0.5px; margin: 12px 0 5px;
+}
+.feat {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 9px; margin: 4px 0; border-radius: 8px;
+  background: var(--panel-2); cursor: pointer; border: 1px solid transparent;
+}
+.feat:hover { border-color: var(--accent); background: var(--panel-3); }
+.feat.active { border-color: var(--node-center); background: var(--panel-3); }
+.feat .feat-dim {
+  flex: none; font-family: ui-monospace, monospace; font-weight: 700; font-size: 11px;
+  color: var(--accent); min-width: 22px;
+}
+.feat .feat-life {
+  flex: 1; font-size: 11px; color: var(--ink); font-variant-numeric: tabular-nums;
+}
+.feat .feat-tag {
+  flex: none; font-size: 10px; color: var(--muted);
+  border: 1px solid var(--line-2); border-radius: 10px; padding: 0 7px;
+}
+.feat .feat-tag.essential { color: var(--node-center); border-color: #4a3a1e; }
+.feat-note { color: var(--muted); font-size: 11px; margin: 6px 0 0; }
+
 .graph-empty {
   position: absolute; inset: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center;

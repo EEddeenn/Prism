@@ -17,7 +17,7 @@ use prism_tda::{
     depth_filtration, read_ptda, write_ptda, Complex, ObjectType, PersistenceResult, Ptda,
 };
 
-use crate::tda_views::{BarcodeDim, BarcodeView, SupportObject, SupportView};
+use crate::tda_views::{BarcodeDim, BarcodeView, PairView, SupportObject, SupportView};
 use crate::Prism;
 
 impl Prism {
@@ -70,6 +70,28 @@ impl Prism {
     pub fn tda_barcode(&self, run: RunId, filtration: FiltrationId) -> Result<BarcodeView> {
         let doc = self.load_ptda(run, filtration)?;
         Ok(barcode_from(run, filtration, &doc.persistence()))
+    }
+
+    /// List the individual persistence pairs of `run`'s `filtration`.
+    ///
+    /// Where [`Prism::tda_barcode`] returns only per-dimension *counts*, this
+    /// returns one [`PairView`] per bar (id, dimension, birth/death values) so a
+    /// caller can present a feature list and then resolve a chosen pair's
+    /// generators with [`Prism::tda_support`]. Pairs are returned in the `.ptda`'s
+    /// stored emission order (H0 finite, H0 essential, H1 …).
+    pub fn tda_pairs(&self, run: RunId, filtration: FiltrationId) -> Result<Vec<PairView>> {
+        let doc = self.load_ptda(run, filtration)?;
+        let result = doc.persistence();
+        Ok(result
+            .pairs()
+            .iter()
+            .map(|p| PairView {
+                pair: p.pair_id,
+                dim: p.dim,
+                birth: p.birth_value,
+                death: p.death_value,
+            })
+            .collect())
     }
 
     /// Map a persistence pair's generator support to graph nodes/edges.

@@ -87,6 +87,14 @@ fn split(resp: &str) -> (&str, &str) {
     (status, body)
 }
 
+/// Pull the first run of decimal digits that immediately follows `needle`
+/// (e.g. the `"pair":` value) out of a compact JSON body. No serde needed.
+fn extract_u64_after(body: &str, needle: &str) -> Option<u64> {
+    let start = body.find(needle)? + needle.len();
+    let digits: String = body[start..].chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse().ok()
+}
+
 #[test]
 fn serve_workspace_end_to_end() {
     // (a) Build a temp workspace and ingest an inline Cargo.lock via prism_api.
@@ -168,6 +176,51 @@ fn serve_workspace_end_to_end() {
     let (status, body) = split(&tda);
     assert!(status.starts_with("HTTP/1.1 200"), "tda status: {status}");
     assert!(body.contains(r#""component_count":1"#), "tda body: {body}");
+
+    // The 3D renderer is served as a hermetic, same-origin asset.
+    let scene = roundtrip(addr, "GET /scene3d.js HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    let (status, body) = split(&scene);
+    assert!(status.starts_with("HTTP/1.1 200"), "scene3d status: {status}");
+    assert!(body.contains("Scene3D"), "scene3d body should define Scene3D");
+
+    // /api/tda/pairs lists individual persistence bars with birth/death/essential.
+    let req = format!(
+        "GET /api/tda/pairs?run={} HTTP/1.1\r\nHost: localhost\r\n\r\n",
+        run.get()
+    );
+    let pairs = roundtrip(addr, &req);
+    let (status, body) = split(&pairs);
+    assert!(status.starts_with("HTTP/1.1 200"), "pairs status: {status}");
+    assert!(body.contains(r#""dim":0"#), "pairs body: {body}");
+    assert!(body.contains(r#""essential":true"#), "expected an essential H0 class: {body}");
+
+    // /api/tda/support resolves a pair's generators to concrete graph objects.
+    let pair_id = extract_u64_after(body, r#""pair":"#).expect("a pair id in the list");
+    let req = format!(
+        "GET /api/tda/support?run={}&pair={pair_id} HTTP/1.1\r\nHost: localhost\r\n\r\n",
+        run.get()
+    );
+    let support = roundtrip(addr, &req);
+    let (status, body) = split(&support);
+    assert!(status.starts_with("HTTP/1.1 200"), "support status: {status}");
+    assert!(body.contains(r#""objects":"#), "support body: {body}");
+    assert!(body.contains(r#""type":"node""#), "an H0 generator is a node: {body}");
+
+    // A missing pair param is a 400; an unknown pair is a 404.
+    let req = format!(
+        "GET /api/tda/support?run={} HTTP/1.1\r\nHost: localhost\r\n\r\n",
+        run.get()
+    );
+    let resp = roundtrip(addr, &req);
+    let (status, _) = split(&resp);
+    assert!(status.starts_with("HTTP/1.1 400"), "missing pair status: {status}");
+    let req = format!(
+        "GET /api/tda/support?run={}&pair=999999999 HTTP/1.1\r\nHost: localhost\r\n\r\n",
+        run.get()
+    );
+    let resp = roundtrip(addr, &req);
+    let (status, _) = split(&resp);
+    assert!(status.starts_with("HTTP/1.1 404"), "unknown pair status: {status}");
 
     // A missing run param is a 400 JSON error.
     let bad = roundtrip(addr, "GET /api/graph/stats HTTP/1.1\r\nHost: localhost\r\n\r\n");

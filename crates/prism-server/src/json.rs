@@ -95,6 +95,25 @@ impl JsonWriter {
         self.buf.push_str(if b { "true" } else { "false" });
     }
 
+    /// Write a JSON `null`.
+    pub fn null_value(&mut self) {
+        self.sep();
+        self.buf.push_str("null");
+    }
+
+    /// Write a finite `f64`. JSON has no NaN/Infinity, so a non-finite value is
+    /// emitted as `null` rather than producing an invalid document.
+    pub fn f64_value(&mut self, x: f64) {
+        if x.is_finite() {
+            self.sep();
+            // `{}` formats an integral f64 without a trailing `.0` (e.g. `3`),
+            // which is valid JSON and keeps depth-valued filtrations compact.
+            self.buf.push_str(&format!("{x}"));
+        } else {
+            self.null_value();
+        }
+    }
+
     /// Convenience: `key` then a string value.
     pub fn field_str(&mut self, name: &str, s: &str) {
         self.key(name);
@@ -206,6 +225,22 @@ mod tests {
         let s = format!("{}{}", '\u{08}', '\u{0C}');
         w.str_value(&s);
         assert_eq!(w.finish(), r#""\b\f""#);
+    }
+
+    #[test]
+    fn floats_and_null() {
+        let mut w = JsonWriter::new();
+        w.begin_object();
+        w.key("a");
+        w.f64_value(3.0); // integral -> "3"
+        w.key("b");
+        w.f64_value(1.5);
+        w.key("c");
+        w.f64_value(f64::INFINITY); // non-finite -> null
+        w.key("d");
+        w.null_value();
+        w.end_object();
+        assert_eq!(w.finish(), r#"{"a":3,"b":1.5,"c":null,"d":null}"#);
     }
 
     #[test]

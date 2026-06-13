@@ -31,6 +31,8 @@ const state = {
   impact: new Set(),
   matches: new Set(),   // search hits
   T: { x: 0, y: 0, k: 1 }, // viewport transform (world -> screen)
+  view: '2d',           // '2d' (SVG) or '3d' (Scene3D canvas)
+  features: [],         // TDA persistence pairs for the current run
 };
 
 // --- tiny DOM/SVG helpers ---------------------------------------------------
@@ -110,9 +112,16 @@ async function selectRun(run) {
     clearSelection();
     render();
     fitView();
+    // The 3D scene shares the same data + selection; build its layout now so a
+    // toggle to 3D is instant.
+    Scene3D.setData();
     // Side panels (independent; a failure in one must not blank the others).
-    await Promise.all([loadOverview(run), loadDuplicates(run), loadScc(run), loadBarcode(run)]);
+    await Promise.all([
+      loadOverview(run), loadDuplicates(run), loadScc(run), loadBarcode(run), loadFeatures(run),
+    ]);
     showTab('overview');
+    // Duplicate flags arrive with loadDuplicates; refresh 3D colors if it's live.
+    if (state.view === '3d') Scene3D.redraw();
     setStatus('');
   } catch (e) {
     setStatus(e.message, true);
@@ -514,6 +523,12 @@ function clearSelection() {
   state.sel = null; state.fwd = new Set(); state.impact = new Set();
 }
 
+/* Repaint whichever view is active (both read the shared selection state). */
+function refresh() {
+  if (state.view === '3d') Scene3D.redraw();
+  else render();
+}
+
 async function onNodeClick(node) {
   setStatus('Tracing dependencies…');
   state.sel = node.id;
@@ -529,16 +544,20 @@ async function onNodeClick(node) {
     for (const n of (nb.nodes || [])) state.fwd.add(n.id);
     state.impact = new Set([node.id]);
     for (const n of (imp.nodes || [])) state.impact.add(n.id);
-    render();
+    refresh();
     setStatus('');
   } catch (e) {
     setStatus(e.message, true);
   }
 }
 
+/* Select a node by id and bring it into view (camera in 3D, viewport in 2D). */
 function focusNode(id) {
   const n = state.byId.get(id);
-  if (n) onNodeClick(n);
+  if (!n) return;
+  onNodeClick(n);
+  if (state.view === '3d') Scene3D.focus(id);
+  else { const p = state.pos.get(id); if (p) centerOn(p); }
 }
 
 function showNodeInfo(node) {
@@ -691,10 +710,10 @@ function highlightSet(ids, label) {
   state.sel = ids[0];
   state.fwd = new Set(ids);
   state.impact = new Set();
-  render();
+  refresh();
   // Center the view loosely on the first occurrence.
-  const p = state.pos.get(ids[0]);
-  if (p) centerOn(p);
+  if (state.view === '3d') Scene3D.focus(ids[0]);
+  else { const p = state.pos.get(ids[0]); if (p) centerOn(p); }
   setStatus(`${ids.length} occurrence(s) of ${label.replace(/^pkg:[^/]+\//, '')} highlighted.`);
 }
 
@@ -786,13 +805,115 @@ function barRow(label, count, max, essential) {
   return row;
 }
 
+// --- TDA features (persistence pairs -> 3D generator highlight) -------------
+
+/* Load the run's persistence pairs and render a selectable feature list. The
+ * server resolves a chosen pair's generators back to concrete graph objects via
+ * /api/tda/support, which the 3D TDA mode lights up. Best-effort: a run with no
+ * persisted .ptda just leaves the list empty (the barcode panel explains how to
+ * compute one). */
+async function loadFeatures(run) {
+  const box = el('tda-features');
+  clear(box);
+  state.features = [];
+  let data;
+  try { data = await getJson('/api/tda/pairs?run=' + run); }
+  catch (_) { return; }
+  const pairs = data.pairs || [];
+  state.features = pairs;
+  if (!pairs.length) return;
+  box.appendChild(mk('p', 'feat-note',
+    'Click a feature to light up the packages that carry it (opens 3D · TDA).'));
+  renderFeatureGroup(box, 'H₀ — connected components', pairs.filter((p) => p.dim === 0));
+  renderFeatureGroup(box, 'H₁ — loops', pairs.filter((p) => p.dim === 1));
+}
+
+function renderFeatureGroup(box, title, list) {
+  if (!list.length) return;
+  box.appendChild(mk('div', 'feat-group-h', title + ' (' + list.length + ')'));
+  // Essential (never-dying) first, then longest-lived — the most significant
+  // features at the top. Cap the displayed rows; note any remainder.
+  const sorted = list.slice().sort((a, b) =>
+    (Number(b.essential) - Number(a.essential)) ||
+    ((b.persistence || 0) - (a.persistence || 0)) || (a.pair - b.pair));
+  const CAP = 40;
+  for (const p of sorted.slice(0, CAP)) box.appendChild(featRow(p));
+  if (sorted.length > CAP) {
+    box.appendChild(mk('p', 'feat-note',
+      `… and ${sorted.length - CAP} more (showing the ${CAP} longest-lived).`));
+  }
+}
+
+function fmtNum(x) { return (x == null) ? '?' : String(Math.round(x * 10) / 10); }
+
+function featRow(p) {
+  const row = mk('div', 'feat');
+  row.dataset.pair = String(p.pair);
+  row.appendChild(mk('span', 'feat-dim', 'H' + p.dim));
+  const life = p.essential
+    ? 'born d' + fmtNum(p.birth) + ' · never dies'
+    : 'd' + fmtNum(p.birth) + ' → d' + fmtNum(p.death) + ' · life ' + fmtNum(p.persistence);
+  row.appendChild(mk('span', 'feat-life', life));
+  row.appendChild(mk('span', 'feat-tag' + (p.essential ? ' essential' : ''),
+    p.essential ? 'essential' : 'finite'));
+  row.addEventListener('click', () => selectFeature(p, row));
+  return row;
+}
+
+async function selectFeature(p, row) {
+  for (const r of document.querySelectorAll('.feat')) r.classList.toggle('active', r === row);
+  setStatus('Resolving feature generators…');
+  try {
+    const sup = await getJson(`/api/tda/support?run=${state.run}&pair=${p.pair}`);
+    const objs = sup.objects || [];
+    if (state.view !== '3d') setView('3d');
+    setMode3d('tda');
+    Scene3D.setFeatureSupport(p.dim, objs);
+    const nN = objs.filter((o) => o.type === 'node').length;
+    const nE = objs.filter((o) => o.type === 'edge').length;
+    setStatus(`H${p.dim} generator lit: ${nN} node(s), ${nE} edge(s).`);
+  } catch (e) { setStatus(e.message, true); }
+}
+
+// --- 3D view control --------------------------------------------------------
+
+/* Switch between the 2D SVG view and the 3D canvas. Both render the same data
+ * and selection; only the active surface and its overlay controls change. */
+function setView(v) {
+  state.view = v;
+  const is3d = v === '3d';
+  el('graph-svg').classList.toggle('hidden', is3d);
+  el('graph-3d').classList.toggle('hidden', !is3d);
+  el('view3d-controls').classList.toggle('hidden', !is3d);
+  el('zoom-controls').classList.toggle('hidden', is3d);
+  el('view-2d').classList.toggle('active', !is3d);
+  el('view-3d').classList.toggle('active', is3d);
+  if (is3d) {
+    Scene3D.show();
+  } else {
+    Scene3D.hide();
+    el('v3d-spin').classList.remove('active');
+    render(); // refresh the SVG with any selection changed while in 3D
+  }
+}
+
+function setMode3d(m) {
+  for (const b of document.querySelectorAll('.v3d-mode')) {
+    b.classList.toggle('active', b.dataset.mode === m);
+  }
+  el('v3d-signal-row').classList.toggle('hidden', m !== 'terrain');
+  el('v3d-hint').classList.toggle('hidden', false);
+  Scene3D.setMode(m);
+  if (m === 'tda') showTab('tda'); // surface the feature list to pick from
+}
+
 // --- search -----------------------------------------------------------------
 
 function runSearch(term) {
   term = (term || '').trim().toLowerCase();
   state.matches = new Set();
   const countEl = el('search-count');
-  if (!term) { countEl.textContent = ''; render(); return; }
+  if (!term) { countEl.textContent = ''; refresh(); return; }
   let first = null;
   for (const n of state.nodes) {
     if (n.purl.toLowerCase().includes(term)) {
@@ -802,7 +923,7 @@ function runSearch(term) {
   }
   countEl.textContent = state.matches.size ? (state.matches.size + ' hit' + (state.matches.size === 1 ? '' : 's'))
                                            : 'no hits';
-  render();
+  refresh();
   return first;
 }
 
@@ -845,13 +966,33 @@ function init() {
   search.addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter') {
       const first = runSearch(search.value);
-      if (first != null) { const p = state.pos.get(first); if (p) centerOn(p); focusNode(first); }
+      if (first != null) focusNode(first); // focusNode centers per active view
     } else if (ev.key === 'Escape') {
       search.value = ''; runSearch('');
     }
   });
 
+  install3dControls();
   loadRuns().catch((e) => setStatus(e.message, true));
+}
+
+/* Wire the 3D canvas, the 2D/3D toggle, and the 3D overlay controls. */
+function install3dControls() {
+  Scene3D.init(el('graph-3d'));
+  Scene3D.onPick((node) => onNodeClick(node));
+
+  el('view-2d').addEventListener('click', () => setView('2d'));
+  el('view-3d').addEventListener('click', () => setView('3d'));
+
+  for (const b of document.querySelectorAll('.v3d-mode')) {
+    b.addEventListener('click', () => setMode3d(b.dataset.mode));
+  }
+  el('v3d-signal').addEventListener('change', (ev) => Scene3D.setSignal(ev.target.value));
+  el('v3d-spin').addEventListener('click', () => {
+    const on = Scene3D.toggleSpin();
+    el('v3d-spin').classList.toggle('active', on);
+  });
+  el('v3d-reset').addEventListener('click', () => Scene3D.resetView());
 }
 
 document.addEventListener('DOMContentLoaded', init);

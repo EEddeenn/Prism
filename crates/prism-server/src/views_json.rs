@@ -7,7 +7,7 @@
 
 use prism_api::{
     BarcodeView, DuplicateClusterView, GraphEdgeView, GraphNodeView, GraphStatsView,
-    NeighborhoodView, SccView,
+    NeighborhoodView, PairView, SccView, SupportObject, SupportView,
 };
 
 use crate::json::JsonWriter;
@@ -132,6 +132,84 @@ pub fn barcode(w: &mut JsonWriter, b: &BarcodeView) {
     w.end_object();
 }
 
+/// Write a single [`PairView`] as a JSON object. `death`/`persistence` are
+/// `null` for an essential class (one that never dies).
+pub fn pair(w: &mut JsonWriter, p: &PairView) {
+    w.begin_object();
+    w.field_u64("pair", p.pair.get());
+    w.field_u64("dim", p.dim as u64);
+    w.key("birth");
+    w.f64_value(p.birth);
+    w.key("death");
+    match p.death {
+        Some(d) => w.f64_value(d),
+        None => w.null_value(),
+    }
+    w.field_bool("essential", p.is_essential());
+    w.key("persistence");
+    match p.persistence() {
+        Some(d) => w.f64_value(d),
+        None => w.null_value(),
+    }
+    w.end_object();
+}
+
+/// Write the list of persistence pairs for a filtration as a JSON object
+/// `{run, filtration, pairs:[...]}`.
+pub fn pairs(w: &mut JsonWriter, run: prism_model::RunId, filtration: prism_model::FiltrationId, ps: &[PairView]) {
+    w.begin_object();
+    w.field_u64("run", run.get());
+    w.field_u64("filtration", filtration.get());
+    w.field_u64("count", ps.len() as u64);
+    w.key("pairs");
+    w.begin_array();
+    for p in ps {
+        pair(w, p);
+    }
+    w.end_array();
+    w.end_object();
+}
+
+/// Write a [`SupportView`] — a pair's generator chain resolved to graph objects.
+///
+/// Each object is tagged: a `"node"` carries the full node view; an `"edge"`
+/// carries its snapshot-local id and endpoints so the UI can light up the
+/// concrete dependency arc that the topological feature rides on.
+pub fn support(w: &mut JsonWriter, v: &SupportView) {
+    w.begin_object();
+    w.field_u64("pair", v.pair.get());
+    w.field_u64("dim", v.dim as u64);
+    w.field_u64("object_count", v.objects.len() as u64);
+    w.key("objects");
+    w.begin_array();
+    for obj in &v.objects {
+        match obj {
+            SupportObject::Node(n) => {
+                w.begin_object();
+                w.field_str("type", "node");
+                w.field_u64("id", n.id.get() as u64);
+                w.field_str("purl", &n.purl);
+                w.field_u64("version_id", n.version.get());
+                if let Some(pkg) = n.package {
+                    w.field_u64("package_id", pkg.get());
+                }
+                w.field_u64("depth", n.depth as u64);
+                w.end_object();
+            }
+            SupportObject::Edge { id, source, target } => {
+                w.begin_object();
+                w.field_str("type", "edge");
+                w.field_u64("id", id.get() as u64);
+                w.field_u64("source", source.get() as u64);
+                w.field_u64("target", target.get() as u64);
+                w.end_object();
+            }
+        }
+    }
+    w.end_array();
+    w.end_object();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,6 +264,66 @@ mod tests {
         assert!(out.contains(r#""nodes":4"#));
         assert!(out.contains(r#""edges":3"#));
         assert!(out.contains(r#""has_cycle":false"#));
+    }
+
+    #[test]
+    fn pair_object_finite_and_essential() {
+        use prism_model::PairId;
+        // Finite pair: death + persistence present.
+        let finite = PairView {
+            pair: PairId::new(7),
+            dim: 1,
+            birth: 2.0,
+            death: Some(5.0),
+        };
+        let mut w = JsonWriter::new();
+        pair(&mut w, &finite);
+        let out = w.finish();
+        assert!(out.contains(r#""pair":7"#), "{out}");
+        assert!(out.contains(r#""dim":1"#));
+        assert!(out.contains(r#""birth":2"#));
+        assert!(out.contains(r#""death":5"#));
+        assert!(out.contains(r#""essential":false"#));
+        assert!(out.contains(r#""persistence":3"#));
+
+        // Essential pair: death + persistence are null.
+        let essential = PairView {
+            pair: PairId::new(8),
+            dim: 0,
+            birth: 0.0,
+            death: None,
+        };
+        let mut w = JsonWriter::new();
+        pair(&mut w, &essential);
+        let out = w.finish();
+        assert!(out.contains(r#""death":null"#), "{out}");
+        assert!(out.contains(r#""essential":true"#));
+        assert!(out.contains(r#""persistence":null"#));
+    }
+
+    #[test]
+    fn support_object_tags_nodes_and_edges() {
+        use prism_model::{GraphEdgeId, GraphNodeId, PairId};
+        let v = SupportView {
+            pair: PairId::new(3),
+            dim: 1,
+            objects: vec![
+                SupportObject::Node(sample_node()),
+                SupportObject::Edge {
+                    id: GraphEdgeId::new(4),
+                    source: GraphNodeId::new(2),
+                    target: GraphNodeId::new(5),
+                },
+            ],
+        };
+        let mut w = JsonWriter::new();
+        support(&mut w, &v);
+        let out = w.finish();
+        assert!(out.contains(r#""object_count":2"#), "{out}");
+        assert!(out.contains(r#""type":"node""#));
+        assert!(out.contains(r#""type":"edge""#));
+        assert!(out.contains(r#""source":2"#));
+        assert!(out.contains(r#""target":5"#));
     }
 
     #[test]

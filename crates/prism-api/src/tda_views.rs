@@ -55,6 +55,38 @@ impl BarcodeView {
     }
 }
 
+/// One persistence pair, surfaced for selection/inspection (the per-bar detail
+/// the aggregate [`BarcodeView`] omits).
+///
+/// `birth`/`death` are filtration values (for the depth filtration: the BFS
+/// depth at which the feature is born and, if finite, filled in). An essential
+/// class never dies (`death == None`). The UI lists these so a user can pick a
+/// feature and call `tda_support` to see the concrete packages that carry it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PairView {
+    /// The pair's globally-unique id (filtration-scoped).
+    pub pair: PairId,
+    /// Homology dimension (0 = component, 1 = cycle in v0.1).
+    pub dim: u8,
+    /// Birth filtration value.
+    pub birth: f64,
+    /// Death filtration value, or `None` for an essential (never-dying) class.
+    pub death: Option<f64>,
+}
+
+impl PairView {
+    /// True if the class is essential (never dies).
+    pub fn is_essential(&self) -> bool {
+        self.death.is_none()
+    }
+
+    /// Lifetime (`death - birth`) for a finite pair, else `None`. The longer the
+    /// persistence, the more topologically significant the feature.
+    pub fn persistence(&self) -> Option<f64> {
+        self.death.map(|d| d - self.birth)
+    }
+}
+
 /// A graph object backing a persistence-pair generator (mapped for display).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SupportObject {

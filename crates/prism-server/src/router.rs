@@ -10,7 +10,7 @@
 use std::sync::Mutex;
 
 use prism_api::Prism;
-use prism_model::{GraphNodeId, PrismError, RunId};
+use prism_model::{FiltrationId, GraphNodeId, PairId, PrismError, RunId};
 
 use crate::assets;
 use crate::http::{Request, Response, Status};
@@ -138,6 +138,8 @@ fn route_api(state: &AppState, rest: &str, q: &Query) -> ApiResult<String> {
         "graph/scc" => api_scc(state, q),
         "graph/duplicates" => api_duplicates(state, q),
         "tda" => api_tda(state, q),
+        "tda/pairs" => api_tda_pairs(state, q),
+        "tda/support" => api_tda_support(state, q),
         "export" => api_export(state, q),
         _ => Err(ApiError::not_found("no such api endpoint")),
     }
@@ -369,6 +371,52 @@ fn api_tda(state: &AppState, q: &Query) -> ApiResult<String> {
         let barcode = prism.tda_barcode(run, first)?;
         let mut w = JsonWriter::new();
         views_json::barcode(&mut w, &barcode);
+        Ok(w.finish())
+    })
+}
+
+/// Resolve the filtration to serve for `run`: the explicit `filtration` query
+/// param if given, else the run's first persisted `.ptda`. A `404` if neither.
+fn resolve_filtration(prism: &Prism, run: RunId, q: &Query) -> ApiResult<FiltrationId> {
+    if let Some(f) = q.u64("filtration") {
+        return Ok(FiltrationId::new(f));
+    }
+    prism
+        .tda_filtrations(run)
+        .first()
+        .copied()
+        .ok_or_else(|| ApiError::not_found("no persisted TDA for this run"))
+}
+
+/// `GET /api/tda/pairs?run=&filtration=` — the individual persistence bars.
+///
+/// Where `/api/tda` returns per-dimension counts, this lists each pair (id,
+/// dimension, birth/death, persistence) so the UI can offer feature selection
+/// for the 3D TDA view. `filtration` defaults to the run's first.
+fn api_tda_pairs(state: &AppState, q: &Query) -> ApiResult<String> {
+    let run = run_param(q)?;
+    state.with_prism(|prism| {
+        let filtration = resolve_filtration(prism, run, q)?;
+        let ps = prism.tda_pairs(run, filtration)?;
+        let mut w = JsonWriter::new();
+        views_json::pairs(&mut w, run, filtration, &ps);
+        Ok(w.finish())
+    })
+}
+
+/// `GET /api/tda/support?run=&pair=&filtration=` — one pair's generator chain,
+/// resolved to the concrete graph nodes/edges that carry the feature.
+fn api_tda_support(state: &AppState, q: &Query) -> ApiResult<String> {
+    let run = run_param(q)?;
+    let pair = q
+        .u64("pair")
+        .map(PairId::new)
+        .ok_or_else(|| ApiError::bad_request("missing or invalid 'pair' parameter"))?;
+    state.with_prism(|prism| {
+        let filtration = resolve_filtration(prism, run, q)?;
+        let view = prism.tda_support(run, filtration, pair)?;
+        let mut w = JsonWriter::new();
+        views_json::support(&mut w, &view);
         Ok(w.finish())
     })
 }

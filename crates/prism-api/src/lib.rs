@@ -51,7 +51,7 @@ pub use candidate_views::{
 pub use ecosystem::{Ecosystem, CARGO_ECOSYSTEM_ID, NPM_ECOSYSTEM_ID};
 pub use ingest::{LockfileIngest, ManifestIngest};
 pub use resolve::SyntheticResolve;
-pub use tda_views::{BarcodeDim, BarcodeView, SupportObject, SupportView};
+pub use tda_views::{BarcodeDim, BarcodeView, PairView, SupportObject, SupportView};
 pub use views::{
     DuplicateClusterView, GraphEdgeView, GraphNodeView, GraphStatsView, NeighborhoodView, SccView,
 };

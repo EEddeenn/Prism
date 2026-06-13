@@ -16,6 +16,11 @@
       <select id="run-select" aria-label="Select a run"></select>
     </div>
 
+    <div class="control viewtoggle" role="group" aria-label="View mode">
+      <button id="view-2d" class="vt active" type="button" title="2D layered graph">2D</button>
+      <button id="view-3d" class="vt" type="button" title="3D topology view">3D</button>
+    </div>
+
     <div class="control search">
       <input id="search" type="search" placeholder="Find a package…" aria-label="Find a package"
              autocomplete="off" spellcheck="false">
@@ -30,6 +35,38 @@
     <section id="graph-pane" aria-label="Dependency graph">
       <svg id="graph-svg" xmlns="http://www.w3.org/2000/svg" role="img"
            aria-label="Dependency graph"></svg>
+
+      <canvas id="graph-3d" class="hidden" aria-label="3D dependency topology"></canvas>
+
+      <div id="view3d-controls" class="v3d hidden" aria-label="3D view controls">
+        <div class="v3d-modes" role="tablist" aria-label="3D view mode">
+          <button class="v3d-mode active" data-mode="layered" type="button"
+                  title="Depth as stacked layers">Layered</button>
+          <button class="v3d-mode" data-mode="fiber" type="button"
+                  title="Each family as a vertical version fiber">Fiber</button>
+          <button class="v3d-mode" data-mode="terrain" type="button"
+                  title="Graph as an analytical heightfield">Terrain</button>
+          <button class="v3d-mode" data-mode="tda" type="button"
+                  title="Highlight a persistence feature's generators">TDA</button>
+        </div>
+        <div class="v3d-row hidden" id="v3d-signal-row">
+          <label for="v3d-signal">Height</label>
+          <select id="v3d-signal" aria-label="Terrain height signal">
+            <option value="centrality">centrality — transitive dependents</option>
+            <option value="reach">reach — transitive dependencies</option>
+            <option value="fanin">fan-in — direct dependents</option>
+            <option value="fanout">fan-out — direct dependencies</option>
+            <option value="duplicates">duplicate pressure</option>
+            <option value="depth">depth — TDA filtration value</option>
+            <option value="risk">risk — composite</option>
+          </select>
+        </div>
+        <div class="v3d-row v3d-hint" id="v3d-hint">Drag to orbit · scroll to zoom · shift-drag to pan · click a node</div>
+        <div class="v3d-row">
+          <button id="v3d-spin" type="button" title="Toggle auto-rotate">Spin</button>
+          <button id="v3d-reset" type="button" title="Recenter the camera">Reset view</button>
+        </div>
+      </div>
 
       <div id="zoom-controls" aria-label="Zoom controls">
         <button id="zoom-in" type="button" title="Zoom in" aria-label="Zoom in">+</button>
@@ -69,6 +106,8 @@
           <li>Columns are BFS <b>depth</b> from the root; arrows point to dependencies.</li>
           <li>Click a node to trace what it <b>depends on</b> and what <b>depends on it</b>.</li>
           <li>Drag to pan, scroll to zoom, <kbd>⤢</kbd> to fit.</li>
+          <li>Switch to <b>3D</b> for a spatial topology: depth layers, version fibers,
+              a signal terrain, or TDA feature generators.</li>
         </ul>
       </section>
 
@@ -86,10 +125,12 @@
 
       <section class="tab-body" data-panel="tda">
         <div id="barcode"><p class="muted">No TDA loaded.</p></div>
+        <div id="tda-features"></div>
       </section>
     </aside>
   </main>
 
   <script src="/app.js"></script>
+  <script src="/scene3d.js"></script>
 </body>
 </html>

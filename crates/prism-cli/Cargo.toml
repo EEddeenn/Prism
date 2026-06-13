@@ -6,6 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 description = "Prism command-line interface"
 
+[lib]
+name = "prism_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "prism"
 path = "src/main.rs"

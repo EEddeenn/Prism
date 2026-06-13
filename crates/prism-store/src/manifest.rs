@@ -12,7 +12,10 @@ use prism_model::{HashDigest, PrismError, Result};
 /// Manifest file magic: `b"PRISMMAN"`.
 pub const MANIFEST_MAGIC: &[u8; 8] = b"PRISMMAN";
 /// Current manifest format version.
-pub const MANIFEST_FORMAT_VERSION: u32 = 1;
+///
+/// v2 adds the `next_string_id` high-water mark for the [`StringId`] interner.
+/// v1 images still decode (the counter defaults to `1`).
+pub const MANIFEST_FORMAT_VERSION: u32 = 2;
 
 /// The category of a referenced file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,6 +68,8 @@ pub struct Manifest {
     pub next_segment_id: u32,
     /// High-water mark of the store-global object-id allocator (packages, versions, …).
     pub next_object_id: u64,
+    /// High-water mark of the store-global [`prism_model::StringId`] interner.
+    pub next_string_id: u32,
     /// The referenced file set.
     pub files: Vec<FileEntry>,
 }
@@ -77,6 +82,7 @@ impl Manifest {
             logical_ts_hwm: 0,
             next_segment_id: 1,
             next_object_id: 1,
+            next_string_id: 1,
             files: Vec::new(),
         }
     }
@@ -95,6 +101,7 @@ impl Manifest {
         w.write_u64(self.logical_ts_hwm);
         w.write_u32(self.next_segment_id);
         w.write_u64(self.next_object_id);
+        w.write_u32(self.next_string_id);
         w.write_u32(self.files.len() as u32);
         for f in &self.files {
             w.write_u8(f.kind as u8);
@@ -132,7 +139,7 @@ impl Manifest {
             });
         }
         let version = r.read_u32()?;
-        if version != MANIFEST_FORMAT_VERSION {
+        if version == 0 || version > MANIFEST_FORMAT_VERSION {
             return Err(PrismError::UnsupportedFormatVersion {
                 found: version,
                 max: MANIFEST_FORMAT_VERSION,
@@ -142,6 +149,8 @@ impl Manifest {
         let logical_ts_hwm = r.read_u64()?;
         let next_segment_id = r.read_u32()?;
         let next_object_id = r.read_u64()?;
+        // v2 added the interner high-water mark; v1 images default it to 1.
+        let next_string_id = if version >= 2 { r.read_u32()? } else { 1 };
         let count = r.read_u32()? as usize;
 
         let mut files = Vec::with_capacity(count);
@@ -169,6 +178,7 @@ impl Manifest {
             logical_ts_hwm,
             next_segment_id,
             next_object_id,
+            next_string_id,
             files,
         })
     }
@@ -184,6 +194,7 @@ mod tests {
             logical_ts_hwm: 99,
             next_segment_id: 7,
             next_object_id: 1234,
+            next_string_id: 55,
             files: vec![
                 FileEntry {
                     kind: FileKind::Segment,
@@ -230,5 +241,25 @@ mod tests {
         let m = sample();
         assert!(m.file("segments/000001.pseg").is_some());
         assert!(m.file("nope").is_none());
+    }
+
+    #[test]
+    fn v1_image_decodes_with_default_string_hwm() {
+        // Hand-assemble a v1 manifest body (no next_string_id field) and verify
+        // it decodes with the interner counter defaulted to 1.
+        let mut w = ByteWriter::new();
+        w.write_bytes(MANIFEST_MAGIC);
+        w.write_u32(1); // format version 1
+        w.write_u64(2); // epoch
+        w.write_u64(3); // logical_ts_hwm
+        w.write_u32(4); // next_segment_id
+        w.write_u64(5); // next_object_id
+        w.write_u32(0); // file count
+        let crc = prism_codec::crc32(w.as_slice());
+        w.write_u32(crc);
+        let m = Manifest::decode(&w.into_vec()).unwrap();
+        assert_eq!(m.next_string_id, 1);
+        assert_eq!(m.next_object_id, 5);
+        assert_eq!(m.epoch, 2);
     }
 }

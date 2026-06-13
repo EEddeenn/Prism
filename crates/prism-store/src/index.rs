@@ -83,6 +83,16 @@ impl Memtable {
         self.map.iter()
     }
 
+    /// Iterate `(key, entry)` pairs whose key starts with `prefix`, in sorted order.
+    pub fn scan_prefix<'a>(
+        &'a self,
+        prefix: &'a [u8],
+    ) -> impl Iterator<Item = (&'a Vec<u8>, &'a IndexEntry)> {
+        self.map
+            .range(prefix.to_vec()..)
+            .take_while(move |(k, _)| k.starts_with(prefix))
+    }
+
     /// Serialize this memtable to an immutable `.pidx` image.
     pub fn freeze(&self, index_id: u32, created_at: i64) -> Vec<u8> {
         let mut w = ByteWriter::new();
@@ -180,6 +190,22 @@ impl IndexReader {
             .map(|i| &self.entries[i].1)
     }
 
+    /// Iterate `(key, entry)` pairs whose key starts with `prefix`, in sorted key
+    /// order (within this segment only).
+    pub fn scan_prefix<'a>(
+        &'a self,
+        prefix: &'a [u8],
+    ) -> impl Iterator<Item = (&'a [u8], &'a IndexEntry)> {
+        // Binary-search the first key >= prefix, then walk while still prefixed.
+        let start = self
+            .entries
+            .partition_point(|(k, _)| k.as_slice() < prefix);
+        self.entries[start..]
+            .iter()
+            .take_while(move |(k, _)| k.starts_with(prefix))
+            .map(|(k, e)| (k.as_slice(), e))
+    }
+
     /// Number of entries.
     pub fn len(&self) -> usize {
         self.entries.len()
@@ -241,12 +267,47 @@ impl IndexSet {
         }
         None
     }
+
+    /// Merge all list-fragment entries whose key starts with `prefix` across the
+    /// memtable and every segment (architecture doc, *List-valued keys*). For each
+    /// distinct full key the entry with the highest `logical_ts` wins; tombstoned
+    /// winners are dropped. Returns `(full_key, value)` pairs sorted by key.
+    pub fn scan_prefix(&self, prefix: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
+        use std::collections::BTreeMap;
+        // For each distinct full key keep the entry with the highest logical_ts.
+        let mut winners: BTreeMap<&[u8], &IndexEntry> = BTreeMap::new();
+        for (k, e) in self.memtable.scan_prefix(prefix) {
+            match winners.get(k.as_slice()) {
+                Some(prev) if prev.logical_ts >= e.logical_ts => {}
+                _ => {
+                    winners.insert(k.as_slice(), e);
+                }
+            }
+        }
+        for r in &self.readers {
+            for (k, e) in r.scan_prefix(prefix) {
+                match winners.get(k) {
+                    Some(prev) if prev.logical_ts >= e.logical_ts => {}
+                    _ => {
+                        winners.insert(k, e);
+                    }
+                }
+            }
+        }
+        winners
+            .into_iter()
+            .filter(|(_, e)| !e.tombstone)
+            .map(|(k, e)| (k.to_vec(), e.value.clone()))
+            .collect()
+    }
 }
 
 /// Typed key builders for the concrete indexes. Prefix byte + big-endian payloads
 /// so lexical order matches numeric order.
 pub mod keys {
-    use prism_model::{EcosystemId, PackageId, StringId, VersionId};
+    use prism_model::{
+        EcosystemId, FiltrationId, PackageId, RequirementId, RunId, StringId, VersionId,
+    };
 
     /// Index prefixes (the first byte of every typed key).
     #[repr(u8)]
@@ -260,6 +321,14 @@ pub mod keys {
         ReqsBySrcVer = 7,
         ReqsByDstPackage = 8,
         RunById = 9,
+        /// `STRING_BY_ID`: interner `StringId -> atom record key`.
+        StringById = 10,
+        /// `STRING_BY_TEXT`: interner reverse lookup `hash(text) -> StringId`.
+        StringByText = 11,
+        /// `GRAPH_BY_RUN`: `RunId -> graph snapshot path`.
+        GraphByRun = 12,
+        /// `TDA_BY_RUN`: `RunId -> tda result path(s)`.
+        TdaByRun = 13,
     }
 
     /// `PKG_BY_NAME`: ecosystem + namespace(StringId, 0 if none) + canonical_name.
@@ -293,6 +362,118 @@ pub mod keys {
         let mut k = Vec::with_capacity(9);
         k.push(Prefix::VersByPackage as u8);
         k.extend_from_slice(&id.get().to_be_bytes());
+        k
+    }
+
+    /// `VER_BY_PURL`: interned purl `StringId -> VersionId`.
+    pub fn ver_by_purl(purl: StringId) -> Vec<u8> {
+        let mut k = Vec::with_capacity(5);
+        k.push(Prefix::VerByPurl as u8);
+        k.extend_from_slice(&purl.get().to_be_bytes());
+        k
+    }
+
+    /// `REQ_BY_ID`.
+    pub fn req_by_id(id: RequirementId) -> Vec<u8> {
+        let mut k = Vec::with_capacity(9);
+        k.push(Prefix::ReqById as u8);
+        k.extend_from_slice(&id.get().to_be_bytes());
+        k
+    }
+
+    /// `REQS_BY_SRC_VER`: per-`(VersionId, RequirementId)` membership entry. The
+    /// requirement id is folded into the key so each requirement is its own
+    /// append-only entry (a list fragment), unioned across segments at read time.
+    pub fn reqs_by_src_ver(src: VersionId, req: RequirementId) -> Vec<u8> {
+        let mut k = Vec::with_capacity(17);
+        k.push(Prefix::ReqsBySrcVer as u8);
+        k.extend_from_slice(&src.get().to_be_bytes());
+        k.extend_from_slice(&req.get().to_be_bytes());
+        k
+    }
+
+    /// The key prefix that all [`reqs_by_src_ver`] entries for `src` share, for a
+    /// prefix scan over the index.
+    pub fn reqs_by_src_ver_prefix(src: VersionId) -> Vec<u8> {
+        let mut k = Vec::with_capacity(9);
+        k.push(Prefix::ReqsBySrcVer as u8);
+        k.extend_from_slice(&src.get().to_be_bytes());
+        k
+    }
+
+    /// `REQS_BY_DST_PACKAGE`: per-`(PackageId, RequirementId)` membership entry.
+    pub fn reqs_by_dst_package(dst: PackageId, req: RequirementId) -> Vec<u8> {
+        let mut k = Vec::with_capacity(17);
+        k.push(Prefix::ReqsByDstPackage as u8);
+        k.extend_from_slice(&dst.get().to_be_bytes());
+        k.extend_from_slice(&req.get().to_be_bytes());
+        k
+    }
+
+    /// The shared key prefix of all [`reqs_by_dst_package`] entries for `dst`.
+    pub fn reqs_by_dst_package_prefix(dst: PackageId) -> Vec<u8> {
+        let mut k = Vec::with_capacity(9);
+        k.push(Prefix::ReqsByDstPackage as u8);
+        k.extend_from_slice(&dst.get().to_be_bytes());
+        k
+    }
+
+    /// `RUN_BY_ID`.
+    pub fn run_by_id(id: RunId) -> Vec<u8> {
+        let mut k = Vec::with_capacity(9);
+        k.push(Prefix::RunById as u8);
+        k.extend_from_slice(&id.get().to_be_bytes());
+        k
+    }
+
+    /// `VERS_BY_PACKAGE` per-`(PackageId, VersionId)` membership entry (list fragment).
+    pub fn vers_by_package_entry(pkg: PackageId, ver: VersionId) -> Vec<u8> {
+        let mut k = Vec::with_capacity(17);
+        k.push(Prefix::VersByPackage as u8);
+        k.extend_from_slice(&pkg.get().to_be_bytes());
+        k.extend_from_slice(&ver.get().to_be_bytes());
+        k
+    }
+
+    /// `STRING_BY_ID`: interner forward map `StringId -> atom`.
+    pub fn string_by_id(id: StringId) -> Vec<u8> {
+        let mut k = Vec::with_capacity(5);
+        k.push(Prefix::StringById as u8);
+        k.extend_from_slice(&id.get().to_be_bytes());
+        k
+    }
+
+    /// `STRING_BY_TEXT`: interner reverse map keyed by a 32-byte content hash of the
+    /// atom text (so the key length is fixed regardless of text length).
+    pub fn string_by_text(text_hash: &[u8; 32]) -> Vec<u8> {
+        let mut k = Vec::with_capacity(33);
+        k.push(Prefix::StringByText as u8);
+        k.extend_from_slice(text_hash);
+        k
+    }
+
+    /// `GRAPH_BY_RUN`: `RunId -> graph snapshot path`.
+    pub fn graph_by_run(id: RunId) -> Vec<u8> {
+        let mut k = Vec::with_capacity(9);
+        k.push(Prefix::GraphByRun as u8);
+        k.extend_from_slice(&id.get().to_be_bytes());
+        k
+    }
+
+    /// `TDA_BY_RUN`: per-`(RunId, FiltrationId)` membership entry (list fragment).
+    pub fn tda_by_run(run: RunId, filtration: FiltrationId) -> Vec<u8> {
+        let mut k = Vec::with_capacity(17);
+        k.push(Prefix::TdaByRun as u8);
+        k.extend_from_slice(&run.get().to_be_bytes());
+        k.extend_from_slice(&filtration.get().to_be_bytes());
+        k
+    }
+
+    /// The shared key prefix of all [`tda_by_run`] entries for `run`.
+    pub fn tda_by_run_prefix(run: RunId) -> Vec<u8> {
+        let mut k = Vec::with_capacity(9);
+        k.push(Prefix::TdaByRun as u8);
+        k.extend_from_slice(&run.get().to_be_bytes());
         k
     }
 }
@@ -357,5 +538,44 @@ mod tests {
         let k2 = keys::pkg_by_id(PackageId::new(2));
         let k10 = keys::pkg_by_id(PackageId::new(10));
         assert!(k2 < k10, "big-endian keys must sort numerically");
+    }
+
+    #[test]
+    fn scan_prefix_merges_fragments_newest_wins() {
+        // Old segment: two members under prefix P, plus one unrelated key.
+        let mut old = Memtable::new();
+        old.put(b"P\x00\x01".to_vec(), b"a".to_vec(), 1);
+        old.put(b"P\x00\x02".to_vec(), b"b".to_vec(), 2);
+        old.put(b"Q\x00\x01".to_vec(), b"z".to_vec(), 3);
+        let old_reader = IndexReader::parse(&old.freeze(1, 0)).unwrap();
+
+        // Newer segment: overrides member 2, adds member 3, tombstones member 1.
+        let mut new = Memtable::new();
+        new.put(b"P\x00\x02".to_vec(), b"b2".to_vec(), 10);
+        new.put(b"P\x00\x03".to_vec(), b"c".to_vec(), 11);
+        new.delete(b"P\x00\x01".to_vec(), 12);
+        let new_reader = IndexReader::parse(&new.freeze(2, 0)).unwrap();
+
+        let mut set = IndexSet::new();
+        set.push_oldest(old_reader);
+        set.push_newest(new_reader);
+
+        let got = set.scan_prefix(b"P\x00");
+        // member 1 tombstoned -> dropped; member 2 overridden; members 2,3 live.
+        assert_eq!(
+            got,
+            vec![
+                (b"P\x00\x02".to_vec(), b"b2".to_vec()),
+                (b"P\x00\x03".to_vec(), b"c".to_vec()),
+            ]
+        );
+
+        // The unrelated prefix Q is untouched.
+        assert_eq!(set.scan_prefix(b"Q\x00"), vec![(b"Q\x00\x01".to_vec(), b"z".to_vec())]);
+
+        // A live memtable fragment participates and wins by logical_ts.
+        set.memtable_mut().put(b"P\x00\x03".to_vec(), b"c-new".to_vec(), 20);
+        let got = set.scan_prefix(b"P\x00");
+        assert_eq!(got.last().unwrap().1, b"c-new");
     }
 }

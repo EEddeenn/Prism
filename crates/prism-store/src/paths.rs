@@ -103,6 +103,37 @@ impl Layout {
         self.segments_dir().join(Self::segment_file_name(id))
     }
 
+    /// The conventional file name for an index segment (`000001.pidx`).
+    pub fn index_file_name(id: u32) -> String {
+        format!("{id:06}.pidx")
+    }
+
+    /// Absolute path of index segment `id`.
+    pub fn index_file(&self, id: u32) -> PathBuf {
+        self.indexes_dir().join(Self::index_file_name(id))
+    }
+
+    /// The conventional file name for a run's graph snapshot (`run_00000001.pcsr`).
+    pub fn graph_file_name(run: u64) -> String {
+        format!("run_{run:08}.pcsr")
+    }
+
+    /// Absolute path of the graph snapshot for run `run`.
+    pub fn graph_file(&self, run: u64) -> PathBuf {
+        self.graphs_dir().join(Self::graph_file_name(run))
+    }
+
+    /// The conventional file name for a filtration's TDA result
+    /// (`filtration_00000001.ptda`).
+    pub fn tda_file_name(filtration: u64) -> String {
+        format!("filtration_{filtration:08}.ptda")
+    }
+
+    /// Absolute path of the TDA result for filtration `filtration`.
+    pub fn tda_file(&self, filtration: u64) -> PathBuf {
+        self.tda_dir().join(Self::tda_file_name(filtration))
+    }
+
     /// Absolute path of the content-addressed blob `id` (raw, uncompressed for v0.1).
     pub fn blob_path(&self, id: &BlobId) -> PathBuf {
         self.blobs_dir().join(id.shard_path())

@@ -44,6 +44,8 @@ pub enum Command {
     Resolve { manifest: String, policy: String },
     /// `prism export json --run <id>`.
     ExportJson { run: u64 },
+    /// `prism export graphml --run <id>`.
+    ExportGraphml { run: u64 },
     /// `prism help` / `-h` / `--help`.
     Help,
     /// `prism --version` / `-V`.
@@ -259,6 +261,18 @@ fn parse_export<'a, I: Iterator<Item = &'a str>>(mut it: I) -> Result<Command, P
             flags.finish()?;
             Ok(Command::ExportJson { run })
         }
+        "graphml" => {
+            let mut flags = Flags::parse(it)?;
+            let run = flags.take_u64("--run")?;
+            flags.finish()?;
+            Ok(Command::ExportGraphml { run })
+        }
+        // Parquet is a designed-but-unimplemented v0.1 format (a spec-compliant,
+        // dependency-free columnar writer is a later milestone). Reject it with a
+        // clear message rather than a generic "unknown command".
+        "parquet" => Err(ParseError::UnknownCommand(
+            "export parquet (not implemented in v0.1; use `json` or `graphml`)".into(),
+        )),
         other => Err(ParseError::UnknownCommand(format!("export {other}"))),
     }
 }
@@ -472,6 +486,14 @@ mod tests {
     }
 
     #[test]
+    fn export_graphml_parses() {
+        assert_eq!(
+            p(&["export", "graphml", "--run", "3"]),
+            Ok(Command::ExportGraphml { run: 3 })
+        );
+    }
+
+    #[test]
     fn candidates_by_requirement() {
         assert_eq!(
             p(&["candidates", "--requirement", "7"]),
@@ -597,10 +619,12 @@ mod tests {
             p(&["graph", "wat", "--run", "1"]),
             Err(ParseError::UnknownCommand("graph wat".into()))
         );
-        assert_eq!(
+        // Parquet is recognized but unimplemented in v0.1: a clear message, not a
+        // bare "unknown command".
+        assert!(matches!(
             p(&["export", "parquet", "--run", "1"]),
-            Err(ParseError::UnknownCommand("export parquet".into()))
-        );
+            Err(ParseError::UnknownCommand(m)) if m.contains("parquet") && m.contains("not implemented")
+        ));
     }
 
     #[test]

@@ -45,6 +45,7 @@ COMMANDS:
     resolve <manifest> [--policy lowest|highest|locked]
                                                   synthetic resolve a manifest
     export json --run <id>                        emit the graph as JSON
+    export graphml --run <id>                      emit the graph as GraphML (XML)
 
     help, -h, --help                              show this help
     --version, -V                                 show the version
@@ -94,6 +95,7 @@ where
         Command::Conflicts { package } => commands::conflicts(out, package),
         Command::Resolve { manifest, policy } => commands::resolve(out, manifest, policy),
         Command::ExportJson { run } => commands::export_json(out, *run),
+        Command::ExportGraphml { run } => commands::export_graphml(out, *run),
     };
 
     match result {

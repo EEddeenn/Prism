@@ -391,6 +391,145 @@ pub fn export_json(out: &mut dyn Write, run: u64) -> Result<()> {
     Ok(())
 }
 
+/// `prism export graphml --run <id>` — emit the run's graph as GraphML to `out`.
+///
+/// GraphML is a standard XML graph-interchange format. Nodes carry their PURL (the
+/// portable key; the GraphML element id `n<i>` is the snapshot-local node id and is
+/// *not* portable across workspaces). The run's [`prism_model::GraphFidelity`]
+/// (tier + caveats) is carried as graph-level `<data>` so an export never
+/// overclaims correctness (architecture doc: every export header includes the
+/// fidelity).
+pub fn export_graphml(out: &mut dyn Write, run: u64) -> Result<()> {
+    let prism = open_here()?;
+    let run_id = RunId::new(run);
+    let stats = prism.graph_stats(run_id)?;
+    let fidelity = prism.store().get_run(run_id)?.fidelity;
+    let (tier, caveats) = fidelity_strings(&fidelity);
+
+    let mut s = String::new();
+    s.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    s.push_str("<graphml xmlns=\"http://graphml.graphdrawing.org/xmlns\">\n");
+    // Typed key definitions (GraphML requires keys declared before use).
+    for (id, dom, ty) in [
+        ("run", "graph", "long"),
+        ("fidelity_tier", "graph", "string"),
+        ("fidelity_caveats", "graph", "string"),
+        ("purl", "node", "string"),
+        ("version_id", "node", "long"),
+        ("depth", "node", "int"),
+        ("kind", "edge", "int"),
+        ("flags", "edge", "int"),
+    ] {
+        s.push_str(&format!(
+            "  <key id=\"{id}\" for=\"{dom}\" attr.name=\"{id}\" attr.type=\"{ty}\"/>\n"
+        ));
+    }
+    s.push_str(&format!("  <graph id=\"run_{run}\" edgedefault=\"directed\">\n"));
+    s.push_str(&format!("    <data key=\"run\">{run}</data>\n"));
+    s.push_str(&format!(
+        "    <data key=\"fidelity_tier\">{}</data>\n",
+        xml_escape(&tier)
+    ));
+    s.push_str(&format!(
+        "    <data key=\"fidelity_caveats\">{}</data>\n",
+        xml_escape(&caveats)
+    ));
+
+    // Nodes (PURL is the stable key; the element id is snapshot-local).
+    for i in 0..stats.nodes as u32 {
+        let node = prism.node(run_id, GraphNodeId::new(i))?;
+        s.push_str(&format!("    <node id=\"n{}\">\n", node.id.get()));
+        s.push_str(&format!(
+            "      <data key=\"purl\">{}</data>\n",
+            xml_escape(&node.purl)
+        ));
+        s.push_str(&format!(
+            "      <data key=\"version_id\">{}</data>\n",
+            node.version.get()
+        ));
+        s.push_str(&format!("      <data key=\"depth\">{}</data>\n", node.depth));
+        s.push_str("    </node>\n");
+    }
+
+    // Edges: each directed edge once, sourced at `i` (mirrors export_json).
+    let mut eid = 0u64;
+    for i in 0..stats.nodes as u32 {
+        let nb = prism.neighborhood(run_id, GraphNodeId::new(i), 1, u32::MAX)?;
+        for e in &nb.edges {
+            if e.source.get() != i {
+                continue;
+            }
+            s.push_str(&format!(
+                "    <edge id=\"e{eid}\" source=\"n{}\" target=\"n{}\">\n",
+                e.source.get(),
+                e.target.get()
+            ));
+            s.push_str(&format!("      <data key=\"kind\">{}</data>\n", e.kind as u64));
+            s.push_str(&format!(
+                "      <data key=\"flags\">{}</data>\n",
+                e.flags as u64
+            ));
+            s.push_str("    </edge>\n");
+            eid += 1;
+        }
+    }
+    s.push_str("  </graph>\n");
+    s.push_str("</graphml>\n");
+
+    write!(out, "{s}").map_err(PrismError::Io)?;
+    Ok(())
+}
+
+/// Escape the five XML special characters in attribute/text content.
+fn xml_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// Render a [`prism_model::GraphFidelity`] as `(tier, caveats)` display strings.
+/// `caveats` is a comma-separated list of set caveat names, or `"none"`.
+fn fidelity_strings(f: &prism_model::GraphFidelity) -> (String, String) {
+    use prism_model::{FidelityCaveats, FidelityTier};
+    let tier = match f.tier {
+        FidelityTier::LockfileExact => "lockfile-exact",
+        FidelityTier::NativeToolResolved => "native-tool-resolved",
+        FidelityTier::ModelResolved => "model-resolved",
+        FidelityTier::CandidateSpaceOnly => "candidate-space-only",
+    }
+    .to_string();
+    let names: [(FidelityCaveats, &str); 8] = [
+        (FidelityCaveats::NO_PEER_PLACEMENT, "no-peer-placement"),
+        (FidelityCaveats::NO_FEATURE_UNIFICATION, "no-feature-unification"),
+        (FidelityCaveats::NO_PROFILE_EXPANSION, "no-profile-expansion"),
+        (FidelityCaveats::NO_MEDIATION, "no-mediation"),
+        (FidelityCaveats::NO_EXTRA_ACTIVATION, "no-extra-activation"),
+        (FidelityCaveats::MARKERS_APPROXIMATED, "markers-approximated"),
+        (FidelityCaveats::DYNAMIC_METADATA_SKIPPED, "dynamic-metadata-skipped"),
+        (FidelityCaveats::BUDGET_TRUNCATED, "budget-truncated"),
+    ];
+    let set: Vec<&str> = names
+        .iter()
+        .filter(|(flag, _)| f.caveats.contains(*flag))
+        .map(|(_, n)| *n)
+        .collect();
+    let caveats = if set.is_empty() {
+        "none".to_string()
+    } else {
+        set.join(",")
+    };
+    (tier, caveats)
+}
+
 // --- helpers ----------------------------------------------------------------
 
 /// Every [`ResolverRun`] in the workspace, ascending by run id.
@@ -515,6 +654,42 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
             assert!(json.contains("pkg:cargo/app@0.1.0"), "{json}");
             assert!(json.contains(r#""graph_edges":[{"source":0"#), "{json}");
         });
+    }
+
+    #[test]
+    fn export_graphml_emits_wellformed_xml() {
+        let _guard = crate::testsupport::cwd_lock();
+        let td = TempDir::new("cmd-export-graphml");
+        std::fs::write(td.path().join("Cargo.lock"), CARGO_LOCK).unwrap();
+        let run = {
+            let mut prism = Prism::init(td.path()).unwrap();
+            prism.ingest_lockfile(td.path().join("Cargo.lock")).unwrap()
+        };
+        with_cwd(td.path(), || {
+            let mut out = Vec::new();
+            export_graphml(&mut out, run.get()).unwrap();
+            let xml = String::from_utf8(out).unwrap();
+            // Structural well-formedness: header, single graph, balanced root.
+            assert!(xml.starts_with("<?xml version=\"1.0\""), "{xml}");
+            assert!(xml.contains("<graphml xmlns=\"http://graphml.graphdrawing.org/xmlns\">"));
+            assert!(xml.contains("edgedefault=\"directed\""));
+            assert_eq!(xml.matches("</graphml>").count(), 1);
+            // Fidelity header is present (a lockfile run is LockfileExact).
+            assert!(xml.contains("<data key=\"fidelity_tier\">lockfile-exact</data>"), "{xml}");
+            // Two nodes, one edge, PURL-keyed.
+            assert_eq!(xml.matches("<node ").count(), 2, "{xml}");
+            assert_eq!(xml.matches("<edge ").count(), 1, "{xml}");
+            assert!(xml.contains("pkg:cargo/app@0.1.0"), "{xml}");
+            // Every opened node/edge tag is closed.
+            assert_eq!(xml.matches("<node ").count(), xml.matches("</node>").count());
+            assert_eq!(xml.matches("<edge ").count(), xml.matches("</edge>").count());
+        });
+    }
+
+    #[test]
+    fn xml_escape_handles_specials() {
+        assert_eq!(xml_escape("a&b<c>d\"e'f"), "a&amp;b&lt;c&gt;d&quot;e&apos;f");
+        assert_eq!(xml_escape("plain"), "plain");
     }
 
     /// A Cargo.lock with two serde versions so the candidate/conflict path has a

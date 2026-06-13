@@ -80,6 +80,7 @@ prism conflicts --package pkg:cargo/serde   # same-package conflict pressure
 prism resolve Cargo.toml --policy highest   # synthetic resolve a manifest (lowest|highest|locked)
 prism tda run --run <id> --filtration depth # persistent homology (H0/H1) barcode
 prism export json --run <id>       # emit the resolved graph as JSON
+prism export graphml --run <id>    # emit the resolved graph as GraphML (XML)
 ```
 
 Example: ingesting a Cargo.lock for `sample-app → {serde → serde_derive, rand → rand_core}`
@@ -113,8 +114,9 @@ layer, the graph algorithms, the synthetic resolver, and the `prism-api` / `pris
 duplicate requirements or edges).
 
 Known follow-ups: live registry fetching is out of scope for the offline v0.1 (resolution
-selects from versions already on hand), and `export` currently emits JSON only (graphml /
-parquet are designed but not yet wired).
+selects from versions already on hand), and `export` emits JSON and GraphML (both PURL-keyed,
+with the run's `GraphFidelity` in the header); Parquet export is recognized but deferred — a
+spec-compliant, dependency-free columnar writer is a later milestone.
 
 ## License
 

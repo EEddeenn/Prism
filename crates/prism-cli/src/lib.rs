@@ -37,6 +37,7 @@ COMMANDS:
     graph neighborhood --run <id> --node <id> --depth <n>
                                                   local dependency neighborhood
     graph impact --run <id> --node <id>           reverse dependency impact
+    graph duplicates --run <id>                   package families at >1 version
     tda run --run <id> [--filtration depth]       build a filtration + persistence
     tda support --pair <id>                       graph support of a persistence pair
     candidates --requirement <id>                 candidate ranges for a requirement
@@ -80,6 +81,7 @@ where
             commands::graph_neighborhood(out, *run, *node, *depth)
         }
         Command::GraphImpact { run, node } => commands::graph_impact(out, *run, *node),
+        Command::GraphDuplicates { run } => commands::graph_duplicates(out, *run),
         Command::TdaRun { run, filtration } => commands::tda_run(out, *run, filtration),
         Command::TdaSupport { pair } => commands::tda_support(out, *pair),
         Command::Candidates {

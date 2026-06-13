@@ -91,17 +91,19 @@ pub fn duplicates(w: &mut JsonWriter, clusters: &[DuplicateClusterView]) {
     w.begin_array();
     for c in clusters {
         w.begin_object();
-        w.field_u64("version_id", c.version.get());
-        w.field_str("purl", &c.purl);
-        if let Some(pkg) = c.package {
-            w.field_u64("package_id", pkg.get());
-        }
+        w.field_u64("package_id", c.package.get());
+        w.field_str("package_purl", &c.package_purl);
+        w.field_u64("version_count", c.versions.len() as u64);
+        w.field_u64("occurrence_count", c.occurrence_count as u64);
         w.field_u64("min_depth", c.min_depth as u64);
         w.field_u64("max_depth", c.max_depth as u64);
-        w.key("occurrences");
+        w.key("versions");
         w.begin_array();
-        for o in &c.occurrences {
-            w.u64_value(o.get() as u64);
+        for v in &c.versions {
+            w.begin_object();
+            w.field_u64("version_id", v.version.get());
+            w.field_str("purl", &v.purl);
+            w.end_object();
         }
         w.end_array();
         w.end_object();

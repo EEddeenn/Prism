@@ -341,8 +341,9 @@ impl Prism {
         Err(PrismError::NotFound)
     }
 
-    /// The base purl (`pkg:<eco>/<name>`) for a package, for display.
-    fn package_purl(&self, package: PackageId) -> String {
+    /// The base purl (`pkg:<eco>/<name>`) for a package, for display. Shared with
+    /// graph queries (e.g. duplicate-version clusters).
+    pub(crate) fn package_purl(&self, package: PackageId) -> String {
         if let Ok(p) = self.store.get_package(package) {
             if let Some(s) = self.store.resolve_string(p.purl_base) {
                 return s;

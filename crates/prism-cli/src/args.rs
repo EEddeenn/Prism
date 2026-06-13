@@ -23,6 +23,8 @@ pub enum Command {
     GraphNeighborhood { run: u64, node: u32, depth: u32 },
     /// `prism graph impact --run <id> --node <id>`.
     GraphImpact { run: u64, node: u32 },
+    /// `prism graph duplicates --run <id>`.
+    GraphDuplicates { run: u64 },
     /// `prism tda run --run <id> [--filtration depth]`.
     TdaRun { run: u64, filtration: String },
     /// `prism tda support --pair <id>`.
@@ -221,6 +223,12 @@ fn parse_graph<'a, I: Iterator<Item = &'a str>>(mut it: I) -> Result<Command, Pa
             let node = flags.take_u32("--node")?;
             flags.finish()?;
             Ok(Command::GraphImpact { run, node })
+        }
+        "duplicates" => {
+            let mut flags = Flags::parse(it)?;
+            let run = flags.take_u64("--run")?;
+            flags.finish()?;
+            Ok(Command::GraphDuplicates { run })
         }
         other => Err(ParseError::UnknownCommand(format!("graph {other}"))),
     }
@@ -482,6 +490,14 @@ mod tests {
         assert_eq!(
             p(&["export", "json", "--run", "2"]),
             Ok(Command::ExportJson { run: 2 })
+        );
+    }
+
+    #[test]
+    fn graph_duplicates_parses() {
+        assert_eq!(
+            p(&["graph", "duplicates", "--run", "7"]),
+            Ok(Command::GraphDuplicates { run: 7 })
         );
     }
 

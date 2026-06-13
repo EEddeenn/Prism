@@ -207,6 +207,34 @@ fn npm_lockfile_ingests_too() {
     assert_eq!(barcode.component_count(), 1);
 }
 
+#[test]
+fn duplicate_version_family_is_detected() {
+    // A lockfile with two coexisting serde versions is the classic "duplicate
+    // dependency" situation: one family (serde) at two distinct versions.
+    let td = TempDir::new("e2e-dups");
+    let lock = td.path().join("Cargo.lock");
+    std::fs::write(&lock, TWO_SERDE_LOCK).unwrap();
+    let mut prism = Prism::init(td.path()).unwrap();
+    let run = prism.ingest_lockfile(&lock).unwrap();
+
+    // The headline stat counts *families* at >1 version, not versions.
+    let stats = prism.graph_stats(run).unwrap();
+    assert_eq!(
+        stats.duplicate_version_count, 1,
+        "serde present at two versions => one duplicate family"
+    );
+
+    // The detail report names the family and lists both versions.
+    let clusters = prism.duplicate_clusters(run).unwrap();
+    assert_eq!(clusters.len(), 1);
+    let c = &clusters[0];
+    assert!(c.package_purl.starts_with("pkg:cargo/serde"), "{}", c.package_purl);
+    assert_eq!(c.versions.len(), 2, "serde 1.0.0 and 2.0.0");
+    let purls: Vec<&str> = c.versions.iter().map(|v| v.purl.as_str()).collect();
+    assert!(purls.iter().any(|p| p.contains("@1.0.0")), "{purls:?}");
+    assert!(purls.iter().any(|p| p.contains("@2.0.0")), "{purls:?}");
+}
+
 /// A Cargo.lock with **two** versions of `serde` (1.0.0 and 2.0.0) so the package
 /// family has a non-trivial candidate space for the analysis below.
 const TWO_SERDE_LOCK: &str = r#"

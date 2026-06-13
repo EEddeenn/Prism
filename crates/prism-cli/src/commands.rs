@@ -123,6 +123,39 @@ pub fn graph_stats(out: &mut dyn Write, run: u64) -> Result<()> {
     Ok(())
 }
 
+/// `prism graph duplicates --run <id>` — list package families present at more
+/// than one version, with their versions and depth span.
+pub fn graph_duplicates(out: &mut dyn Write, run: u64) -> Result<()> {
+    let prism = open_here()?;
+    let clusters = prism.duplicate_clusters(RunId::new(run))?;
+    if clusters.is_empty() {
+        writeln!(out, "no duplicate-version families in run {run}").map_err(PrismError::Io)?;
+        return Ok(());
+    }
+    writeln!(
+        out,
+        "{} duplicate-version famil{} in run {run}:",
+        clusters.len(),
+        if clusters.len() == 1 { "y" } else { "ies" }
+    )
+    .map_err(PrismError::Io)?;
+    for c in &clusters {
+        writeln!(
+            out,
+            "  {} — {} versions (depth {}..{}):",
+            c.package_purl,
+            c.versions.len(),
+            c.min_depth,
+            c.max_depth
+        )
+        .map_err(PrismError::Io)?;
+        for v in &c.versions {
+            writeln!(out, "      {}", v.purl).map_err(PrismError::Io)?;
+        }
+    }
+    Ok(())
+}
+
 /// `prism graph neighborhood --run <id> --node <id> --depth <n>`.
 pub fn graph_neighborhood(out: &mut dyn Write, run: u64, node: u32, depth: u32) -> Result<()> {
     let prism = open_here()?;

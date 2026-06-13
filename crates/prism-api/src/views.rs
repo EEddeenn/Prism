@@ -92,21 +92,34 @@ impl SccView {
     }
 }
 
-/// A duplicate-version cluster: one exact version appearing at several nodes.
+/// A duplicate-version cluster: one package *family* present at more than one
+/// distinct version in the graph — the classic "duplicate dependency" situation
+/// (architecture doc, *Duplicate Version Clusters*: group nodes by family, count
+/// distinct versions).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DuplicateClusterView {
-    /// The shared version id.
-    pub version: VersionId,
-    /// The package family, if known.
-    pub package: Option<PackageId>,
-    /// The purl/label for display.
-    pub purl: String,
-    /// The occurrence nodes (length >= 2).
-    pub occurrences: Vec<GraphNodeId>,
-    /// Minimum BFS depth across the occurrences.
+    /// The package family.
+    pub package: PackageId,
+    /// The family's base purl (e.g. `pkg:cargo/windows-sys`) for display.
+    pub package_purl: String,
+    /// The distinct versions present, ascending, with their full purls
+    /// (length >= 2).
+    pub versions: Vec<DuplicateVersion>,
+    /// Total occurrence nodes across all versions of the family.
+    pub occurrence_count: u32,
+    /// Minimum BFS depth across all occurrences of the family.
     pub min_depth: u32,
-    /// Maximum BFS depth across the occurrences.
+    /// Maximum BFS depth across all occurrences of the family.
     pub max_depth: u32,
+}
+
+/// One distinct version within a [`DuplicateClusterView`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DuplicateVersion {
+    /// The version id.
+    pub version: VersionId,
+    /// The full version purl (e.g. `pkg:cargo/windows-sys@0.52.0`) for display.
+    pub purl: String,
 }
 
 #[cfg(test)]

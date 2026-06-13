@@ -7,13 +7,14 @@
 use std::collections::BTreeSet;
 
 use prism_graph::{
-    forward_reachable, reverse_reachable, tarjan_scc, version_clusters, GraphSnapshot,
+    family_clusters, forward_reachable, reverse_reachable, tarjan_scc, GraphSnapshot,
     TraversalOptions,
 };
 use prism_model::{GraphNodeId, PackageId, PrismError, Result, RunId, VersionId};
 
 use crate::views::{
-    DuplicateClusterView, GraphEdgeView, GraphNodeView, GraphStatsView, NeighborhoodView, SccView,
+    DuplicateClusterView, DuplicateVersion, GraphEdgeView, GraphNodeView, GraphStatsView,
+    NeighborhoodView, SccView,
 };
 use crate::Prism;
 
@@ -26,9 +27,13 @@ impl Prism {
         for i in 0..g.node_count() as u32 {
             max_depth = max_depth.max(g.node_depth(GraphNodeId::new(i))?);
         }
-        let duplicate_version_count = version_clusters(&g)?
+        // "Duplicate versions" = package families present at more than one
+        // distinct version (architecture doc, *Duplicate Version Clusters*). This
+        // groups by family, not by version, so e.g. `windows-sys` at four versions
+        // counts once.
+        let duplicate_version_count = family_clusters(&g, |v| self.package_of(v))?
             .into_iter()
-            .filter(|c| c.is_duplicated())
+            .filter(|c| c.is_version_fragmented())
             .count();
         Ok(GraphStatsView {
             run,
@@ -118,20 +123,27 @@ impl Prism {
         Ok(out)
     }
 
-    /// Duplicate-version clusters of `run`: each exact version occurring at more
-    /// than one node, resolved for display, ordered by version id.
+    /// Duplicate-version clusters of `run`: each package *family* present at more
+    /// than one distinct version, resolved for display, ordered by package id.
     pub fn duplicate_clusters(&self, run: RunId) -> Result<Vec<DuplicateClusterView>> {
         let g = self.load_graph(run)?;
         let mut out = Vec::new();
-        for cluster in version_clusters(&g)? {
-            if !cluster.is_duplicated() {
+        for cluster in family_clusters(&g, |v| self.package_of(v))? {
+            if !cluster.is_version_fragmented() {
                 continue;
             }
             out.push(DuplicateClusterView {
-                version: cluster.version_id,
-                package: self.package_of(cluster.version_id),
-                purl: self.version_label(cluster.version_id),
-                occurrences: cluster.occurrences,
+                package: cluster.package_id,
+                package_purl: self.package_purl(cluster.package_id),
+                versions: cluster
+                    .versions
+                    .iter()
+                    .map(|&v| DuplicateVersion {
+                        version: v,
+                        purl: self.version_label(v),
+                    })
+                    .collect(),
+                occurrence_count: cluster.occurrence_count,
                 min_depth: cluster.min_depth,
                 max_depth: cluster.max_depth,
             });

@@ -8,7 +8,9 @@
 //!
 //! See the architecture design document, *Storage Architecture* and *Crash Safety*.
 
+pub mod blob;
 pub mod fsutil;
+pub mod index;
 pub mod lock;
 pub mod manifest;
 pub mod paths;
@@ -17,6 +19,8 @@ pub mod segment;
 #[cfg(test)]
 mod test_support;
 
+pub use blob::BlobStore;
+pub use index::{IndexReader, IndexSet, Memtable};
 pub use lock::WorkspaceLock;
 pub use manifest::{FileEntry, FileKind, Manifest};
 pub use paths::Layout;

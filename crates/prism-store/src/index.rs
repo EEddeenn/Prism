@@ -1,0 +1,361 @@
+//! Typed index segments (architecture doc, *Typed Index Segments*).
+//!
+//! Lookups read an in-memory memtable first, then immutable sorted `.pidx`
+//! segments newest-to-oldest; the first hit wins (newer segments carry newer
+//! `logical_ts`). Deletes are tombstones that hide older entries until compaction.
+//!
+//! Keys are opaque sorted byte strings; the [`keys`] helpers build the typed,
+//! big-endian-encoded keys for the concrete indexes so that lexical order matches
+//! numeric order for IDs.
+
+use prism_codec::{read_uvarint, write_uvarint, ByteReader, ByteWriter};
+use prism_model::{PrismError, Result};
+use std::collections::BTreeMap;
+
+/// Index file magic: `b"PRISMPIDX"`.
+pub const INDEX_MAGIC: &[u8; 9] = b"PRISMPIDX";
+/// Current index format version.
+pub const INDEX_FORMAT_VERSION: u32 = 1;
+
+const FLAG_TOMBSTONE: u8 = 1;
+
+/// A value bound to a key, with its version and liveness.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IndexEntry {
+    pub value: Vec<u8>,
+    pub logical_ts: u64,
+    pub tombstone: bool,
+}
+
+/// The in-memory write buffer. Sorted by key for deterministic flush.
+#[derive(Default)]
+pub struct Memtable {
+    map: BTreeMap<Vec<u8>, IndexEntry>,
+}
+
+impl Memtable {
+    /// A new empty memtable.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Insert or overwrite `key` with `value` at `logical_ts`.
+    pub fn put(&mut self, key: Vec<u8>, value: Vec<u8>, logical_ts: u64) {
+        self.map.insert(
+            key,
+            IndexEntry {
+                value,
+                logical_ts,
+                tombstone: false,
+            },
+        );
+    }
+
+    /// Record a tombstone for `key` at `logical_ts`.
+    pub fn delete(&mut self, key: Vec<u8>, logical_ts: u64) {
+        self.map.insert(
+            key,
+            IndexEntry {
+                value: Vec::new(),
+                logical_ts,
+                tombstone: true,
+            },
+        );
+    }
+
+    /// Look up `key` within this memtable only.
+    pub fn get(&self, key: &[u8]) -> Option<&IndexEntry> {
+        self.map.get(key)
+    }
+
+    /// Number of buffered entries.
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    /// True if empty.
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
+    /// Iterate entries in sorted key order.
+    pub fn iter(&self) -> impl Iterator<Item = (&Vec<u8>, &IndexEntry)> {
+        self.map.iter()
+    }
+
+    /// Serialize this memtable to an immutable `.pidx` image.
+    pub fn freeze(&self, index_id: u32, created_at: i64) -> Vec<u8> {
+        let mut w = ByteWriter::new();
+        w.write_bytes(INDEX_MAGIC);
+        w.write_u32(INDEX_FORMAT_VERSION);
+        w.write_u32(index_id);
+        w.write_i64(created_at);
+        w.write_u32(self.map.len() as u32);
+        for (key, entry) in &self.map {
+            write_uvarint(&mut w, key.len() as u64);
+            w.write_bytes(key);
+            w.write_u8(if entry.tombstone { FLAG_TOMBSTONE } else { 0 });
+            w.write_u64(entry.logical_ts);
+            write_uvarint(&mut w, entry.value.len() as u64);
+            w.write_bytes(&entry.value);
+        }
+        let crc = prism_codec::crc32(w.as_slice());
+        w.write_u32(crc);
+        w.into_vec()
+    }
+}
+
+/// A parsed immutable index segment, sorted by key for binary search.
+pub struct IndexReader {
+    entries: Vec<(Vec<u8>, IndexEntry)>,
+}
+
+impl IndexReader {
+    /// Parse a `.pidx` image, validating magic, version, and trailing CRC.
+    pub fn parse(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() < 4 {
+            return Err(PrismError::Corrupt {
+                detail: "index too short".into(),
+            });
+        }
+        let (body, crc_bytes) = bytes.split_at(bytes.len() - 4);
+        let expected = u32::from_le_bytes(crc_bytes.try_into().unwrap());
+        if prism_codec::crc32(body) != expected {
+            return Err(PrismError::ChecksumMismatch {
+                detail: "index crc".into(),
+            });
+        }
+
+        let mut r = ByteReader::new(body);
+        if r.read_bytes(INDEX_MAGIC.len())? != INDEX_MAGIC {
+            return Err(PrismError::Corrupt {
+                detail: "bad index magic".into(),
+            });
+        }
+        let version = r.read_u32()?;
+        if version != INDEX_FORMAT_VERSION {
+            return Err(PrismError::UnsupportedFormatVersion {
+                found: version,
+                max: INDEX_FORMAT_VERSION,
+            });
+        }
+        let _index_id = r.read_u32()?;
+        let _created_at = r.read_i64()?;
+        let count = r.read_u32()? as usize;
+
+        let mut entries = Vec::with_capacity(count);
+        let mut prev: Option<Vec<u8>> = None;
+        for _ in 0..count {
+            let klen = read_uvarint(&mut r)? as usize;
+            let key = r.read_bytes(klen)?.to_vec();
+            if let Some(p) = &prev {
+                if &key <= p {
+                    return Err(PrismError::Corrupt {
+                        detail: "index keys not strictly sorted".into(),
+                    });
+                }
+            }
+            prev = Some(key.clone());
+            let flags = r.read_u8()?;
+            let logical_ts = r.read_u64()?;
+            let vlen = read_uvarint(&mut r)? as usize;
+            let value = r.read_bytes(vlen)?.to_vec();
+            entries.push((
+                key,
+                IndexEntry {
+                    value,
+                    logical_ts,
+                    tombstone: flags & FLAG_TOMBSTONE != 0,
+                },
+            ));
+        }
+        Ok(Self { entries })
+    }
+
+    /// Look up `key` within this segment only.
+    pub fn get(&self, key: &[u8]) -> Option<&IndexEntry> {
+        self.entries
+            .binary_search_by(|(k, _)| k.as_slice().cmp(key))
+            .ok()
+            .map(|i| &self.entries[i].1)
+    }
+
+    /// Number of entries.
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// True if empty.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
+
+/// The merged read view: memtable over immutable segments (newest first).
+#[derive(Default)]
+pub struct IndexSet {
+    memtable: Memtable,
+    /// Immutable segments ordered newest → oldest.
+    readers: Vec<IndexReader>,
+}
+
+impl IndexSet {
+    /// A new empty set.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Mutable access to the memtable.
+    pub fn memtable_mut(&mut self) -> &mut Memtable {
+        &mut self.memtable
+    }
+
+    /// Add an immutable segment as the newest one (call in newest-first order).
+    pub fn push_newest(&mut self, reader: IndexReader) {
+        self.readers.insert(0, reader);
+    }
+
+    /// Add an immutable segment as the oldest one.
+    pub fn push_oldest(&mut self, reader: IndexReader) {
+        self.readers.push(reader);
+    }
+
+    /// Resolve `key` across memtable then segments newest→oldest. Returns the live
+    /// value, or `None` if absent or the newest entry is a tombstone.
+    pub fn get(&self, key: &[u8]) -> Option<&[u8]> {
+        if let Some(e) = self.memtable.get(key) {
+            return if e.tombstone {
+                None
+            } else {
+                Some(e.value.as_slice())
+            };
+        }
+        for r in &self.readers {
+            if let Some(e) = r.get(key) {
+                return if e.tombstone {
+                    None
+                } else {
+                    Some(e.value.as_slice())
+                };
+            }
+        }
+        None
+    }
+}
+
+/// Typed key builders for the concrete indexes. Prefix byte + big-endian payloads
+/// so lexical order matches numeric order.
+pub mod keys {
+    use prism_model::{EcosystemId, PackageId, StringId, VersionId};
+
+    /// Index prefixes (the first byte of every typed key).
+    #[repr(u8)]
+    pub enum Prefix {
+        PkgByName = 1,
+        PkgById = 2,
+        VerById = 3,
+        VerByPurl = 4,
+        VersByPackage = 5,
+        ReqById = 6,
+        ReqsBySrcVer = 7,
+        ReqsByDstPackage = 8,
+        RunById = 9,
+    }
+
+    /// `PKG_BY_NAME`: ecosystem + namespace(StringId, 0 if none) + canonical_name.
+    pub fn pkg_by_name(eco: EcosystemId, namespace: Option<StringId>, canonical: StringId) -> Vec<u8> {
+        let mut k = Vec::with_capacity(1 + 4 + 4 + 4);
+        k.push(Prefix::PkgByName as u8);
+        k.extend_from_slice(&eco.get().to_be_bytes());
+        k.extend_from_slice(&namespace.map(|s| s.get()).unwrap_or(0).to_be_bytes());
+        k.extend_from_slice(&canonical.get().to_be_bytes());
+        k
+    }
+
+    /// `PKG_BY_ID`.
+    pub fn pkg_by_id(id: PackageId) -> Vec<u8> {
+        let mut k = Vec::with_capacity(9);
+        k.push(Prefix::PkgById as u8);
+        k.extend_from_slice(&id.get().to_be_bytes());
+        k
+    }
+
+    /// `VER_BY_ID`.
+    pub fn ver_by_id(id: VersionId) -> Vec<u8> {
+        let mut k = Vec::with_capacity(9);
+        k.push(Prefix::VerById as u8);
+        k.extend_from_slice(&id.get().to_be_bytes());
+        k
+    }
+
+    /// `VERS_BY_PACKAGE`.
+    pub fn vers_by_package(id: PackageId) -> Vec<u8> {
+        let mut k = Vec::with_capacity(9);
+        k.push(Prefix::VersByPackage as u8);
+        k.extend_from_slice(&id.get().to_be_bytes());
+        k
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn memtable_freeze_parse_roundtrip() {
+        let mut mt = Memtable::new();
+        mt.put(b"alpha".to_vec(), b"1".to_vec(), 10);
+        mt.put(b"beta".to_vec(), b"2".to_vec(), 11);
+        mt.delete(b"gamma".to_vec(), 12);
+        let bytes = mt.freeze(1, 0);
+
+        let r = IndexReader::parse(&bytes).unwrap();
+        assert_eq!(r.len(), 3);
+        assert_eq!(r.get(b"alpha").unwrap().value, b"1");
+        assert!(r.get(b"gamma").unwrap().tombstone);
+        assert!(r.get(b"missing").is_none());
+    }
+
+    #[test]
+    fn merge_prefers_newer_and_honors_tombstone() {
+        // Old segment: key=k -> "old"
+        let mut old = Memtable::new();
+        old.put(b"k".to_vec(), b"old".to_vec(), 1);
+        old.put(b"keep".to_vec(), b"v".to_vec(), 1);
+        let old_reader = IndexReader::parse(&old.freeze(1, 0)).unwrap();
+
+        // Newer segment: key=k -> "new"
+        let mut new = Memtable::new();
+        new.put(b"k".to_vec(), b"new".to_vec(), 5);
+        let new_reader = IndexReader::parse(&new.freeze(2, 0)).unwrap();
+
+        let mut set = IndexSet::new();
+        set.push_oldest(old_reader);
+        set.push_newest(new_reader);
+        assert_eq!(set.get(b"k"), Some(b"new".as_slice()));
+        assert_eq!(set.get(b"keep"), Some(b"v".as_slice()));
+
+        // A memtable tombstone hides everything older.
+        set.memtable_mut().delete(b"k".to_vec(), 9);
+        assert_eq!(set.get(b"k"), None);
+        assert_eq!(set.get(b"keep"), Some(b"v".as_slice()));
+    }
+
+    #[test]
+    fn corrupt_index_detected() {
+        let mut mt = Memtable::new();
+        mt.put(b"a".to_vec(), b"b".to_vec(), 1);
+        let mut bytes = mt.freeze(1, 0);
+        let n = bytes.len();
+        bytes[n / 2] ^= 0xFF;
+        assert!(IndexReader::parse(&bytes).is_err());
+    }
+
+    #[test]
+    fn typed_keys_sort_numerically() {
+        use prism_model::PackageId;
+        let k2 = keys::pkg_by_id(PackageId::new(2));
+        let k10 = keys::pkg_by_id(PackageId::new(10));
+        assert!(k2 < k10, "big-endian keys must sort numerically");
+    }
+}

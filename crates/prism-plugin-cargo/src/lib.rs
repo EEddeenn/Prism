@@ -163,10 +163,13 @@ mod tests {
         assert_eq!(g.node_count(), 3);
         assert_eq!(g.fidelity.unwrap().tier, FidelityTier::LockfileExact);
 
-        // Node set by occurrence key.
+        // Node set by occurrence key. Sourced crates are source-qualified; the
+        // root member `demo` has no source.
         let mut keys: Vec<&str> = g.nodes.iter().map(|n| n.occurrence_key.as_str()).collect();
         keys.sort();
-        assert_eq!(keys, ["anyhow 1.0.80", "demo 1.2.3", "serde 1.0.197"]);
+        assert!(keys[0].starts_with("anyhow 1.0.80 ("));
+        assert_eq!(keys[1], "demo 1.2.3");
+        assert!(keys[2].starts_with("serde 1.0.197 ("));
 
         // demo -> anyhow (bare), demo -> serde 1.0.197 (versioned).
         assert_eq!(g.edge_count(), 2);
@@ -175,8 +178,8 @@ mod tests {
             .iter()
             .map(|e| g.nodes[e.to as usize].occurrence_key.as_str())
             .collect();
-        assert!(targets.contains(&"anyhow 1.0.80"));
-        assert!(targets.contains(&"serde 1.0.197"));
+        assert!(targets.iter().any(|t| t.starts_with("anyhow 1.0.80 (")));
+        assert!(targets.iter().any(|t| t.starts_with("serde 1.0.197 (")));
         // All edges originate from the root member `demo`.
         for e in &g.edges {
             assert_eq!(g.nodes[e.from as usize].occurrence_key, "demo 1.2.3");

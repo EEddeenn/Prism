@@ -61,7 +61,9 @@ pub fn parse_manifest_str(text: &str) -> Result<CanonicalBatch, ParseError> {
             .path(["package", "license"])
             .and_then(Toml::as_str)
             .map(str::to_string),
-        is_prerelease: pkg_version.contains('-'),
+        // Decide prerelease via the SemVer engine, not a naive `contains('-')`
+        // (which misfires on build metadata like `1.0.0+build-meta`).
+        is_prerelease: crate::lockfile::is_prerelease(&pkg_version),
     }));
 
     let ctx = SrcCtx {
@@ -206,6 +208,21 @@ fn build_long_form(
     batch: &mut CanonicalBatch,
 ) -> RequirementFact {
     let get = |k: &str| fields.iter().find(|(n, _)| n == k).map(|(_, v)| v);
+
+    // A `{ workspace = true }` dependency inherits its version from
+    // [workspace.dependencies] (a later resolution stage). It has no `version`
+    // here, so surface a warning instead of fabricating an authoritative `*`,
+    // which would look like a real "any version" requirement downstream.
+    let inherits_workspace = get("workspace").and_then(Toml::as_bool).unwrap_or(false);
+    if inherits_workspace && get("version").is_none() {
+        batch.warn(
+            ParseWarning::new(
+                "workspace-inherited",
+                format!("dependency `{dep_name}` inherits its version from [workspace.dependencies]"),
+            )
+            .located(dep_name.to_string()),
+        );
+    }
 
     let version = get("version")
         .and_then(Toml::as_str)

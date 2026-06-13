@@ -33,19 +33,22 @@ impl Wake for NoopWake {
 }
 
 /// Drive a `Future` to completion on the current thread. The mock futures are
-/// always immediately `Ready`, so one poll suffices; we loop defensively (the
-/// no-op waker never re-schedules, so a genuinely `Pending` future would spin —
-/// the mock never produces one).
+/// always immediately `Ready`, so one poll suffices. The no-op waker never
+/// re-schedules, so a genuinely `Pending` future cannot make progress — rather
+/// than spin a core forever (a copy-paste hazard if this helper is ever reused),
+/// we cap the poll count and panic with a clear message, turning a hang into a
+/// fast, legible test failure.
 fn block_on<F: Future>(fut: F) -> F::Output {
+    const MAX_POLLS: usize = 1024;
     let waker = Waker::from(Arc::new(NoopWake));
     let mut cx = Context::from_waker(&waker);
     let mut fut = std::pin::pin!(fut);
-    loop {
-        match fut.as_mut().poll(&mut cx) {
-            Poll::Ready(v) => return v,
-            Poll::Pending => continue,
+    for _ in 0..MAX_POLLS {
+        if let Poll::Ready(v) = fut.as_mut().poll(&mut cx) {
+            return v;
         }
     }
+    panic!("block_on: future still Pending after {MAX_POLLS} polls (no-op waker cannot drive a real async future)");
 }
 
 // --- mock capability impls -------------------------------------------------

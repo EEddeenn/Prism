@@ -117,8 +117,40 @@ pub fn parse_lockfile_packages(text: &str) -> Result<Vec<LockPackage>, ParseErro
     Ok(out)
 }
 
-/// Resolve a lockfile dependency reference (`"name"` or `"name version"`) to the
-/// index of the matching package, given the lookup tables.
+/// Parse a `Cargo.lock` dependency reference into `(name, Option<version>)`.
+///
+/// A reference takes one of three forms:
+/// - `name` — bare (the name is unambiguous in the graph),
+/// - `name version` — disambiguated by version,
+/// - `name version (source)` — additionally qualified by source. This third form
+///   is used for **every** dependency in lockfile `version = 1`, so failing to
+///   strip the ` (source)` qualifier silently drops essentially all edges.
+///
+/// The trailing ` (source)` qualifier is stripped; resolution keys on
+/// `(name, version)`.
+fn parse_dep_ref(dep: &str) -> (&str, Option<&str>) {
+    // Drop a trailing " (source)" qualifier (source URLs carry no spaces, and the
+    // name/version never contain " (", so this split is unambiguous).
+    let core = match dep.split_once(" (") {
+        Some((head, _source)) => head,
+        None => dep,
+    };
+    match core.split_once(' ') {
+        Some((name, version)) => (name, Some(version)),
+        None => (core, None),
+    }
+}
+
+/// Whether `version` is a SemVer prerelease, decided by the shared engine rather
+/// than a naive `contains('-')` (which misfires on build metadata such as
+/// `1.0.0+build-meta`). An unparseable version is treated as non-prerelease.
+pub(crate) fn is_prerelease(version: &str) -> bool {
+    prism_semver::Version::parse(version)
+        .map(|v| v.is_prerelease())
+        .unwrap_or(false)
+}
+
+/// Resolve a lockfile dependency reference to the index of the matching package.
 ///
 /// Cargo writes the version only when a name is ambiguous (multiple versions of
 /// the same crate in the graph); otherwise a bare name is unique.
@@ -127,10 +159,17 @@ fn resolve_ref<'a>(
     by_name_version: &HashMap<(&'a str, &'a str), usize>,
     by_name: &HashMap<&'a str, Vec<usize>>,
 ) -> Option<usize> {
-    match dep.split_once(' ') {
-        Some((name, version)) => by_name_version.get(&(name, version)).copied(),
-        None => match by_name.get(dep) {
-            // Unambiguous bare name.
+    let (name, version) = parse_dep_ref(dep);
+    match version {
+        // Resolve on (name, version); fall back to a unique bare name if the
+        // exact pair is missing (e.g. a benign source mismatch).
+        Some(v) => by_name_version.get(&(name, v)).copied().or_else(|| {
+            match by_name.get(name) {
+                Some(ids) if ids.len() == 1 => Some(ids[0]),
+                _ => None,
+            }
+        }),
+        None => match by_name.get(name) {
             Some(ids) if ids.len() == 1 => Some(ids[0]),
             _ => None,
         },
@@ -157,17 +196,21 @@ pub fn parse_lockfile_graph(text: &str) -> Result<ResolvedGraph, ParseError> {
     let mut graph = ResolvedGraph::new();
     for (i, p) in packages.iter().enumerate() {
         // Root heuristic: a package with no source is a local/workspace member.
+        // (Refined below once edges exist — a sourceless package that is itself
+        // depended upon is a path dependency, not a top-level root.)
         let flags = if p.source.is_none() {
             NodeFlags::ROOT
         } else {
             NodeFlags::EMPTY
         };
-        let local = graph.add_node(
-            VersionId::new((i as u64) + 1),
-            0,
-            format!("{} {}", p.name, p.version),
-            flags,
-        );
+        // Occurrence identity is source+name+version (architecture doc): include
+        // the source so the same name+version from two distinct sources
+        // (crates.io vs git/path, or two git revisions) stay distinguishable.
+        let key = match &p.source {
+            Some(src) => format!("{} {} ({src})", p.name, p.version),
+            None => format!("{} {}", p.name, p.version),
+        };
+        let local = graph.add_node(VersionId::new((i as u64) + 1), 0, key, flags);
         debug_assert_eq!(local as usize, i);
     }
 
@@ -185,6 +228,21 @@ pub fn parse_lockfile_graph(text: &str) -> Result<ResolvedGraph, ParseError> {
             }
             // Unresolvable refs are silently skipped: a malformed lockfile must
             // not crash, and a dangling edge has no target node.
+        }
+    }
+
+    // Refine the ROOT heuristic: a sourceless package that is itself depended upon
+    // (has an incoming edge) is a path dependency or a depended-on member, not a
+    // top-level root — clearing ROOT keeps the BFS depth honest.
+    let mut has_incoming = vec![false; packages.len()];
+    for e in &graph.edges {
+        if (e.to as usize) < has_incoming.len() {
+            has_incoming[e.to as usize] = true;
+        }
+    }
+    for (i, node) in graph.nodes.iter_mut().enumerate() {
+        if has_incoming[i] {
+            node.flags.remove(NodeFlags::ROOT);
         }
     }
 
@@ -216,7 +274,7 @@ pub fn parse_lockfile_batch(text: &str) -> Result<CanonicalBatch, ParseError> {
             version_raw: p.version.clone(),
             released_at_unix: None,
             license_expr: None,
-            is_prerelease: p.version.contains('-'),
+            is_prerelease: is_prerelease(&p.version),
         }));
         if let Some(cs) = &p.checksum {
             batch.warn(ParseWarning::new(
@@ -225,11 +283,13 @@ pub fn parse_lockfile_batch(text: &str) -> Result<CanonicalBatch, ParseError> {
             ));
         }
         for dep in &p.dependencies {
-            let (target, exact) = match dep.split_once(' ') {
-                Some((n, v)) => (n.to_string(), v.to_string()),
-                // Bare name: the exact version is implied by the unique node.
-                None => (dep.clone(), "*".to_string()),
-            };
+            // Use the shared reference parser so the `name version (source)` form
+            // (lockfile v1) yields a bare, parseable version — not the malformed
+            // `1.0.0 (registry+...)` the naive split_once produced.
+            let (name, version) = parse_dep_ref(dep);
+            let target = name.to_string();
+            // Bare name: the exact version is implied by the unique node.
+            let exact = version.unwrap_or("*").to_string();
             batch.push(CanonicalEvent::RequirementSeen(RequirementFact {
                 src_name: PackageName::new(p.name.clone()),
                 src_version_raw: p.version.clone(),
@@ -302,9 +362,9 @@ mod tests {
     fn builds_resolved_graph_with_edges() {
         let g = parse_lockfile_graph(LOCK).unwrap();
         assert_eq!(g.node_count(), 4);
-        // occurrence keys identify each node.
-        assert_eq!(g.nodes[0].occurrence_key, "my-app 0.1.0");
-        assert_eq!(g.nodes[1].occurrence_key, "serde 1.0.197");
+        // occurrence keys identify each node (source-qualified when present).
+        assert_eq!(g.nodes[0].occurrence_key, "my-app 0.1.0"); // root: no source
+        assert!(g.nodes[1].occurrence_key.starts_with("serde 1.0.197 (registry+"));
         // my-app -> serde (bare), my-app -> rand 0.8.5 (versioned), serde -> serde_derive.
         assert_eq!(g.edge_count(), 3);
         let edge_targets: Vec<&str> = g
@@ -312,9 +372,9 @@ mod tests {
             .iter()
             .map(|e| g.nodes[e.to as usize].occurrence_key.as_str())
             .collect();
-        assert!(edge_targets.contains(&"serde 1.0.197"));
-        assert!(edge_targets.contains(&"rand 0.8.5"));
-        assert!(edge_targets.contains(&"serde_derive 1.0.197"));
+        assert!(edge_targets.iter().any(|t| t.starts_with("serde 1.0.197 (")));
+        assert!(edge_targets.iter().any(|t| t.starts_with("rand 0.8.5 (")));
+        assert!(edge_targets.iter().any(|t| t.starts_with("serde_derive 1.0.197 (")));
         // The root member is flagged.
         assert!(g.nodes[0].flags.contains(NodeFlags::ROOT));
         assert!(!g.nodes[1].flags.contains(NodeFlags::ROOT));
@@ -365,7 +425,44 @@ mod tests {
             .map(|e| g.nodes[e.to as usize].occurrence_key.as_str())
             .collect();
         targets.sort();
-        assert_eq!(targets, ["dep 1.0.0", "dep 2.0.0"]);
+        assert_eq!(targets, ["dep 1.0.0 (registry+x)", "dep 2.0.0 (registry+x)"]);
+    }
+
+    #[test]
+    fn v1_lockfile_source_qualified_refs_resolve() {
+        // Lockfile version=1 writes EVERY dependency as `name version (source)`;
+        // the ` (source)` qualifier must be stripped so the edge resolves.
+        let lock = r#"
+            [[package]]
+            name = "app"
+            version = "0.1.0"
+            dependencies = ["serde 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)"]
+
+            [[package]]
+            name = "serde"
+            version = "1.0.0"
+            source = "registry+https://github.com/rust-lang/crates.io-index"
+        "#;
+        let g = parse_lockfile_graph(lock).unwrap();
+        assert_eq!(g.edge_count(), 1, "the source-qualified edge must resolve");
+        assert_eq!(g.edges[0].from, 0);
+        assert_eq!(g.edges[0].to, 1);
+
+        // And the facts path stores a bare, parseable raw_requirement.
+        let batch = parse_lockfile_batch(lock).unwrap();
+        let has_bare_req = batch.iter().any(|e| matches!(
+            e,
+            CanonicalEvent::RequirementSeen(r) if r.raw_requirement == "1.0.0"
+        ));
+        assert!(has_bare_req, "raw_requirement must be the bare version, not `1.0.0 (source)`");
+    }
+
+    #[test]
+    fn build_metadata_hyphen_is_not_prerelease() {
+        // '-' living in build metadata must NOT flag a prerelease.
+        assert!(!is_prerelease("1.0.0+build-meta"));
+        assert!(is_prerelease("1.0.0-rc.1"));
+        assert!(!is_prerelease("1.2.3"));
     }
 
     #[test]

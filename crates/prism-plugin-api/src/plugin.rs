@@ -101,6 +101,10 @@ pub trait EcosystemPlugin: Send + Sync {
                 EcosystemCapabilities::ENUM_CANDIDATES,
                 self.candidate_provider().is_some(),
             ),
+            (
+                EcosystemCapabilities::SYNTHETIC_RESOLVE,
+                self.resolver_adapter().is_some(),
+            ),
         ];
         pairs
             .into_iter()
@@ -112,8 +116,52 @@ pub trait EcosystemPlugin: Send + Sync {
 mod tests {
     // Behavioral tests for a concrete plugin live in `crate::mock`; this module
     // only asserts the trait is object-safe via the type alias below.
-    use super::EcosystemPlugin;
+    use super::*;
 
     #[allow(dead_code)]
     type BoxedPlugin = Box<dyn EcosystemPlugin>;
+
+    /// A plugin that advertises whatever capabilities it is told to, while
+    /// exposing NO accessors — so any advertised flag (from our checked set) is
+    /// inconsistent.
+    struct LyingPlugin(EcosystemCapabilities);
+    impl EcosystemPlugin for LyingPlugin {
+        fn id(&self) -> EcosystemId {
+            EcosystemId::new(999)
+        }
+        fn capabilities(&self) -> EcosystemCapabilities {
+            self.0
+        }
+        fn name_normalizer(&self) -> &dyn NameNormalizer {
+            unimplemented!("not needed for self_consistent")
+        }
+        fn version_scheme(&self) -> &dyn VersionScheme {
+            unimplemented!("not needed for self_consistent")
+        }
+        fn requirement_parser(&self) -> &dyn RequirementParser {
+            unimplemented!("not needed for self_consistent")
+        }
+        fn condition_evaluator(&self) -> &dyn ConditionEvaluator {
+            unimplemented!("not needed for self_consistent")
+        }
+    }
+
+    #[test]
+    fn self_consistent_rejects_advertised_flag_without_accessor() {
+        // Advertises each checked capability but returns no accessor -> inconsistent.
+        for flag in [
+            EcosystemCapabilities::PARSE_MANIFEST,
+            EcosystemCapabilities::PARSE_LOCKFILE,
+            EcosystemCapabilities::FETCH_REGISTRY,
+            EcosystemCapabilities::ENUM_CANDIDATES,
+            EcosystemCapabilities::SYNTHETIC_RESOLVE,
+        ] {
+            assert!(
+                !LyingPlugin(flag).self_consistent(),
+                "advertising {flag:?} without an accessor must be inconsistent"
+            );
+        }
+        // Advertising nothing (and exposing nothing) IS consistent.
+        assert!(LyingPlugin(EcosystemCapabilities::EMPTY).self_consistent());
+    }
 }

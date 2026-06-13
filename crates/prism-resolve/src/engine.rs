@@ -22,7 +22,7 @@
 //!   engine re-runs the whole BFS, so newly-active activation-gated requirements
 //!   appear in the final graph.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 
 use prism_model::{
     EdgeFlags, EnvironmentId, FidelityCaveats, FidelityTier, GraphFidelity, NodeFlags, VersionId,
@@ -202,6 +202,12 @@ where
                 break;
             }
             if cap_hit {
+                // The closure was still growing. Run one final pass against the
+                // just-grown closure so the returned graph and `activation` agree
+                // (otherwise the graph reflects the previous, smaller closure),
+                // then flag truncated since the fixpoint had not converged.
+                last = self.materialize(roots, &activation)?;
+                iterations += 1;
                 last.graph.truncated = true;
                 add_caveat(&mut last.graph, FidelityCaveats::BUDGET_TRUNCATED);
                 break;
@@ -246,8 +252,13 @@ where
         let mut next_activation = ActivationContext::new();
         // Per-node owning package family (parallel to g.nodes).
         let mut node_pkg: Vec<prism_model::PackageId> = Vec::new();
-        // Queue carries (node local_id, root->node family path).
-        let mut queue: VecDeque<(u32, Vec<prism_model::PackageId>)> = VecDeque::new();
+        // O(log N) occurrence lookup: (family, version) -> the node minted for it,
+        // so diamond reuse doesn't linearly scan every node per edge. Deterministic
+        // (BTreeMap, no hashing) to keep the pass reproducible.
+        let mut intern: BTreeMap<(u64, u64), u32> = BTreeMap::new();
+        // Queue carries (node local_id, root->node path of (family, node local_id))
+        // so the cycle guard can target the exact on-path ancestor occurrence.
+        let mut queue: VecDeque<(u32, Vec<(prism_model::PackageId, u32)>)> = VecDeque::new();
 
         // Seed roots.
         for &root in roots {
@@ -258,26 +269,34 @@ where
             let pkg = self.requirements.package_of(root)?;
             let local = g.add_node(root, 0, "", NodeFlags::ROOT);
             node_pkg.push(pkg);
+            intern.entry((pkg.get(), root.get())).or_insert(local);
             self.record_default_activations(root, pkg, &mut next_activation)?;
-            queue.push_back((local, vec![pkg]));
+            queue.push_back((local, vec![(pkg, local)]));
         }
 
         while let Some((src, path)) = queue.pop_front() {
             let src_depth = g.nodes[src as usize].depth;
             let src_version = g.nodes[src as usize].version_id;
 
-            // Depth bound: keep the node, do not expand past it.
+            let reqs = self.requirements.requirements(src_version)?;
+
+            // Depth bound: keep the node, do not expand past it. Only flag it
+            // TRUNCATED when it actually has unexpanded children — a genuine leaf
+            // landing exactly at the cap cut nothing and must not downgrade the
+            // whole graph's fidelity.
             if src_depth >= self.budget.max_depth {
-                self.mark_truncated(&mut g);
-                g.nodes[src as usize].flags.insert(NodeFlags::TRUNCATED);
+                if !reqs.is_empty() {
+                    self.mark_truncated(&mut g);
+                    g.nodes[src as usize].flags.insert(NodeFlags::TRUNCATED);
+                }
                 continue;
             }
 
-            let reqs = self.requirements.requirements(src_version)?;
             for (ordinal, req) in reqs.into_iter().enumerate() {
                 self.expand_requirement(
                     &mut g,
                     &mut node_pkg,
+                    &mut intern,
                     &mut queue,
                     &mut next_activation,
                     activation,
@@ -302,12 +321,13 @@ where
         &self,
         g: &mut ResolvedGraph,
         node_pkg: &mut Vec<prism_model::PackageId>,
-        queue: &mut VecDeque<(u32, Vec<prism_model::PackageId>)>,
+        intern: &mut BTreeMap<(u64, u64), u32>,
+        queue: &mut VecDeque<(u32, Vec<(prism_model::PackageId, u32)>)>,
         next_activation: &mut ActivationContext,
         activation: &ActivationContext,
         src: u32,
         src_depth: u32,
-        path: &[prism_model::PackageId],
+        path: &[(prism_model::PackageId, u32)],
         ordinal: u32,
         req: &DeclaredRequirement,
     ) -> Result<(), ResolveError> {
@@ -326,9 +346,25 @@ where
             activation,
             &self.policy,
         )?;
-        let Some(selected) = selected else {
-            // Source deliberately wants no candidate (gated off downstream).
-            return Ok(());
+        let selected = match selected {
+            Some(s) => s,
+            None => {
+                // The source found no candidate. For an OPTIONAL dependency that is
+                // an acceptable "not installed"; for a required one (we already
+                // passed the condition gate, so it IS active) it is genuinely
+                // unsatisfiable and must surface — not silently vanish from the
+                // graph with no error or fidelity caveat.
+                if req.kind == prism_model::DependencyKind::Optional {
+                    return Ok(());
+                }
+                return Err(ResolveError::Unsatisfiable {
+                    requirement: req.requirement_id,
+                    detail: format!(
+                        "no candidate satisfies required dependency (matcher {:?})",
+                        req.matcher
+                    ),
+                });
+            }
         };
 
         // Edge is taken: record the activations it triggers on its target.
@@ -337,24 +373,23 @@ where
         }
 
         // Cycle guard on the *package family*: if the target family is already on
-        // the current root->src path, close a BACK_EDGE to that occurrence.
-        if path.contains(&req.target) {
-            if let Some(existing) = find_on_path(g, node_pkg, path, req.target) {
-                g.add_edge(ResolvedEdge {
-                    from: src,
-                    to: existing,
-                    ordinal,
-                    requirement_id: Some(req.requirement_id),
-                    kind: req.kind,
-                    flags: EdgeFlags::RESOLVED | EdgeFlags::BACK_EDGE,
-                });
-            }
+        // the current root->src path, close a BACK_EDGE to the NEAREST such
+        // ancestor occurrence (scan the path in reverse), not some off-path sibling.
+        if let Some(&(_, ancestor)) = path.iter().rev().find(|(f, _)| *f == req.target) {
+            g.add_edge(ResolvedEdge {
+                from: src,
+                to: ancestor,
+                ordinal,
+                requirement_id: Some(req.requirement_id),
+                kind: req.kind,
+                flags: EdgeFlags::RESOLVED | EdgeFlags::BACK_EDGE,
+            });
             return Ok(());
         }
 
         // Reuse an existing sibling occurrence of the same family if present
         // (shared diamond target → one node), else mint a new one.
-        let dst = match find_existing(g, node_pkg, req.target, selected) {
+        let dst = match intern.get(&(req.target.get(), selected.get())).copied() {
             Some(existing) => {
                 // Keep the minimum BFS depth.
                 let d = src_depth + 1;
@@ -372,9 +407,10 @@ where
                 let key = occurrence_key(req.target, selected);
                 let local = g.add_node(selected, src_depth + 1, key, NodeFlags::EMPTY);
                 node_pkg.push(req.target);
+                intern.entry((req.target.get(), selected.get())).or_insert(local);
                 self.record_default_activations(selected, req.target, next_activation)?;
                 let mut child_path = path.to_vec();
-                child_path.push(req.target);
+                child_path.push((req.target, local));
                 queue.push_back((local, child_path));
                 local
             }
@@ -458,38 +494,6 @@ fn occurrence_key(pkg: prism_model::PackageId, version: VersionId) -> String {
     format!("{}@{}", pkg.get(), version.get())
 }
 
-/// Find an existing occurrence of `(family, version)` to share (diamonds).
-fn find_existing(
-    g: &ResolvedGraph,
-    node_pkg: &[prism_model::PackageId],
-    family: prism_model::PackageId,
-    version: VersionId,
-) -> Option<u32> {
-    g.nodes.iter().enumerate().find_map(|(i, n)| {
-        if node_pkg[i] == family && n.version_id == version {
-            Some(n.local_id)
-        } else {
-            None
-        }
-    })
-}
-
-/// Find the occurrence of `family` lying on the current root→src path (for the
-/// cycle guard's back-edge target).
-fn find_on_path(
-    g: &ResolvedGraph,
-    node_pkg: &[prism_model::PackageId],
-    path: &[prism_model::PackageId],
-    family: prism_model::PackageId,
-) -> Option<u32> {
-    if !path.contains(&family) {
-        return None;
-    }
-    // Prefer the closest ancestor occurrence of the family.
-    g.nodes
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| node_pkg[*i] == family)
-        .map(|(_, n)| n.local_id)
-        .next_back()
-}
+// Occurrence reuse (diamonds) and the cycle-guard ancestor lookup are now O(log N)
+// via the `intern` map and the path's per-entry node local_id, respectively — no
+// linear scan of `g.nodes` per edge.

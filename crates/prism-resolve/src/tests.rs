@@ -223,6 +223,62 @@ fn depth_budget_truncates_and_flags() {
     assert_eq!(edge_pairs(g).len(), 2);
 }
 
+#[test]
+fn leaf_at_exactly_max_depth_is_not_flagged_truncated() {
+    // A(d0) -> B(d1). B is a genuine leaf (no requirements) landing exactly at
+    // the depth cap: nothing is cut, so the graph must NOT report truncated and
+    // B must NOT carry the TRUNCATED flag.
+    let mut reqs = MockReqs::default();
+    reqs.family(1, 1, vec![req(10, 2, "*")]);
+    reqs.family(2, 2, vec![]); // leaf
+    let cands = OneVersion::of(&[(1, 1), (2, 2)]);
+    let engine = Engine::with_gate(
+        reqs,
+        cands,
+        AlwaysActive,
+        ResolvePolicy::Latest,
+        ENV,
+        ResolveBudget::with_max_depth(1),
+    );
+    let out = engine.resolve(&[VersionId::new(1)]).unwrap();
+    let g = &out.graph;
+    assert_eq!(node_versions(g), vec![1, 2]);
+    assert!(!g.truncated, "a leaf at the cap cut nothing");
+    let b = g.nodes.iter().find(|n| n.version_id.get() == 2).unwrap();
+    assert!(!b.flags.contains(NodeFlags::TRUNCATED));
+    assert!(!g
+        .fidelity
+        .unwrap()
+        .caveats
+        .contains(prism_model::FidelityCaveats::BUDGET_TRUNCATED));
+}
+
+#[test]
+fn unsatisfiable_required_dependency_errors_but_optional_is_skipped() {
+    use prism_plugin_api::ResolveError;
+    // A requires family 99, which the candidate source cannot satisfy (returns
+    // Ok(None)). A required dep must surface as Unsatisfiable, not vanish.
+    let mut reqs = MockReqs::default();
+    reqs.family(1, 1, vec![req(10, 99, "*")]);
+    let cands = OneVersion::of(&[(1, 1)]); // no version for family 99
+    let engine = Engine::new(reqs, cands, ResolvePolicy::Latest, ENV);
+    let err = engine.resolve(&[VersionId::new(1)]).unwrap_err();
+    assert!(matches!(err, ResolveError::Unsatisfiable { .. }), "{err:?}");
+
+    // The same dependency declared OPTIONAL is an acceptable "not installed".
+    let mut reqs2 = MockReqs::default();
+    let optional = DeclaredRequirement {
+        kind: DependencyKind::Optional,
+        ..req(10, 99, "*")
+    };
+    reqs2.family(1, 1, vec![optional]);
+    let cands2 = OneVersion::of(&[(1, 1)]);
+    let engine2 = Engine::new(reqs2, cands2, ResolvePolicy::Latest, ENV);
+    let out = engine2.resolve(&[VersionId::new(1)]).unwrap();
+    assert_eq!(node_versions(&out.graph), vec![1], "only the root, no edge");
+    assert!(out.graph.edges.is_empty());
+}
+
 // --- (4) feature gate activates an extra edge only when requested ----------
 
 /// A gate that reads `feature:NAME` activation conditions against the closure

@@ -42,22 +42,36 @@ impl SafeUrl {
     }
 }
 
-/// Remove the `user[:password]@` segment of an `scheme://userinfo@host/...` URL.
+/// Remove any `user[:password]@` userinfo from a URL's authority.
 ///
-/// Only the authority component (the part after `://` and before the first `/`,
-/// `?`, or `#`) is inspected, so an `@` inside a path or query is preserved.
+/// This is a *redaction* guard, so it errs toward over-stripping: it removes
+/// userinfo from every shape an `@`-before-the-path can take — `scheme://u:p@h`,
+/// protocol-relative `//u:p@h`, and bare `u:p@h/path` — and treats both `/` and
+/// `\` as authority terminators (WHATWG normalizes `\` to `/` for special
+/// schemes, so a `host\path@evil` confusion must not survive). An `@` inside a
+/// path/query/fragment (after the first delimiter) is preserved.
 fn strip_userinfo(url: &str) -> String {
-    // Locate the authority: everything after the scheme separator "://".
-    let Some(sep) = url.find("://") else {
-        return url.to_string();
+    // Where does the authority begin?
+    //  - after "://" for a normal absolute URL,
+    //  - after a leading "//" for a protocol-relative URL,
+    //  - at the start for a bare `userinfo@host/...` (no scheme).
+    let auth_start = if let Some(sep) = url.find("://") {
+        sep + 3
+    } else if url.starts_with("//") {
+        2
+    } else {
+        0
     };
-    let auth_start = sep + 3;
     let rest = &url[auth_start..];
 
-    // The authority ends at the first '/', '?', or '#'.
-    let auth_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    // The authority ends at the first '/', '\', '?', or '#'.
+    let auth_end = rest.find(['/', '\\', '?', '#']).unwrap_or(rest.len());
     let authority = &rest[..auth_end];
 
+    // Strip up to and including the LAST '@' in the authority (so the redacted
+    // host can never be a userinfo-confused decoy). For the bare/no-scheme case
+    // this may also drop a `scheme:` prefix — acceptable: never leaking a
+    // credential matters more than preserving an unusual schemed form.
     match authority.rfind('@') {
         Some(at) => {
             let mut out = String::with_capacity(url.len());
@@ -148,5 +162,35 @@ mod tests {
     fn non_authority_url_passes_through() {
         let u = SafeUrl::new("file:relative/path");
         assert_eq!(u.as_str(), "file:relative/path");
+    }
+
+    #[test]
+    fn strips_userinfo_from_schemeless_and_protocol_relative_forms() {
+        // Protocol-relative: the credential before '@' must be removed, '//' kept.
+        assert_eq!(SafeUrl::new("//user:tok@host/path").as_str(), "//host/path");
+        // Bare schemeless authority.
+        assert_eq!(SafeUrl::new("user:tok@host/path").as_str(), "host/path");
+        // None of these leak the token.
+        for s in ["//u:tok@h/p", "u:tok@h/p", "https:u:tok@h/p"] {
+            assert!(!SafeUrl::new(s).as_str().contains("tok"), "leaked: {s}");
+        }
+    }
+
+    #[test]
+    fn backslash_is_an_authority_terminator() {
+        // WHATWG treats '\' like '/', so the authority is `good.com` and the rest
+        // (`\path@evil.com`) is path data, not userinfo. The old code (which did
+        // not stop at '\') would have mis-stripped to host `evil.com`; with '\' as
+        // a terminator the authority stays `good.com` and the decoy `@evil.com`
+        // never becomes the host.
+        let u = SafeUrl::new("https://good.com\\path@evil.com/");
+        assert!(
+            u.as_str().starts_with("https://good.com\\"),
+            "authority must remain good.com: {}",
+            u.as_str()
+        );
+        // A genuine userinfo BEFORE the '\' is still stripped.
+        let v = SafeUrl::new("https://user:tok@good.com\\path");
+        assert_eq!(v.as_str(), "https://good.com\\path");
     }
 }

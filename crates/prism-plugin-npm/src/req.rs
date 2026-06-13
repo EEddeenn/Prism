@@ -81,9 +81,24 @@ impl ReqProtocol {
     }
 }
 
+/// Strip a leading `v`/`V` that directly precedes a digit (npm accepts `v1.2.3`
+/// as an exact-version requirement). A real range (`^1.2.3`) or a dist-tag
+/// (`vue`, `latest`) is returned unchanged.
+fn strip_v(s: &str) -> &str {
+    match s.strip_prefix(['v', 'V']) {
+        Some(rest) if rest.starts_with(|c: char| c.is_ascii_digit()) => rest,
+        _ => s,
+    }
+}
+
 /// A dist-tag is a non-empty token of `[A-Za-z][A-Za-z0-9-_.]*` that is not the
 /// `*`/empty "any" range and does not look like a comparator/number.
 fn is_dist_tag(s: &str) -> bool {
+    // `x`/`X` are the npm "any" wildcard, and `v1.2.3` is a version — both are
+    // SemVer ranges, not dist-tags, so they must not be shadowed here.
+    if s.eq_ignore_ascii_case("x") || strip_v(s) != s {
+        return false;
+    }
     let mut chars = s.chars();
     match chars.next() {
         Some(c) if c.is_ascii_alphabetic() => {}
@@ -107,7 +122,7 @@ impl RequirementParser for NpmReqs {
         let s = raw.trim();
         match ReqProtocol::classify(s) {
             ReqProtocol::SemverRange => {
-                let req = VersionReq::parse(s)
+                let req = VersionReq::parse(strip_v(s))
                     .map_err(|e| ParseError::new("bad-requirement", e.to_string()))?;
                 Ok(req.to_string())
             }
@@ -141,7 +156,7 @@ impl RequirementParser for NpmReqs {
         let proto = ReqProtocol::classify(s);
         match proto {
             ReqProtocol::SemverRange => {
-                let req = VersionReq::parse(s)
+                let req = VersionReq::parse(strip_v(s))
                     .map_err(|e| ParseError::new("bad-requirement", e.to_string()))?;
                 let v = parse_version(version)?;
                 Ok(req.matches(&v))
@@ -173,6 +188,24 @@ fn parse_version(raw: &str) -> Result<Version, ParseError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn x_wildcard_and_v_prefix_are_versions_not_dist_tags() {
+        let r = NpmReqs;
+        // `x`/`X` are the "any" wildcard, not a dist-tag.
+        assert!(r.matches("x", "1.0.0").unwrap());
+        assert!(r.matches("X", "9.9.9").unwrap());
+        assert_eq!(r.canonicalize("x").unwrap(), "*");
+        // Leading-`v` exact versions parse as ranges.
+        assert!(r.matches("v1.2.3", "1.2.3").unwrap());
+        assert!(!r.matches("v1.2.3", "1.2.4").unwrap());
+        // Genuine dist-tags (alpha words) are still opaque.
+        assert!(!r.matches("latest", "1.0.0").unwrap());
+        assert!(!r.matches("vue", "1.0.0").unwrap());
+        assert_eq!(r.canonicalize("latest").unwrap(), "latest");
+        assert!(!is_dist_tag("x") && !is_dist_tag("X") && !is_dist_tag("v1.2.3"));
+        assert!(is_dist_tag("latest") && is_dist_tag("vue") && is_dist_tag("next"));
+    }
 
     #[test]
     fn semver_ranges_match() {

@@ -57,6 +57,10 @@ impl LockfileParser for NpmLockfile {
     /// (The resolved *graph* is produced by [`parse_package_lock`].)
     fn parse_lockfile(&self, raw: &RawDocument) -> Result<CanonicalBatch, ParseError> {
         let json = parse_root(raw)?;
+        // Validate the lockfile version on BOTH entry points so the facts path and
+        // the graph path agree on what is supported (was only checked in
+        // parse_package_lock).
+        let _ = check_lockfile_version(&json)?;
         let packages = packages_map(&json)?;
 
         let mut batch = CanonicalBatch::new();
@@ -132,10 +136,18 @@ pub fn parse_package_lock(raw: &RawDocument) -> Result<ResolvedGraph, ParseError
         // Synthetic, deterministic version id (1-based by iteration order).
         let version_id = VersionId::new(idx as u64 + 1);
         let local = graph.add_node(version_id, depth, path.as_str(), flags);
+        // A `packages` map with a duplicate path (JSON keeps every duplicate key)
+        // would otherwise silently mis-attribute the first entry's edges to the
+        // second and orphan the first node; reject it instead.
+        if by_path.insert(path.as_str(), local).is_some() {
+            return Err(ParseError::new(
+                "duplicate-package-path",
+                format!("duplicate packages entry {path:?}"),
+            ));
+        }
         // Surface a missing version as a warning-free no-op: the node still
         // exists (occurrence identity is the path), just without a real version.
         let _ = entry.get("version");
-        by_path.insert(path.as_str(), local);
     }
 
     // Pass 2: edges. For each entry, resolve each declared dependency name to the
@@ -231,11 +243,27 @@ fn packages_map(json: &Json) -> Result<&[(String, Json)], ParseError> {
 }
 
 /// The package name for a `packages` path. `""` (root) yields `None`; otherwise
-/// the segment(s) after the last `node_modules/` are returned, joining a scope
-/// (`@scope/name`) into a single name.
+/// the segment(s) after the last `node_modules` path *segment* are returned,
+/// joining a scope (`@scope/name`) into a single name.
+///
+/// Matching on path-segment boundaries (not the `"node_modules/"` substring) means
+/// a package legitimately named `my-node_modules`, or a crafted trailing slash,
+/// cannot produce a stray-slashed or wrong name.
 fn name_from_path(path: &str) -> Option<&str> {
-    let idx = path.rfind("node_modules/")?;
-    let tail = &path[idx + "node_modules/".len()..];
+    // Byte offset just after the last segment that is exactly "node_modules".
+    let mut start: Option<usize> = None;
+    let mut seg_begin = 0usize;
+    for (i, ch) in path.char_indices() {
+        if ch == '/' {
+            if &path[seg_begin..i] == "node_modules" {
+                start = Some(i + 1);
+            }
+            seg_begin = i + 1;
+        }
+    }
+    let tail = &path[start?..];
+    // Drop a trailing '/' (a crafted `node_modules/x/`) and reject an empty name.
+    let tail = tail.strip_suffix('/').unwrap_or(tail);
     if tail.is_empty() {
         None
     } else {
@@ -243,9 +271,17 @@ fn name_from_path(path: &str) -> Option<&str> {
     }
 }
 
-/// Depth = number of `node_modules/` segments in the path (root = 0).
+/// Install depth = number of `node_modules` path *segments* that contain a child
+/// (root = 0). Counts directory boundaries, not substring occurrences, so a
+/// package named e.g. `my-node_modules` does not inflate the depth.
 fn node_modules_depth(path: &str) -> u32 {
-    path.matches("node_modules/").count() as u32
+    let segs: Vec<&str> = path.split('/').collect();
+    // A "node_modules" segment is an install boundary only if a name follows it,
+    // i.e. it is not the final segment.
+    segs.iter()
+        .take(segs.len().saturating_sub(1))
+        .filter(|s| **s == "node_modules")
+        .count() as u32
 }
 
 /// The directory prefix in which a dependency `dep` of the entry at `from_path`
@@ -426,6 +462,40 @@ mod tests {
             name_from_path("node_modules/@scope/x"),
             Some("@scope/x")
         );
+    }
+
+    #[test]
+    fn node_modules_boundary_not_substring() {
+        // A package literally named `my-node_modules` must not inflate depth, and
+        // its name must extract cleanly (not be split on the inner substring).
+        assert_eq!(node_modules_depth("node_modules/my-node_modules"), 1);
+        assert_eq!(
+            node_modules_depth("node_modules/my-node_modules/node_modules/dep"),
+            2
+        );
+        assert_eq!(
+            name_from_path("node_modules/my-node_modules"),
+            Some("my-node_modules")
+        );
+        // Crafted trailing slash and non-boundary substring are handled.
+        assert_eq!(name_from_path("node_modules/x/"), Some("x"));
+        assert_eq!(name_from_path("prefixnode_modules/x"), None);
+        assert_eq!(name_from_path("node_modules/@scope/"), Some("@scope"));
+    }
+
+    #[test]
+    fn duplicate_package_path_is_rejected() {
+        // JSON keeps duplicate keys; a duplicate `packages` path must be rejected,
+        // not silently mis-attribute edges.
+        let src = r#"{
+          "name": "app", "lockfileVersion": 3,
+          "packages": {
+            "": { "version": "1.0.0" },
+            "node_modules/a": { "version": "1.0.0" },
+            "node_modules/a": { "version": "2.0.0" }
+          }
+        }"#;
+        assert!(parse_package_lock(&doc(src)).is_err());
     }
 
     #[test]

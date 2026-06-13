@@ -1,0 +1,13 @@
+[package]
+name = "prism-semver"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "SemVer version/constraint engine: parsing, ordering, sort keys, candidate ranges"
+
+[dependencies]
+prism-model = { path = "../prism-model" }
+
+[lints]
+workspace = true

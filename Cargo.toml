@@ -4,6 +4,9 @@ members = [
     "crates/prism-model",
     "crates/prism-codec",
     "crates/prism-store",
+    "crates/prism-plugin-api",
+    "crates/prism-graph",
+    "crates/prism-semver",
 ]
 
 [workspace.package]

@@ -6,9 +6,10 @@
 //! the portable key.
 
 use prism_api::{
-    BarcodeView, DuplicateClusterView, GraphEdgeView, GraphNodeView, GraphStatsView,
+    BarcodeView, CandidateView, DuplicateClusterView, GraphEdgeView, GraphNodeView, GraphStatsView,
     NeighborhoodView, PairView, SccView, SupportObject, SupportView,
 };
+use prism_model::{CandidateReason, ExclusionReason};
 
 use crate::json::JsonWriter;
 
@@ -205,6 +206,73 @@ pub fn support(w: &mut JsonWriter, v: &SupportView) {
                 w.end_object();
             }
         }
+    }
+    w.end_array();
+    w.end_object();
+}
+
+/// Display name for a [`CandidateReason`].
+fn candidate_reason_name(r: CandidateReason) -> &'static str {
+    match r {
+        CandidateReason::Constraint => "constraint",
+        CandidateReason::Locked => "locked",
+        CandidateReason::Unsatisfiable => "unsatisfiable",
+    }
+}
+
+/// Display name for an [`ExclusionReason`].
+fn exclusion_reason_name(r: ExclusionReason) -> &'static str {
+    match r {
+        ExclusionReason::Yanked => "yanked",
+        ExclusionReason::RequiresPythonMismatch => "requires-python-mismatch",
+        ExclusionReason::NoCompatibleWheel => "no-compatible-wheel",
+        ExclusionReason::DynamicMetadataUnknown => "dynamic-metadata-unknown",
+        ExclusionReason::Excluded => "excluded",
+        ExclusionReason::Retracted => "retracted",
+    }
+}
+
+/// Write a [`CandidateView`] — a package's versions sorted into ordinals, with
+/// the satisfying set, coalesced ranges, and per-version exclusions. The UI uses
+/// this to draw a version "headroom" number-line on the node detail.
+pub fn candidates(w: &mut JsonWriter, v: &CandidateView) {
+    w.begin_object();
+    w.field_u64("package_id", v.package.get());
+    w.field_str("package_purl", &v.package_purl);
+    w.field_str("constraint", &v.constraint);
+    w.field_u64("total_versions", v.total_versions as u64);
+    w.field_str("reason", candidate_reason_name(v.reason));
+    w.field_u64("satisfying_count", v.candidates.len() as u64);
+
+    w.key("candidates");
+    w.begin_array();
+    for c in &v.candidates {
+        w.begin_object();
+        w.field_u64("ordinal", c.ordinal as u64);
+        w.field_u64("version_id", c.version.get());
+        w.field_str("purl", &c.purl);
+        w.end_object();
+    }
+    w.end_array();
+
+    w.key("ranges");
+    w.begin_array();
+    for r in &v.ranges {
+        w.begin_object();
+        w.field_u64("start", r.start as u64);
+        w.field_u64("end", r.end as u64);
+        w.end_object();
+    }
+    w.end_array();
+
+    w.key("exclusions");
+    w.begin_array();
+    for e in &v.exclusions {
+        w.begin_object();
+        w.field_u64("ordinal", e.ordinal as u64);
+        w.field_u64("version_id", e.version.get());
+        w.field_str("reason", exclusion_reason_name(e.reason));
+        w.end_object();
     }
     w.end_array();
     w.end_object();

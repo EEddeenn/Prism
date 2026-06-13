@@ -5,6 +5,7 @@ import { shortLabel } from '@/lib/palette';
 import { kindName, kindColor, flagNames } from '@/lib/edges';
 import type { GraphNode } from '@/lib/types';
 import type { GraphIndex } from '@/lib/graph';
+import CandidateStrip from '@/components/CandidateStrip';
 
 /** BFS upward from `sel` over `inn` to the nearest depth-0 root, then
  *  reconstruct the shortest path root -> ... -> sel. Returns node ids
@@ -236,6 +237,9 @@ export default function NodeTab() {
           <span className="tabular-nums">{v}</span>
         </div>
       ))}
+
+      <h3 className="mt-4 mb-1.5 text-[11px] uppercase tracking-wide text-muted">Version headroom</h3>
+      <CandidateStrip nodePurl={node.purl} />
 
       <PeerList title="Dependencies" ids={index.out.get(node.id) ?? []} />
       <PeerList title="Dependents" ids={index.inn.get(node.id) ?? []} />

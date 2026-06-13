@@ -6,8 +6,8 @@
  * directly instead (prism-serve sends open CORS headers). */
 
 import type {
-  Barcode, DuplicateCluster, ExportResp, GraphStats, NeighborhoodResp, RunMeta,
-  RunSummary, SccComp, StatusResp, TdaPairsResp, TdaSupport,
+  Barcode, CandidatesResp, DuplicateCluster, ExportResp, GraphStats, NeighborhoodResp,
+  RunMeta, RunSummary, SccComp, StatusResp, TdaPairsResp, TdaSupport,
 } from './types';
 
 const BASE = process.env.NEXT_PUBLIC_PRISM_API ?? '';
@@ -58,4 +58,9 @@ export const api = {
   tdaPairs: (run: number) => getJson<TdaPairsResp>(`/api/tda/pairs?run=${run}`),
   tdaSupport: (run: number, pair: number) =>
     getJson<TdaSupport>(`/api/tda/support?run=${run}&pair=${pair}`),
+  candidates: (pkg: string, constraint?: string) =>
+    getJson<CandidatesResp>(
+      `/api/package/candidates?package=${encodeURIComponent(pkg)}` +
+        (constraint ? `&constraint=${encodeURIComponent(constraint)}` : ''),
+    ),
 };

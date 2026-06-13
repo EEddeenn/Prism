@@ -135,6 +135,32 @@ export interface TdaSupport {
   objects: SupportObject[];
 }
 
+export interface CandidateVersion {
+  ordinal: number;
+  version_id: number;
+  purl: string;
+}
+export interface CandidateRange {
+  start: number;
+  end: number;
+}
+export interface CandidateExclusion {
+  ordinal: number;
+  version_id: number;
+  reason: string;
+}
+export interface CandidatesResp {
+  package_id: number;
+  package_purl: string;
+  constraint: string;
+  total_versions: number;
+  reason: string;
+  satisfying_count: number;
+  candidates: CandidateVersion[];
+  ranges: CandidateRange[];
+  exclusions: CandidateExclusion[];
+}
+
 // --- UI-side enums ----------------------------------------------------------
 
 export type View = '2d' | '3d' | 'map';

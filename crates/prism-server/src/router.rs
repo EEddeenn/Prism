@@ -178,6 +178,7 @@ fn route_api(state: &AppState, rest: &str, q: &Query) -> ApiResult<String> {
         "tda" => api_tda(state, q),
         "tda/pairs" => api_tda_pairs(state, q),
         "tda/support" => api_tda_support(state, q),
+        "package/candidates" => api_package_candidates(state, q),
         "export" => api_export(state, q),
         _ => Err(ApiError::not_found("no such api endpoint")),
     }
@@ -455,6 +456,25 @@ fn api_tda_support(state: &AppState, q: &Query) -> ApiResult<String> {
         let view = prism.tda_support(run, filtration, pair)?;
         let mut w = JsonWriter::new();
         views_json::support(&mut w, &view);
+        Ok(w.finish())
+    })
+}
+
+/// `GET /api/package/candidates?package=<base-purl>&constraint=<expr>` — the
+/// version "headroom" for a package: its versions sorted into ordinals, the
+/// satisfying set for `constraint` (default `*` = all), coalesced ranges, and
+/// per-version exclusions. Versions are store-global, so no `run` is required.
+fn api_package_candidates(state: &AppState, q: &Query) -> ApiResult<String> {
+    let purl = q
+        .get("package")
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| ApiError::bad_request("missing 'package' parameter"))?;
+    let constraint = q.get("constraint").filter(|s| !s.is_empty()).unwrap_or("*");
+    state.with_prism(|prism| {
+        let (pkg, eco) = prism.package_by_purl(purl)?;
+        let view = prism.candidates_for(pkg, constraint, eco)?;
+        let mut w = JsonWriter::new();
+        views_json::candidates(&mut w, &view);
         Ok(w.finish())
     })
 }

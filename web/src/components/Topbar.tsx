@@ -11,6 +11,8 @@ const EDGE_FILTERS: EdgeFilter[] = ['all', 'runtime', 'nondev', 'flagged'];
 export default function Topbar() {
   const runs = useGraphStore((s) => s.runs);
   const run = useGraphStore((s) => s.run);
+  const compareRun = useGraphStore((s) => s.compareRun);
+  const setCompareRun = useGraphStore((s) => s.setCompareRun);
   const view = useGraphStore((s) => s.view);
   const edgeFilter = useGraphStore((s) => s.edgeFilter);
   const statusText = useGraphStore((s) => s.statusText);
@@ -51,9 +53,26 @@ export default function Topbar() {
         >
           {!runs.length && <option value="">(no ingested runs)</option>}
           {runs.map((r) => (
-            <option key={r.run} value={r.run}>
+            <option key={r.run} value={r.run} disabled={r.run === compareRun}>
               run {r.run}
               {r.nodes != null ? ` · ${r.nodes}n/${r.edges}e` : ''}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="flex items-center gap-1.5" title="Diff the active run against another run">
+        <label htmlFor="compare-select" className="text-xs text-muted">vs</label>
+        <select
+          id="compare-select"
+          className="px-2.5 py-1.5 text-sm max-w-[180px]"
+          value={compareRun ?? ''}
+          onChange={(e) => setCompareRun(e.target.value ? Number(e.target.value) : null)}
+        >
+          <option value="">(no compare)</option>
+          {runs.map((r) => (
+            <option key={r.run} value={r.run} disabled={r.run === run}>
+              run {r.run}
             </option>
           ))}
         </select>

@@ -218,6 +218,27 @@ fn serve_workspace_end_to_end() {
     let (status, _) = split(&resp);
     assert!(status.starts_with("HTTP/1.1 404"), "unknown pair status: {status}");
 
+    // /api/package/candidates resolves a base purl to its version headroom. serde
+    // appears at one version in the fixture (the purl is percent-encoded).
+    let cand = roundtrip(
+        addr,
+        "GET /api/package/candidates?package=pkg%3Acargo%2Fserde HTTP/1.1\r\nHost: localhost\r\n\r\n",
+    );
+    let (status, body) = split(&cand);
+    assert!(status.starts_with("HTTP/1.1 200"), "candidates status: {status}");
+    assert!(body.contains(r#""package_purl":"pkg:cargo/serde""#), "candidates body: {body}");
+    assert!(body.contains(r#""total_versions":1"#), "candidates body: {body}");
+    assert!(body.contains(r#""ordinal":0"#), "candidates body: {body}");
+
+    // A missing package param is a 400; an unknown package is a 404.
+    let resp = roundtrip(addr, "GET /api/package/candidates HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    assert!(split(&resp).0.starts_with("HTTP/1.1 400"), "missing package: {resp}");
+    let resp = roundtrip(
+        addr,
+        "GET /api/package/candidates?package=pkg%3Acargo%2Fnope HTTP/1.1\r\nHost: localhost\r\n\r\n",
+    );
+    assert!(split(&resp).0.starts_with("HTTP/1.1 404"), "unknown package: {resp}");
+
     // A missing run param is a 400 JSON error.
     let bad = roundtrip(addr, "GET /api/graph/stats HTTP/1.1\r\nHost: localhost\r\n\r\n");
     let (status, body) = split(&bad);

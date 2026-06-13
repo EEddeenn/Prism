@@ -20,6 +20,17 @@ export interface FeatureHL {
   edgeKeys: Set<string>;
 }
 
+/** A second run loaded alongside the active one, for compare/diff. Survives
+ *  primary-run switches (its own slot — `selectRun` never touches it). */
+export interface CompareData {
+  run: number;
+  nodes: GraphNode[];
+  index: GraphIndex;
+  stats: import('@/lib/types').GraphStats | null;
+  runMeta: RunMeta | null;
+  barcode: Barcode | null;
+}
+
 interface GraphState {
   // status
   statusText: string;
@@ -62,6 +73,10 @@ interface GraphState {
   barcode: Barcode | null;
   pairs: TdaPair[];
 
+  // compare/diff: a second run loaded into its own slot
+  compareRun: number | null;
+  compareData: CompareData | null;
+
   // actions
   setStatus: (text: string, error?: boolean) => void;
   loadRuns: (preferRun?: number) => Promise<void>;
@@ -77,6 +92,7 @@ interface GraphState {
   runSearch: (term: string) => void;
   selectFeature: (pair: number, dim: number) => Promise<void>;
   requestFocus: (id: number) => void;
+  setCompareRun: (run: number | null) => Promise<void>;
 }
 
 function errMsg(e: unknown): string {
@@ -113,6 +129,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   sccs: [],
   barcode: null,
   pairs: [],
+  compareRun: null,
+  compareData: null,
 
   setStatus: (text, error = false) => set({ statusText: text, statusError: error }),
 
@@ -133,6 +151,9 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   },
 
   selectRun: async (run) => {
+    // Picking the current compare run as the primary would diff a run against
+    // itself — drop the now-redundant compare slot instead.
+    if (get().compareRun === run) set({ compareRun: null, compareData: null });
     set({ statusText: 'Loading graph…', statusError: false, run });
     try {
       const data = await api.exportGraph(run);
@@ -292,4 +313,26 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   },
 
   requestFocus: (id) => set((s) => ({ focusTarget: id, focusNonce: s.focusNonce + 1 })),
+
+  setCompareRun: async (run) => {
+    if (run == null) {
+      set({ compareRun: null, compareData: null });
+      return;
+    }
+    set({ compareRun: run });
+    try {
+      const [data, stats, runMeta, barcode] = await Promise.all([
+        api.exportGraph(run),
+        api.stats(run).catch(() => null),
+        api.run(run).catch(() => null),
+        api.barcode(run).catch(() => null),
+      ]);
+      if (get().compareRun !== run) return; // a newer compare target won the race
+      const nodes = data.graph_nodes || [];
+      const index = buildIndex(nodes, data.graph_edges || []);
+      set({ compareData: { run, nodes, index, stats, runMeta, barcode } });
+    } catch (e) {
+      set({ statusText: errMsg(e), statusError: true, compareRun: null, compareData: null });
+    }
+  },
 }));

@@ -104,12 +104,35 @@ fn parse_npm(bytes: &[u8]) -> Result<ParsedLockfile> {
                     }),
                 }
             }
-            // The root entry ("") has no name; use the path as a stable label.
-            None => idents.push(NodeIdent {
-                name: if path.is_empty() { "<root>".into() } else { path.clone() },
-                namespace: None,
-                version,
-            }),
+            // The root entry ("") has no path-derived name, but npm records the
+            // project's own name in the entry's `name` field — prefer that (it may
+            // itself be scoped). Fall back to a stable "<root>" label only when the
+            // lockfile omits it, and to the path for any other nameless entry.
+            None => {
+                let root_name = entry
+                    .get("name")
+                    .and_then(Json::as_str)
+                    .filter(|s| !s.is_empty());
+                match root_name {
+                    Some(full) => match NpmNames::split_scope(full) {
+                        Some((scope, name)) => idents.push(NodeIdent {
+                            name: name.to_string(),
+                            namespace: Some(scope.to_string()),
+                            version,
+                        }),
+                        None => idents.push(NodeIdent {
+                            name: full.to_string(),
+                            namespace: None,
+                            version,
+                        }),
+                    },
+                    None => idents.push(NodeIdent {
+                        name: if path.is_empty() { "<root>".into() } else { path.clone() },
+                        namespace: None,
+                        version,
+                    }),
+                }
+            }
         }
     }
 
@@ -183,6 +206,35 @@ mod tests {
         // Unscoped package.
         assert_eq!(p.idents[2].name, "rxjs");
         assert!(p.idents[2].namespace.is_none());
+    }
+
+    #[test]
+    fn npm_root_uses_the_entry_name_field() {
+        // A realistic package-lock.json records the project name on the root entry.
+        let lock = r#"{
+          "lockfileVersion": 3,
+          "packages": {
+            "": { "name": "my-app", "version": "2.1.0", "dependencies": { "rxjs": "^7" } },
+            "node_modules/rxjs": { "version": "7.8.1" }
+          }
+        }"#;
+        let p = parse_lockfile(Ecosystem::Npm, lock.as_bytes()).unwrap();
+        assert_eq!(p.idents[0].name, "my-app", "root takes its `name` field");
+        assert!(p.idents[0].namespace.is_none());
+        assert_eq!(p.idents[0].version.as_deref(), Some("2.1.0"));
+    }
+
+    #[test]
+    fn npm_scoped_root_name_splits() {
+        let lock = r#"{
+          "lockfileVersion": 3,
+          "packages": {
+            "": { "name": "@acme/app", "version": "1.0.0" }
+          }
+        }"#;
+        let p = parse_lockfile(Ecosystem::Npm, lock.as_bytes()).unwrap();
+        assert_eq!(p.idents[0].namespace.as_deref(), Some("acme"));
+        assert_eq!(p.idents[0].name, "app");
     }
 
     #[test]

@@ -17,18 +17,27 @@
 //!   [`Prism::duplicate_clusters`].
 //! - TDA: [`Prism::tda_run`] persists a `.ptda` and returns a barcode summary;
 //!   [`Prism::tda_support`] maps a pair's generators back to graph nodes/edges.
-//! - [`Prism::resolve_synthetic`] — a clearly-marked thin wrapper over
-//!   `prism_resolve::Engine` (the solid path in v0.1 is lockfile ingestion).
+//! - Candidate analysis: [`Prism::candidates_for`] / [`Prism::candidates`] compute
+//!   ordinal candidate ranges over a package's sorted versions, and
+//!   [`Prism::conflict_pressure`] reports same-package requirement conflicts and a
+//!   tightness score.
+//! - Synthetic resolution: [`Prism::resolve_manifest`] /
+//!   [`Prism::resolve_synthetic_from_roots`] run `prism_resolve::Engine` over
+//!   store-backed adapters and persist a `ModelResolved` run;
+//!   [`Prism::resolve_synthetic`] persists a caller-produced `ResolvedGraph`.
 //!
 //! Untrusted bytes never panic: every parse/lookup failure surfaces as a
 //! [`prism_model::PrismError`].
 
+mod candidate_views;
+mod candidates;
 mod ecosystem;
 mod ingest;
 mod parse;
 mod query;
 mod raw;
 mod resolve;
+mod resolve_store;
 mod tda;
 mod tda_views;
 mod views;
@@ -36,8 +45,12 @@ mod views;
 #[cfg(test)]
 mod test_util;
 
+pub use candidate_views::{
+    CandidateExclusion, CandidateVersion, CandidateView, ConflictPair, ConflictReportView,
+};
 pub use ecosystem::{Ecosystem, CARGO_ECOSYSTEM_ID, NPM_ECOSYSTEM_ID};
 pub use ingest::{LockfileIngest, ManifestIngest};
+pub use resolve::SyntheticResolve;
 pub use tda_views::{BarcodeDim, BarcodeView, SupportObject, SupportView};
 pub use views::{
     DuplicateClusterView, GraphEdgeView, GraphNodeView, GraphStatsView, NeighborhoodView, SccView,

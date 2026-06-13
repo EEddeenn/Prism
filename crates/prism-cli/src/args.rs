@@ -27,6 +27,21 @@ pub enum Command {
     TdaRun { run: u64, filtration: String },
     /// `prism tda support --pair <id>`.
     TdaSupport { pair: u64 },
+    /// `prism candidates --requirement <id>` or
+    /// `prism candidates --package <purl> --constraint <expr>`.
+    Candidates {
+        /// A stored requirement id, or `None` when `--package`/`--constraint`
+        /// were given instead.
+        requirement: Option<u64>,
+        /// A package purl, paired with `constraint`.
+        package: Option<String>,
+        /// A raw constraint expression, paired with `package`.
+        constraint: Option<String>,
+    },
+    /// `prism conflicts --package <purl>`.
+    Conflicts { package: String },
+    /// `prism resolve <manifest-path> --policy <lowest|highest|locked>`.
+    Resolve { manifest: String, policy: String },
     /// `prism export json --run <id>`.
     ExportJson { run: u64 },
     /// `prism help` / `-h` / `--help`.
@@ -107,8 +122,75 @@ where
         }
         "graph" => parse_graph(it),
         "tda" => parse_tda(it),
+        "candidates" => parse_candidates(it),
+        "conflicts" => parse_conflicts(it),
+        "resolve" => parse_resolve(it),
         "export" => parse_export(it),
         other => Err(ParseError::UnknownCommand(other.to_string())),
+    }
+}
+
+/// `prism candidates --requirement <id>` | `--package <purl> --constraint <expr>`.
+fn parse_candidates<'a, I: Iterator<Item = &'a str>>(it: I) -> Result<Command, ParseError> {
+    let mut flags = Flags::parse(it)?;
+    let requirement = flags.take_u64_opt("--requirement")?;
+    let package = flags.take_opt("--package");
+    let constraint = flags.take_opt("--constraint");
+    flags.finish()?;
+
+    match (requirement, &package, &constraint) {
+        // Requirement form: nothing else may be present.
+        (Some(id), None, None) => Ok(Command::Candidates {
+            requirement: Some(id),
+            package: None,
+            constraint: None,
+        }),
+        // Package + constraint form.
+        (None, Some(_), Some(_)) => Ok(Command::Candidates {
+            requirement: None,
+            package,
+            constraint,
+        }),
+        // Mixing the two forms, or supplying neither, is a usage error.
+        (None, None, None) => Err(ParseError::MissingArg {
+            what: "--requirement, or --package and --constraint".into(),
+        }),
+        (Some(_), _, _) => Err(ParseError::Unexpected(
+            "--requirement cannot be combined with --package/--constraint".into(),
+        )),
+        (None, Some(_), None) => Err(ParseError::MissingArg { what: "--constraint".into() }),
+        (None, None, Some(_)) => Err(ParseError::MissingArg { what: "--package".into() }),
+    }
+}
+
+/// `prism conflicts --package <purl>`.
+fn parse_conflicts<'a, I: Iterator<Item = &'a str>>(it: I) -> Result<Command, ParseError> {
+    let mut flags = Flags::parse(it)?;
+    let package = flags
+        .take_opt("--package")
+        .ok_or_else(|| ParseError::MissingArg { what: "--package".into() })?;
+    flags.finish()?;
+    Ok(Command::Conflicts { package })
+}
+
+/// `prism resolve <manifest-path> --policy <lowest|highest|locked>`.
+fn parse_resolve<'a, I: Iterator<Item = &'a str>>(mut it: I) -> Result<Command, ParseError> {
+    let manifest = it
+        .next()
+        .map(str::to_string)
+        .ok_or_else(|| ParseError::MissingArg { what: "<manifest-path>".into() })?;
+    let mut flags = Flags::parse(it)?;
+    // Default to the highest-non-prerelease policy when unspecified.
+    let policy = flags
+        .take_opt("--policy")
+        .unwrap_or_else(|| "highest".to_string());
+    flags.finish()?;
+    match policy.as_str() {
+        "lowest" | "highest" | "locked" => Ok(Command::Resolve { manifest, policy }),
+        other => Err(ParseError::BadValue {
+            flag: "--policy".into(),
+            value: other.to_string(),
+        }),
     }
 }
 
@@ -236,6 +318,20 @@ impl Flags {
             flag: name.to_string(),
             value: raw,
         })
+    }
+
+    /// Remove an optional `u64` flag, parsing it when present.
+    fn take_u64_opt(&mut self, name: &str) -> Result<Option<u64>, ParseError> {
+        match self.take_opt(name) {
+            Some(raw) => raw
+                .parse::<u64>()
+                .map(Some)
+                .map_err(|_| ParseError::BadValue {
+                    flag: name.to_string(),
+                    value: raw,
+                }),
+            None => Ok(None),
+        }
     }
 
     /// Remove a required `u32` flag.
@@ -372,6 +468,95 @@ mod tests {
         assert_eq!(
             p(&["export", "json", "--run", "2"]),
             Ok(Command::ExportJson { run: 2 })
+        );
+    }
+
+    #[test]
+    fn candidates_by_requirement() {
+        assert_eq!(
+            p(&["candidates", "--requirement", "7"]),
+            Ok(Command::Candidates {
+                requirement: Some(7),
+                package: None,
+                constraint: None,
+            })
+        );
+    }
+
+    #[test]
+    fn candidates_by_package_and_constraint() {
+        assert_eq!(
+            p(&["candidates", "--package", "pkg:cargo/serde", "--constraint", "^1"]),
+            Ok(Command::Candidates {
+                requirement: None,
+                package: Some("pkg:cargo/serde".into()),
+                constraint: Some("^1".into()),
+            })
+        );
+    }
+
+    #[test]
+    fn candidates_requires_one_form() {
+        // Neither form supplied.
+        assert!(matches!(
+            p(&["candidates"]),
+            Err(ParseError::MissingArg { .. })
+        ));
+        // Package without a constraint.
+        assert_eq!(
+            p(&["candidates", "--package", "pkg:cargo/serde"]),
+            Err(ParseError::MissingArg { what: "--constraint".into() })
+        );
+        // Mixing both forms is rejected.
+        assert!(matches!(
+            p(&["candidates", "--requirement", "1", "--package", "pkg:cargo/x"]),
+            Err(ParseError::Unexpected(_))
+        ));
+    }
+
+    #[test]
+    fn conflicts_requires_package() {
+        assert_eq!(
+            p(&["conflicts", "--package", "pkg:cargo/serde"]),
+            Ok(Command::Conflicts { package: "pkg:cargo/serde".into() })
+        );
+        assert_eq!(
+            p(&["conflicts"]),
+            Err(ParseError::MissingArg { what: "--package".into() })
+        );
+    }
+
+    #[test]
+    fn resolve_manifest_and_policy() {
+        assert_eq!(
+            p(&["resolve", "Cargo.toml", "--policy", "lowest"]),
+            Ok(Command::Resolve {
+                manifest: "Cargo.toml".into(),
+                policy: "lowest".into()
+            })
+        );
+        // Default policy when omitted.
+        assert_eq!(
+            p(&["resolve", "Cargo.toml"]),
+            Ok(Command::Resolve {
+                manifest: "Cargo.toml".into(),
+                policy: "highest".into()
+            })
+        );
+    }
+
+    #[test]
+    fn resolve_requires_manifest_and_rejects_bad_policy() {
+        assert_eq!(
+            p(&["resolve"]),
+            Err(ParseError::MissingArg { what: "<manifest-path>".into() })
+        );
+        assert_eq!(
+            p(&["resolve", "Cargo.toml", "--policy", "bogus"]),
+            Err(ParseError::BadValue {
+                flag: "--policy".into(),
+                value: "bogus".into()
+            })
         );
     }
 

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Prism — Dependency Graph Explorer</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header id="topbar">
+    <span class="brand">Prism</span>
+    <label for="run-select">Run</label>
+    <select id="run-select" aria-label="Select a run"></select>
+    <button id="reload-btn" type="button">Reload</button>
+    <span id="status-text" class="status"></span>
+  </header>
+
+  <main id="layout">
+    <section id="graph-pane" aria-label="Dependency graph">
+      <svg id="graph-svg" xmlns="http://www.w3.org/2000/svg"
+           preserveAspectRatio="xMidYMid meet" role="img"></svg>
+    </section>
+
+    <aside id="side-pane">
+      <section class="panel">
+        <h2>Stats</h2>
+        <dl id="stats-list"><dd class="muted">Pick a run.</dd></dl>
+      </section>
+
+      <section class="panel">
+        <h2>Selected node</h2>
+        <div id="node-info"><p class="muted">Click a node in the graph.</p></div>
+      </section>
+
+      <section class="panel">
+        <h2>TDA barcode</h2>
+        <div id="barcode"><p class="muted">No TDA loaded.</p></div>
+      </section>
+    </aside>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

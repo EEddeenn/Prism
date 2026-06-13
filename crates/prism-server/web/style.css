@@ -1,0 +1,140 @@
+/* Prism graph explorer — hermetic styling, no external fonts or assets. */
+
+:root {
+  --bg: #0f1117;
+  --panel: #171a23;
+  --panel-2: #1f232e;
+  --ink: #e6e8ee;
+  --muted: #8b93a7;
+  --line: #2a2f3c;
+  --accent: #5aa9ff;
+  --accent-2: #ffb454;
+  --node: #3b82f6;
+  --node-center: #ffb454;
+  --node-fwd: #34d399;
+  --node-impact: #f87171;
+  --edge: #4b5366;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+}
+
+#topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--accent);
+  margin-right: 6px;
+}
+
+#topbar label { color: var(--muted); }
+
+select, button {
+  background: var(--panel-2);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 9px;
+  font: inherit;
+}
+
+button { cursor: pointer; }
+button:hover { border-color: var(--accent); }
+
+.status { margin-left: auto; color: var(--muted); }
+.status.error { color: var(--node-impact); }
+
+#layout {
+  display: flex;
+  height: calc(100% - 51px);
+}
+
+#graph-pane {
+  flex: 1 1 auto;
+  overflow: hidden;
+  position: relative;
+  background:
+    radial-gradient(circle at 1px 1px, #1b1f2a 1px, transparent 0) 0 0 / 24px 24px;
+}
+
+#graph-svg { width: 100%; height: 100%; display: block; }
+
+#side-pane {
+  flex: 0 0 320px;
+  overflow-y: auto;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+  padding: 12px;
+}
+
+.panel { margin-bottom: 18px; }
+.panel h2 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+}
+
+dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; }
+dt { color: var(--muted); }
+dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+
+.muted { color: var(--muted); }
+
+#node-info .purl {
+  word-break: break-all;
+  color: var(--accent-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+#node-info .row { display: flex; justify-content: space-between; margin: 3px 0; }
+#node-info .row span:first-child { color: var(--muted); }
+
+/* SVG graph elements. */
+.edge { stroke: var(--edge); stroke-width: 1.4; }
+.edge.fwd { stroke: var(--node-fwd); stroke-width: 2; }
+.edge.impact { stroke: var(--node-impact); stroke-width: 2; }
+
+.node circle {
+  fill: var(--node);
+  stroke: #0b0d12;
+  stroke-width: 1.5;
+  cursor: pointer;
+  transition: fill 0.1s ease;
+}
+.node.center circle { fill: var(--node-center); }
+.node.fwd circle { fill: var(--node-fwd); }
+.node.impact circle { fill: var(--node-impact); }
+.node.dim circle { opacity: 0.25; }
+
+.node text {
+  fill: var(--ink);
+  font-size: 11px;
+  pointer-events: none;
+}
+.node.dim text { opacity: 0.3; }
+
+/* Barcode bars. */
+.bar-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+.bar-label { width: 64px; color: var(--muted); font-size: 12px; }
+.bar-track { flex: 1; height: 12px; background: var(--panel-2); border-radius: 3px; overflow: hidden; }
+.bar-fill { height: 100%; background: var(--accent); }
+.bar-fill.essential { background: var(--accent-2); }
+.bar-count { width: 28px; text-align: right; font-variant-numeric: tabular-nums; }

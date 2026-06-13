@@ -39,6 +39,11 @@ COMMANDS:
     graph impact --run <id> --node <id>           reverse dependency impact
     tda run --run <id> [--filtration depth]       build a filtration + persistence
     tda support --pair <id>                       graph support of a persistence pair
+    candidates --requirement <id>                 candidate ranges for a requirement
+    candidates --package <purl> --constraint <e>  candidate ranges for a constraint
+    conflicts --package <purl>                    same-package conflict pressure
+    resolve <manifest> [--policy lowest|highest|locked]
+                                                  synthetic resolve a manifest
     export json --run <id>                        emit the graph as JSON
 
     help, -h, --help                              show this help
@@ -76,6 +81,18 @@ where
         Command::GraphImpact { run, node } => commands::graph_impact(out, *run, *node),
         Command::TdaRun { run, filtration } => commands::tda_run(out, *run, filtration),
         Command::TdaSupport { pair } => commands::tda_support(out, *pair),
+        Command::Candidates {
+            requirement,
+            package,
+            constraint,
+        } => commands::candidates(
+            out,
+            *requirement,
+            package.as_deref(),
+            constraint.as_deref(),
+        ),
+        Command::Conflicts { package } => commands::conflicts(out, package),
+        Command::Resolve { manifest, policy } => commands::resolve(out, manifest, policy),
         Command::ExportJson { run } => commands::export_json(out, *run),
     };
 

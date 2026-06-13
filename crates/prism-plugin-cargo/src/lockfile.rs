@@ -188,6 +188,11 @@ pub fn parse_lockfile_graph(text: &str) -> Result<ResolvedGraph, ParseError> {
         }
     }
 
+    // `Cargo.lock` is a flat resolved set with no install-layout nesting, so the
+    // node `depth` (placed at 0 above) must be derived from the edge structure:
+    // each node's minimum BFS distance from the nearest workspace-member root.
+    graph.assign_bfs_depths_from_roots();
+
     graph.fidelity = Some(GraphFidelity::exact(FidelityTier::LockfileExact));
     Ok(graph)
 }
@@ -313,6 +318,16 @@ mod tests {
         // The root member is flagged.
         assert!(g.nodes[0].flags.contains(NodeFlags::ROOT));
         assert!(!g.nodes[1].flags.contains(NodeFlags::ROOT));
+    }
+
+    #[test]
+    fn depths_are_bfs_distance_from_root() {
+        // my-app(0) -> serde(1) -> serde_derive(2); my-app(0) -> rand(1).
+        let g = parse_lockfile_graph(LOCK).unwrap();
+        assert_eq!(g.nodes[0].depth, 0, "root my-app");
+        assert_eq!(g.nodes[1].depth, 1, "serde");
+        assert_eq!(g.nodes[2].depth, 2, "serde_derive");
+        assert_eq!(g.nodes[3].depth, 1, "rand");
     }
 
     #[test]

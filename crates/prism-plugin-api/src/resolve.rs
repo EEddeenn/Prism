@@ -156,6 +156,54 @@ impl ResolvedGraph {
     pub fn edge_count(&self) -> usize {
         self.edges.len()
     }
+
+    /// Overwrite each node's `depth` with its minimum forward BFS distance from
+    /// the nearest [`NodeFlags::ROOT`] occurrence.
+    ///
+    /// For ecosystems whose lockfile is a *flat* resolved set (e.g. Cargo's
+    /// `Cargo.lock`), there is no install-layout nesting to read depth from, so it
+    /// must be derived from the edge structure. npm, by contrast, reads physical
+    /// `node_modules/` nesting directly and need not call this.
+    ///
+    /// Multi-source BFS seeds all roots at depth 0 simultaneously, so a node's
+    /// depth is its distance from the *closest* root. Cycles terminate via the
+    /// visited check; nodes unreachable from any root (or graphs with no root at
+    /// all) keep depth 0.
+    pub fn assign_bfs_depths_from_roots(&mut self) {
+        use std::collections::VecDeque;
+        let n = self.nodes.len();
+        if n == 0 {
+            return;
+        }
+        // Forward adjacency by local_id (bounds-checked: a malformed edge that
+        // references a missing node is skipped rather than panicking).
+        let mut adj: Vec<Vec<u32>> = vec![Vec::new(); n];
+        for e in &self.edges {
+            if (e.from as usize) < n && (e.to as usize) < n {
+                adj[e.from as usize].push(e.to);
+            }
+        }
+        let mut depth = vec![u32::MAX; n];
+        let mut q = VecDeque::new();
+        for node in &self.nodes {
+            if node.flags.contains(NodeFlags::ROOT) {
+                depth[node.local_id as usize] = 0;
+                q.push_back(node.local_id);
+            }
+        }
+        while let Some(u) = q.pop_front() {
+            let du = depth[u as usize];
+            for &v in &adj[u as usize] {
+                if depth[v as usize] == u32::MAX {
+                    depth[v as usize] = du + 1;
+                    q.push_back(v);
+                }
+            }
+        }
+        for (i, node) in self.nodes.iter_mut().enumerate() {
+            node.depth = if depth[i] == u32::MAX { 0 } else { depth[i] };
+        }
+    }
 }
 
 /// A fatal resolution failure. Converts into the shared
@@ -237,6 +285,56 @@ mod tests {
         assert_eq!(g.edge_count(), 1);
         assert_eq!(g.nodes[1].occurrence_key, "node_modules/b");
         assert!(!g.truncated);
+    }
+
+    #[test]
+    fn bfs_depths_from_roots() {
+        // root(0) -> a(1) -> c(2); root(0) -> b(1) -> c (already 2, min wins).
+        let mut g = ResolvedGraph::new();
+        let r = g.add_node(VersionId::new(1), 0, "root", NodeFlags::ROOT);
+        let a = g.add_node(VersionId::new(2), 0, "a", NodeFlags::EMPTY);
+        let b = g.add_node(VersionId::new(3), 0, "b", NodeFlags::EMPTY);
+        let c = g.add_node(VersionId::new(4), 0, "c", NodeFlags::EMPTY);
+        let orphan = g.add_node(VersionId::new(5), 0, "orphan", NodeFlags::EMPTY);
+        for (from, to) in [(r, a), (r, b), (a, c), (b, c)] {
+            g.add_edge(ResolvedEdge {
+                from,
+                to,
+                ordinal: 0,
+                requirement_id: None,
+                kind: DependencyKind::Runtime,
+                flags: EdgeFlags::RESOLVED,
+            });
+        }
+        g.assign_bfs_depths_from_roots();
+        assert_eq!(g.nodes[r as usize].depth, 0);
+        assert_eq!(g.nodes[a as usize].depth, 1);
+        assert_eq!(g.nodes[b as usize].depth, 1);
+        assert_eq!(g.nodes[c as usize].depth, 2);
+        // Unreachable from any root stays at 0.
+        assert_eq!(g.nodes[orphan as usize].depth, 0);
+    }
+
+    #[test]
+    fn bfs_depths_terminate_on_cycle() {
+        // root -> a -> b -> a (cycle): must not loop forever.
+        let mut g = ResolvedGraph::new();
+        let r = g.add_node(VersionId::new(1), 0, "root", NodeFlags::ROOT);
+        let a = g.add_node(VersionId::new(2), 0, "a", NodeFlags::EMPTY);
+        let b = g.add_node(VersionId::new(3), 0, "b", NodeFlags::EMPTY);
+        for (from, to) in [(r, a), (a, b), (b, a)] {
+            g.add_edge(ResolvedEdge {
+                from,
+                to,
+                ordinal: 0,
+                requirement_id: None,
+                kind: DependencyKind::Runtime,
+                flags: EdgeFlags::RESOLVED,
+            });
+        }
+        g.assign_bfs_depths_from_roots();
+        assert_eq!(g.nodes[a as usize].depth, 1);
+        assert_eq!(g.nodes[b as usize].depth, 2);
     }
 
     #[test]

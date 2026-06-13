@@ -369,6 +369,7 @@ impl Prism {
         let mut batch = self.store.batch();
         let mut pkg_cache: HashMap<(u32, u32), PackageId> = HashMap::new();
         let mut ver_cache: HashMap<u32, VersionId> = HashMap::new();
+        let mut req_seen: std::collections::HashSet<ReqDedupKey> = std::collections::HashSet::new();
 
         for event in events.iter() {
             match event {
@@ -419,8 +420,16 @@ impl Prism {
                             vid
                         }
                     };
-                    self.write_requirement_fact(&mut batch, &mut pkg_cache, eco, src_vid, fact)?;
-                    requirements += 1;
+                    if self.write_requirement_fact(
+                        &mut batch,
+                        &mut pkg_cache,
+                        &mut req_seen,
+                        eco,
+                        src_vid,
+                        fact,
+                    )? {
+                        requirements += 1;
+                    }
                 }
                 _ => {}
             }
@@ -478,14 +487,16 @@ impl Prism {
     }
 
     /// Stage a `Requirement` record linking `src_vid` to its declared target.
+    #[allow(clippy::too_many_arguments)]
     fn write_requirement_fact(
         &mut self,
         wb: &mut prism_store::WriteBatch,
         pkg_cache: &mut HashMap<(u32, u32), PackageId>,
+        req_seen: &mut std::collections::HashSet<ReqDedupKey>,
         eco: EcosystemId,
         src_vid: VersionId,
         fact: &RequirementFact,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let declared_target = self.store.intern_string_in(wb, &fact.declared_target)?;
         let raw_requirement = self.store.intern_string_in(wb, &fact.raw_requirement)?;
         let target_alias = match &fact.target_alias {
@@ -496,6 +507,41 @@ impl Prism {
             Some(s) => Some(self.store.intern_string_in(wb, s)?),
             None => None,
         };
+        let kind = map_kind(fact.kind);
+        let condition_kind = map_condition(fact.condition_kind);
+
+        // Idempotent re-ingest: a requirement is identified by its source version,
+        // declared target, raw constraint, kind, scope, and condition kind. If an
+        // identical one already exists — committed (a prior ingest) or staged in
+        // this same batch — reuse it rather than allocating a duplicate, so
+        // repeatedly ingesting/resolving the same manifest cannot accumulate
+        // duplicate `Requirement` records (and thus duplicate resolved edges).
+        let dedup_key: ReqDedupKey = (
+            src_vid.get(),
+            declared_target.get(),
+            raw_requirement.get(),
+            kind,
+            scope.map(|s| s.get()).unwrap_or(u32::MAX),
+            condition_kind,
+        );
+        if req_seen.contains(&dedup_key) {
+            return Ok(false);
+        }
+        for existing_id in self.store.requirements_by_source_version(src_vid) {
+            if let Ok(e) = self.store.get_requirement(existing_id) {
+                if e.declared_target == declared_target
+                    && e.raw_requirement == raw_requirement
+                    && e.kind == kind
+                    && e.scope == scope
+                    && e.condition_kind == condition_kind
+                {
+                    req_seen.insert(dedup_key);
+                    return Ok(false);
+                }
+            }
+        }
+        req_seen.insert(dedup_key);
+
         // The declared target's resolved family (so REQS_BY_DST_PACKAGE indexes).
         let dst = self
             .intern_package(wb, pkg_cache, eco, &fact.declared_target, None)
@@ -519,17 +565,29 @@ impl Prism {
             raw_requirement,
             constraint_ref,
             managed_version_ref: None,
-            kind: map_kind(fact.kind),
+            kind,
             scope,
-            condition_kind: map_condition(fact.condition_kind),
+            condition_kind,
             condition_ref,
             features_or_extras_ref,
             metadata_ref: None,
         };
         self.store.put_requirement(wb, &req);
-        Ok(())
+        Ok(true)
     }
 }
+
+/// The identity of a requirement for idempotent re-ingest dedup: source version,
+/// declared-target string id, raw-constraint string id, kind, scope string id
+/// (`u32::MAX` when unscoped), and condition kind.
+type ReqDedupKey = (
+    u64,
+    u32,
+    u32,
+    prism_model::DependencyKind,
+    u32,
+    prism_model::ConditionKind,
+);
 
 /// Parse a manifest [`RawDocument`] for `eco` via its plugin's [`ManifestParser`].
 fn parse_manifest(

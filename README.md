@@ -97,8 +97,11 @@ prism-serve --workspace . --port 7777   # serves http://127.0.0.1:7777 (localhos
 A self-contained graph explorer (vanilla JS + inline SVG, no build step, no external
 resources):
 
-- **Pan/zoom canvas** with a barycenter-ordered layered layout (column = BFS depth), a
-  fit-to-view control, and a colour legend; node labels appear when zoomed in or selected.
+- **Pan/zoom canvas** with a deterministic 2D layout — connected components laid out in
+  barycenter-ordered BFS layers, each wide layer *wrapped into a grid* (so a shallow
+  900-node npm tree spreads into a block, not a single long column) and the components
+  shelf-packed — plus a fit-to-view control and a colour legend; labels appear when zoomed
+  in or selected.
 - **Click a node** to trace what it depends on (forward) and what depends on it (reverse
   impact), with clickable dependency/dependent lists.
 - **Tabbed side panel** surfacing every query: run provenance (ecosystem + `GraphFidelity`

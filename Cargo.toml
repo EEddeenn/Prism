@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/prism-model",
+    "crates/prism-codec",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT OR Apache-2.0"
+repository = "https://example.invalid/prism"
+description = "Prism: a local-first dependency topology analysis system"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[profile.release]
+lto = "thin"

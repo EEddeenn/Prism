@@ -412,7 +412,12 @@ function render() {
     const title = svgEl('title');
     title.textContent = `${n.purl}  (node ${n.id}, depth ${n.depth})`;
     g.appendChild(title);
-    g.addEventListener('click', (ev) => { ev.stopPropagation(); onNodeClick(n); });
+    g.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      // Ignore the click that can trail a pan that happened to end over a node.
+      if (state._lastWasDrag) return;
+      onNodeClick(n);
+    });
     vp.appendChild(g);
   }
   applyTransform();
@@ -448,28 +453,39 @@ function fitView() {
 
 function installPanZoom() {
   const svg = el('graph-svg');
-  let dragging = false, lastX = 0, lastY = 0, moved = 0;
+  const DRAG_THRESHOLD = 4; // px of movement before a press becomes a pan
+  let down = false, dragging = false, lastX = 0, lastY = 0, moved = 0, pid = null;
 
   svg.addEventListener('pointerdown', (ev) => {
-    // Only pan from the background (node clicks stopPropagation in render()).
-    dragging = true; moved = 0;
+    // Record the press but DON'T capture the pointer yet: capturing here would
+    // redirect the follow-up `click` to the <svg>, so node clicks would never
+    // fire. We only begin panning (and capture) once the pointer actually moves.
+    down = true; dragging = false; moved = 0; pid = ev.pointerId;
     lastX = ev.clientX; lastY = ev.clientY;
-    svg.classList.add('panning');
-    svg.setPointerCapture(ev.pointerId);
   });
   svg.addEventListener('pointermove', (ev) => {
-    if (!dragging) return;
+    if (!down) return;
     const dx = ev.clientX - lastX, dy = ev.clientY - lastY;
     lastX = ev.clientX; lastY = ev.clientY;
     moved += Math.abs(dx) + Math.abs(dy);
-    state.T.x += dx; state.T.y += dy;
-    applyTransform();
+    if (!dragging && moved > DRAG_THRESHOLD) {
+      dragging = true;
+      svg.classList.add('panning');
+      try { svg.setPointerCapture(pid); } catch (_) {}
+    }
+    if (dragging) { state.T.x += dx; state.T.y += dy; applyTransform(); }
   });
   const endPan = (ev) => {
-    if (!dragging) return;
+    if (!down) return;
+    down = false;
+    // Remember whether this interaction was a drag, so a node `click` fired at
+    // the tail of a pan doesn't select (see the node handler in render()).
+    state._lastWasDrag = dragging;
+    if (dragging) {
+      svg.classList.remove('panning');
+      try { svg.releasePointerCapture(ev.pointerId); } catch (_) {}
+    }
     dragging = false;
-    svg.classList.remove('panning');
-    try { svg.releasePointerCapture(ev.pointerId); } catch (_) {}
   };
   svg.addEventListener('pointerup', endPan);
   svg.addEventListener('pointercancel', endPan);

@@ -88,6 +88,24 @@ impl Prism {
         })
     }
 
+    /// Open an existing workspace at `path` **read-only**: take no write lock and
+    /// reject every mutation (ingest/resolve/tda). Multiple read-only opens — and
+    /// a concurrent writer — can coexist, since the published file set is immutable
+    /// and content-checksummed.
+    ///
+    /// This is the right entry point for a viewer such as `prism-serve`: it must
+    /// not block the CLI, and a crashed viewer must never strand a stale lock.
+    pub fn open_readonly(path: impl AsRef<Path>) -> Result<Prism> {
+        Ok(Prism {
+            store: Store::open_readonly(path)?,
+        })
+    }
+
+    /// True if this facade was opened read-only (see [`Prism::open_readonly`]).
+    pub fn is_read_only(&self) -> bool {
+        self.store.is_read_only()
+    }
+
     /// The underlying store (read-only borrow), for advanced callers.
     pub fn store(&self) -> &Store {
         &self.store

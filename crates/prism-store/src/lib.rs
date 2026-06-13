@@ -61,13 +61,20 @@ impl RawRecord {
     }
 }
 
-/// An open Prism store. Holds the workspace write lock for its lifetime.
+/// An open Prism store. A read-write store holds the workspace write lock for its
+/// lifetime; a read-only store (see [`Store::open_readonly`]) holds no lock and
+/// rejects every durable mutation.
 pub struct Store {
     layout: Layout,
     manifest: Manifest,
     /// Merged read view over all published [`FileKind::Index`] segments.
     index: IndexSet,
-    _lock: WorkspaceLock,
+    /// The held write lock, or `None` for a read-only store.
+    _lock: Option<WorkspaceLock>,
+    /// When true, every durable-write entry point returns an error instead of
+    /// mutating the workspace (a read-only store took no lock, so it must never
+    /// race a writer).
+    read_only: bool,
 }
 
 impl Store {
@@ -92,21 +99,63 @@ impl Store {
             layout,
             manifest,
             index: IndexSet::new(),
-            _lock: lock,
+            _lock: Some(lock),
+            read_only: false,
         })
     }
 
-    /// Open an existing workspace at `root`: acquire the lock, load and verify the
-    /// manifest's file set, and clean any stale `tmp/` staging files.
+    /// Open an existing workspace at `root`: acquire the write lock, load and
+    /// verify the manifest's file set, and clean any stale `tmp/` staging files.
     pub fn open(root: impl AsRef<Path>) -> Result<Store> {
-        let layout = Layout::new(root.as_ref());
+        let layout = Self::existing_layout(root.as_ref())?;
+        let lock = WorkspaceLock::acquire(&layout.lock())?;
+        let (manifest, index) = Self::load_published(&layout)?;
+        // tmp/ cleanup is performed only by the writer under the lock.
+        Self::clean_tmp(&layout)?;
+        Ok(Store {
+            layout,
+            manifest,
+            index,
+            _lock: Some(lock),
+            read_only: false,
+        })
+    }
+
+    /// Open an existing workspace at `root` **read-only**: take no write lock,
+    /// touch nothing on disk (no `tmp/` cleanup), and reject every durable
+    /// mutation. Safe to run alongside a writer or another reader — the published
+    /// file set is immutable and content-checksummed, so a concurrent atomic
+    /// manifest swap is never observed half-applied.
+    ///
+    /// This is what `prism-serve` uses: a viewer must not block the CLI, and a
+    /// crashed viewer must never leave a stale lock behind.
+    pub fn open_readonly(root: impl AsRef<Path>) -> Result<Store> {
+        let layout = Self::existing_layout(root.as_ref())?;
+        let (manifest, index) = Self::load_published(&layout)?;
+        Ok(Store {
+            layout,
+            manifest,
+            index,
+            _lock: None,
+            read_only: true,
+        })
+    }
+
+    /// Resolve `root` to a [`Layout`], erroring if no workspace exists there.
+    fn existing_layout(root: &Path) -> Result<Layout> {
+        let layout = Layout::new(root);
         if !layout.manifest().exists() {
             return Err(PrismError::Other(format!(
                 "no workspace at {}",
                 layout.prism_dir().display()
             )));
         }
-        let lock = WorkspaceLock::acquire(&layout.lock())?;
+        Ok(layout)
+    }
+
+    /// Decode + verify the manifest and load its index segments into a merged read
+    /// view. Pure reads: shared by the read-write and read-only open paths.
+    fn load_published(layout: &Layout) -> Result<(Manifest, IndexSet)> {
         let manifest = Manifest::decode(&fsutil::read_file(&layout.manifest())?)?;
 
         // Verify every referenced file: present, correct length, matching digest.
@@ -132,9 +181,6 @@ impl Store {
             }
         }
 
-        // tmp/ cleanup is performed only by the writer under the lock.
-        Self::clean_tmp(&layout)?;
-
         // Load all FileKind::Index segments into the merged read view. Files are
         // listed in publish order (oldest first); push_newest inserts at the front,
         // so iterating in order leaves the newest segment first.
@@ -147,13 +193,23 @@ impl Store {
             let reader = IndexReader::parse(&fsutil::read_file(&path)?)?;
             index.push_newest(reader);
         }
+        Ok((manifest, index))
+    }
 
-        Ok(Store {
-            layout,
-            manifest,
-            index,
-            _lock: lock,
-        })
+    /// True if this store was opened read-only (holds no lock; rejects writes).
+    pub fn is_read_only(&self) -> bool {
+        self.read_only
+    }
+
+    /// Guard at the top of every durable-write entry point. A read-only store took
+    /// no lock, so it must refuse to mutate the workspace.
+    fn ensure_writable(&self) -> Result<()> {
+        if self.read_only {
+            return Err(PrismError::Other(
+                "store is read-only; this workspace was opened without the write lock".into(),
+            ));
+        }
+        Ok(())
     }
 
     fn clean_tmp(layout: &Layout) -> Result<()> {
@@ -184,6 +240,7 @@ impl Store {
     /// Follows the write protocol: stage the segment in `tmp/`, fsync, rename into
     /// `segments/`, fsync the dir, then atomically swap the manifest.
     pub fn publish_segment(&mut self, records: &[RawRecord]) -> Result<u32> {
+        self.ensure_writable()?;
         let segment_id = self.manifest.next_segment_id;
         let created_at = self.manifest.logical_ts_hwm as i64; // monotone stand-in clock
 
@@ -299,6 +356,7 @@ impl Store {
         if batch.is_empty() {
             return Ok(None);
         }
+        self.ensure_writable()?;
 
         let mut next = self.manifest.clone();
         let mut ts = next.logical_ts_hwm;
@@ -637,6 +695,7 @@ impl Store {
     /// for `run`: stage the file in `graphs/`, then in one manifest swap add a
     /// [`FileKind::Graph`] entry and a `GRAPH_BY_RUN` index entry pointing at it.
     pub fn publish_graph(&mut self, run: RunId, pcsr: &[u8]) -> Result<()> {
+        self.ensure_writable()?;
         let rel = format!("graphs/{}", Layout::graph_file_name(run.get()));
         let mut next = self.manifest.clone();
         let mut ts = next.logical_ts_hwm;
@@ -695,6 +754,7 @@ impl Store {
     /// `filtration` (which belongs to `run`): stage the file in `tda/`, then in one
     /// manifest swap add a [`FileKind::Tda`] entry and a `TDA_BY_RUN` list fragment.
     pub fn publish_tda(&mut self, filtration: FiltrationId, run: RunId, ptda: &[u8]) -> Result<()> {
+        self.ensure_writable()?;
         let rel = format!("tda/{}", Layout::tda_file_name(filtration.get()));
         let mut next = self.manifest.clone();
         let mut ts = next.logical_ts_hwm;
@@ -839,6 +899,33 @@ mod tests {
         assert_eq!((id1, id2), (1, 2));
         assert_eq!(s.read_all_records().unwrap().len(), 2);
         assert_eq!(s.manifest().logical_ts_hwm, 2);
+    }
+
+    #[test]
+    fn readonly_open_takes_no_lock_and_rejects_writes() {
+        let td = TempDir::new("store-ro");
+        {
+            let mut s = Store::init(td.path()).unwrap();
+            s.publish_segment(&[RawRecord::new(1, b"k".to_vec(), b"v".to_vec())]).unwrap();
+        }
+        // A read-only store opens, reads published data, and reports its mode.
+        let ro = Store::open_readonly(td.path()).unwrap();
+        assert!(ro.is_read_only());
+        assert_eq!(ro.read_all_records().unwrap().len(), 1);
+
+        // It holds no lock: a *second* read-only open succeeds concurrently, and a
+        // read-write open can still acquire the lock alongside it.
+        let ro2 = Store::open_readonly(td.path()).unwrap();
+        assert_eq!(ro2.read_all_records().unwrap().len(), 1);
+        let _rw = Store::open(td.path()).expect("writer can open beside readers");
+
+        // Durable mutations are refused on a read-only store.
+        let mut ro_mut = Store::open_readonly(td.path()).unwrap();
+        let err = ro_mut
+            .publish_segment(&[RawRecord::new(2, b"x".to_vec(), b"y".to_vec())])
+            .unwrap_err();
+        assert!(matches!(err, PrismError::Other(m) if m.contains("read-only")));
+        assert!(ro_mut.commit_batch(WriteBatch::new()).unwrap().is_none()); // empty is a no-op
     }
 
     #[test]

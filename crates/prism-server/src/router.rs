@@ -131,6 +131,7 @@ fn route_api(state: &AppState, rest: &str, q: &Query) -> ApiResult<String> {
     match rest {
         "status" => api_status(state),
         "runs" => api_runs(state),
+        "run" => api_run(state, q),
         "graph/stats" => api_graph_stats(state, q),
         "graph/neighborhood" => api_neighborhood(state, q),
         "graph/impact" => api_impact(state, q),
@@ -203,6 +204,83 @@ fn api_runs(state: &AppState) -> ApiResult<String> {
         w.end_array();
         Ok(w.finish())
     })
+}
+
+/// `GET /api/run?run=` — run provenance: ecosystem, resolver, status, and the
+/// [`prism_model::GraphFidelity`] (tier + "what was dropped" caveats) so the UI
+/// never overclaims correctness (architecture doc: fidelity travels with a run).
+fn api_run(state: &AppState, q: &Query) -> ApiResult<String> {
+    let run = run_param(q)?;
+    state.with_prism(|prism| {
+        let record = prism.store().get_run(run)?;
+        let resolver = prism
+            .store()
+            .resolve_string(record.resolver_name)
+            .unwrap_or_default();
+        let mut w = JsonWriter::new();
+        w.begin_object();
+        w.field_u64("run", run.get());
+        w.field_str("ecosystem", ecosystem_name(record.ecosystem));
+        w.field_str("resolver", &resolver);
+        w.field_str("status", run_status_name(record.status));
+        w.field_str("fidelity_tier", fidelity_tier_name(record.fidelity.tier));
+        w.key("fidelity_caveats");
+        w.begin_array();
+        for name in caveat_names(record.fidelity.caveats) {
+            w.str_value(name);
+        }
+        w.end_array();
+        w.end_object();
+        Ok(w.finish())
+    })
+}
+
+/// Display name for an ecosystem id (only two are registered in v0.1).
+fn ecosystem_name(id: prism_model::EcosystemId) -> &'static str {
+    match id.get() {
+        1 => "cargo",
+        2 => "npm",
+        _ => "unknown",
+    }
+}
+
+/// Display name for a resolver-run status.
+fn run_status_name(s: prism_model::RunStatus) -> &'static str {
+    match s {
+        prism_model::RunStatus::Pending => "pending",
+        prism_model::RunStatus::Complete => "complete",
+        prism_model::RunStatus::Truncated => "truncated",
+        prism_model::RunStatus::Failed => "failed",
+    }
+}
+
+/// Display name for a graph fidelity tier.
+fn fidelity_tier_name(t: prism_model::FidelityTier) -> &'static str {
+    match t {
+        prism_model::FidelityTier::LockfileExact => "lockfile-exact",
+        prism_model::FidelityTier::NativeToolResolved => "native-tool-resolved",
+        prism_model::FidelityTier::ModelResolved => "model-resolved",
+        prism_model::FidelityTier::CandidateSpaceOnly => "candidate-space-only",
+    }
+}
+
+/// The names of the set caveat flags (what the resolution did *not* model).
+fn caveat_names(c: prism_model::FidelityCaveats) -> Vec<&'static str> {
+    use prism_model::FidelityCaveats as F;
+    [
+        (F::NO_PEER_PLACEMENT, "no-peer-placement"),
+        (F::NO_FEATURE_UNIFICATION, "no-feature-unification"),
+        (F::NO_PROFILE_EXPANSION, "no-profile-expansion"),
+        (F::NO_MEDIATION, "no-mediation"),
+        (F::NO_EXTRA_ACTIVATION, "no-extra-activation"),
+        (F::MARKERS_APPROXIMATED, "markers-approximated"),
+        (F::DYNAMIC_METADATA_SKIPPED, "dynamic-metadata-skipped"),
+        (F::BUDGET_TRUNCATED, "budget-truncated"),
+    ]
+    .into_iter()
+    .filter(|(flag, _)| c.contains(*flag))
+    .map(|(_, name)| name)
+    .collect()
 }
 
 /// `GET /api/graph/stats?run=` — whole-graph statistics.
@@ -370,6 +448,23 @@ mod tests {
             run_param(&Query::parse("")).err().unwrap().status,
             Status::BAD_REQUEST
         );
+    }
+
+    #[test]
+    fn run_metadata_name_mappings() {
+        use prism_model::{EcosystemId, FidelityCaveats, FidelityTier, RunStatus};
+        assert_eq!(ecosystem_name(EcosystemId::new(1)), "cargo");
+        assert_eq!(ecosystem_name(EcosystemId::new(2)), "npm");
+        assert_eq!(ecosystem_name(EcosystemId::new(99)), "unknown");
+        assert_eq!(run_status_name(RunStatus::Complete), "complete");
+        assert_eq!(
+            fidelity_tier_name(FidelityTier::LockfileExact),
+            "lockfile-exact"
+        );
+        // No caveats => empty; a couple set => their names, in flag order.
+        assert!(caveat_names(FidelityCaveats::EMPTY).is_empty());
+        let some = FidelityCaveats::NO_MEDIATION | FidelityCaveats::BUDGET_TRUNCATED;
+        assert_eq!(caveat_names(some), vec!["no-mediation", "budget-truncated"]);
     }
 
     #[test]

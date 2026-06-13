@@ -30,11 +30,15 @@ pub use server::Server;
 
 use prism_api::Prism;
 
-/// Open the workspace at `workspace` and start serving it on
+/// Open the workspace at `workspace` **read-only** and start serving it on
 /// `127.0.0.1:<port>` (port 0 picks an ephemeral port). The returned [`Server`]
 /// serves on background threads until dropped.
+///
+/// The viewer takes no write lock: it runs alongside the CLI and another viewer,
+/// and a crash never strands a lock. (The published file set is immutable and
+/// content-checksummed, so concurrent reads are always consistent.)
 pub fn serve(workspace: &str, port: u16) -> prism_model::Result<Server> {
-    let prism = Prism::open(workspace)?;
+    let prism = Prism::open_readonly(workspace)?;
     let workers = default_worker_count();
     let server = Server::start(prism, port, workers).map_err(prism_model::PrismError::Io)?;
     Ok(server)

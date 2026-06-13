@@ -9,31 +9,82 @@
 <body>
   <header id="topbar">
     <span class="brand">Prism</span>
-    <label for="run-select">Run</label>
-    <select id="run-select" aria-label="Select a run"></select>
-    <button id="reload-btn" type="button">Reload</button>
-    <span id="status-text" class="status"></span>
+    <span class="brand-sub">dependency topology</span>
+
+    <div class="control">
+      <label for="run-select">Run</label>
+      <select id="run-select" aria-label="Select a run"></select>
+    </div>
+
+    <div class="control search">
+      <input id="search" type="search" placeholder="Find a package…" aria-label="Find a package"
+             autocomplete="off" spellcheck="false">
+      <span id="search-count" class="search-count"></span>
+    </div>
+
+    <button id="reload-btn" type="button" title="Reload runs">Reload</button>
+    <span id="status-text" class="status" role="status"></span>
   </header>
 
   <main id="layout">
     <section id="graph-pane" aria-label="Dependency graph">
-      <svg id="graph-svg" xmlns="http://www.w3.org/2000/svg"
-           preserveAspectRatio="xMidYMid meet" role="img"></svg>
+      <svg id="graph-svg" xmlns="http://www.w3.org/2000/svg" role="img"
+           aria-label="Dependency graph"></svg>
+
+      <div id="zoom-controls" aria-label="Zoom controls">
+        <button id="zoom-in" type="button" title="Zoom in" aria-label="Zoom in">+</button>
+        <button id="zoom-out" type="button" title="Zoom out" aria-label="Zoom out">−</button>
+        <button id="zoom-fit" type="button" title="Fit to view" aria-label="Fit to view">⤢</button>
+      </div>
+
+      <div id="legend" class="legend">
+        <span class="lg"><i class="dot sel"></i>selected</span>
+        <span class="lg"><i class="dot fwd"></i>depends on</span>
+        <span class="lg"><i class="dot imp"></i>depended on by</span>
+        <span class="lg"><i class="dot dup"></i>duplicated</span>
+        <span class="lg"><i class="dot root"></i>root</span>
+      </div>
+
+      <div id="graph-empty" class="graph-empty hidden">
+        <p>No graph to show.</p>
+        <p class="muted">Ingest a lockfile with <code>prism ingest</code>, then pick a run.</p>
+      </div>
     </section>
 
     <aside id="side-pane">
-      <section class="panel">
-        <h2>Stats</h2>
+      <nav id="tabs" class="tabs" role="tablist">
+        <button class="tab active" data-tab="overview" role="tab">Overview</button>
+        <button class="tab" data-tab="node" role="tab">Node</button>
+        <button class="tab" data-tab="duplicates" role="tab">Duplicates</button>
+        <button class="tab" data-tab="cycles" role="tab">Cycles</button>
+        <button class="tab" data-tab="tda" role="tab">TDA</button>
+      </nav>
+
+      <section class="tab-body active" data-panel="overview">
+        <div id="run-meta" class="run-meta"></div>
+        <h3>Graph</h3>
         <dl id="stats-list"><dd class="muted">Pick a run.</dd></dl>
+        <h3>How to read it</h3>
+        <ul class="hint">
+          <li>Columns are BFS <b>depth</b> from the root; arrows point to dependencies.</li>
+          <li>Click a node to trace what it <b>depends on</b> and what <b>depends on it</b>.</li>
+          <li>Drag to pan, scroll to zoom, <kbd>⤢</kbd> to fit.</li>
+        </ul>
       </section>
 
-      <section class="panel">
-        <h2>Selected node</h2>
+      <section class="tab-body" data-panel="node">
         <div id="node-info"><p class="muted">Click a node in the graph.</p></div>
       </section>
 
-      <section class="panel">
-        <h2>TDA barcode</h2>
+      <section class="tab-body" data-panel="duplicates">
+        <div id="dup-list"><p class="muted">Pick a run.</p></div>
+      </section>
+
+      <section class="tab-body" data-panel="cycles">
+        <div id="scc-list"><p class="muted">Pick a run.</p></div>
+      </section>
+
+      <section class="tab-body" data-panel="tda">
         <div id="barcode"><p class="muted">No TDA loaded.</p></div>
       </section>
     </aside>

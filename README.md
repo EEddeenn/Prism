@@ -95,9 +95,19 @@ prism-serve --workspace . --port 7777   # serves http://127.0.0.1:7777 (localhos
 ```
 
 A self-contained graph explorer (vanilla JS + inline SVG, no build step, no external
-resources): pick a run, see the layered dependency graph, click a node to highlight its
-forward neighborhood and reverse impact, and read the stats panel + TDA barcode. The
-server is read-only and binds `127.0.0.1` exclusively.
+resources):
+
+- **Pan/zoom canvas** with a barycenter-ordered layered layout (column = BFS depth), a
+  fit-to-view control, and a colour legend; node labels appear when zoomed in or selected.
+- **Click a node** to trace what it depends on (forward) and what depends on it (reverse
+  impact), with clickable dependency/dependent lists.
+- **Tabbed side panel** surfacing every query: run provenance (ecosystem + `GraphFidelity`
+  tier and caveats), graph stats, duplicate-version families (click to highlight all
+  occurrences), strongly-connected components / cycles, and the TDA barcode.
+- **Search** to find and centre a package by name.
+
+The server opens the workspace **read-only** (no write lock), so it runs alongside the CLI
+and other viewers, a crash never strands a lock, and it binds `127.0.0.1` exclusively.
 
 ## Status
 

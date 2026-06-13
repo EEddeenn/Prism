@@ -1,0 +1,16 @@
+[package]
+name = "prism-plugin-cargo"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Cargo ecosystem plugin: Cargo.toml/Cargo.lock parsing and version semantics"
+
+[dependencies]
+prism-model = { path = "../prism-model" }
+prism-plugin-api = { path = "../prism-plugin-api" }
+prism-semver = { path = "../prism-semver" }
+prism-textfmt = { path = "../prism-textfmt" }
+
+[lints]
+workspace = true

@@ -1,0 +1,13 @@
+[package]
+name = "prism-textfmt"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Hermetic hand-rolled JSON and (subset) TOML parsers for manifest/lockfile ingestion"
+
+[dependencies]
+prism-model = { path = "../prism-model" }
+
+[lints]
+workspace = true

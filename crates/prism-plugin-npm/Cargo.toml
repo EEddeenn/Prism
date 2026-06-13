@@ -1,0 +1,16 @@
+[package]
+name = "prism-plugin-npm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "npm ecosystem plugin: package.json/package-lock.json parsing and semver semantics"
+
+[dependencies]
+prism-model = { path = "../prism-model" }
+prism-plugin-api = { path = "../prism-plugin-api" }
+prism-semver = { path = "../prism-semver" }
+prism-textfmt = { path = "../prism-textfmt" }
+
+[lints]
+workspace = true

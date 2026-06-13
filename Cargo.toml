@@ -9,6 +9,9 @@ members = [
     "crates/prism-semver",
     "crates/prism-resolve",
     "crates/prism-tda",
+    "crates/prism-textfmt",
+    "crates/prism-plugin-cargo",
+    "crates/prism-plugin-npm",
     "crates/prism-api",
     "crates/prism-cli",
 ]

@@ -65,6 +65,10 @@ interface GraphState {
   focusTarget: number | null;
   focusNonce: number;
 
+  // transient hover (3D): the node under the cursor. Lives here so only the DOM
+  // HUD subscribes — the WebGL scene never re-renders on a hover change.
+  hovered: number | null;
+
   // side-panel data
   runMeta: RunMeta | null;
   stats: import('@/lib/types').GraphStats | null;
@@ -92,6 +96,7 @@ interface GraphState {
   runSearch: (term: string) => void;
   selectFeature: (pair: number, dim: number) => Promise<void>;
   requestFocus: (id: number) => void;
+  setHovered: (id: number | null) => void;
   setCompareRun: (run: number | null) => Promise<void>;
 }
 
@@ -123,6 +128,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   edgeFilter: 'all',
   focusTarget: null,
   focusNonce: 0,
+  hovered: null,
   runMeta: null,
   stats: null,
   duplicates: [],
@@ -313,6 +319,11 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   },
 
   requestFocus: (id) => set((s) => ({ focusTarget: id, focusNonce: s.focusNonce + 1 })),
+
+  setHovered: (id) => {
+    // Skip no-op writes so crossing within one node never notifies subscribers.
+    if (get().hovered !== id) set({ hovered: id });
+  },
 
   setCompareRun: async (run) => {
     if (run == null) {

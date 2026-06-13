@@ -1,15 +1,29 @@
 'use client';
 
-/* All edges as one LineSegments with per-vertex colours. Dimmed edges fade
- * toward the background (a stand-in for per-vertex alpha, which line materials
- * don't support); highlighted/feature/back edges read bright. */
+/* Edges in two passes:
+ *   - bulk: every edge as one cheap LineSegments with per-vertex colours, faded
+ *     toward the background (a stand-in for per-vertex alpha, which line
+ *     materials don't support).
+ *   - lit:  the highlighted subset (forward cone / impact cone / generator
+ *     support / cycle back-edges) as a real-width drei <Line> drawn on top, so
+ *     the traced path reads as a bright ribbon instead of a lost 1px hairline.
+ *
+ * Fiber mode draws NO edges: between vertical version-stacks they'd be the
+ * chaotic hairball the layout is designed to avoid (the fibers ARE the structure). */
 
 import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
+import { Line } from '@react-three/drei';
 import { useGraphStore } from '@/store/useGraphStore';
 import { PALETTE, hexToRgb, mixHex } from '@/lib/palette';
-import { edgeVisible, isFlagged, kindColor } from '@/lib/edges';
+import { edgeVisible, isBackEdge, isFlagged, kindColor } from '@/lib/edges';
 import type { Layout3D } from '@/lib/layout3d';
+
+type Rgb = [number, number, number];
+const rgb01 = (hex: string): Rgb => {
+  const [r, g, b] = hexToRgb(hex);
+  return [r / 255, g / 255, b / 255];
+};
 
 export default function Edges({ layout }: { layout: Layout3D }) {
   const edges = useGraphStore((s) => s.edges);
@@ -23,45 +37,88 @@ export default function Edges({ layout }: { layout: Layout3D }) {
   const geom = useMemo(() => new THREE.BufferGeometry(), []);
   const matRef = useRef<THREE.LineBasicMaterial>(null);
 
-  useEffect(() => {
+  // Classify every edge into the dim bulk or the bright lit set in one pass.
+  const lit = useMemo(() => {
+    const litPts: number[][] = [];
+    const litCol: Rgb[] = [];
     const pos: number[] = [];
     const col: number[] = [];
+
+    // Fiber mode: no edges (see header).
+    if (mode === 'fiber') {
+      geom.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
+      geom.setAttribute('color', new THREE.Float32BufferAttribute([], 3));
+      geom.computeBoundingSphere();
+      return { points: litPts, colors: litCol };
+    }
+
     const hasSel = sel != null;
     const feat = mode === 'tda' && feature;
     for (const e of edges) {
       const a = layout.pos.get(e.source);
       const b = layout.pos.get(e.target);
       if (!a || !b) continue;
+
+      // litHex != null => promote this edge to the bright ribbon pass.
+      let litHex: string | null = null;
       let hex = PALETTE.edge;
-      let fade = 0.4; // toward bg
+      let fade = 0.5; // toward bg
+
       if (!edgeVisible(e, edgeFilter)) {
-        // Filtered out by the edge lens — fade nearly to the background.
-        hex = PALETTE.edge; fade = 0.93;
+        hex = PALETTE.edge; fade = 0.93; // filtered out by the edge lens
       } else if (feat) {
-        if (feature!.edgeKeys.has(`${e.source}>${e.target}`)) { hex = PALETTE.gen; fade = 0; }
-        else fade = 0.86;
+        if (feature!.edgeKeys.has(`${e.source}>${e.target}`)) litHex = PALETTE.gen;
+        else fade = 0.9;
       } else if (hasSel) {
-        if (fwd.has(e.source) && fwd.has(e.target)) { hex = PALETTE.fwd; fade = 0; }
-        else if (impact.has(e.source) && impact.has(e.target)) { hex = PALETTE.impact; fade = 0; }
-        else fade = 0.86;
+        if (fwd.has(e.source) && fwd.has(e.target)) litHex = PALETTE.fwd;
+        else if (impact.has(e.source) && impact.has(e.target)) litHex = PALETTE.impact;
+        else fade = 0.9;
+      } else if (isBackEdge(e)) {
+        // Neutral state: a back-edge rises across depth layers — the visual
+        // signature of a dependency cycle. Light it so layered mode reads as a
+        // cycle detector.
+        litHex = PALETTE.impact;
       } else {
-        // Neutral state: colour by dependency kind; brighten flagged smells.
-        hex = kindColor(e.kind); fade = isFlagged(e) ? 0.05 : 0.5;
+        hex = kindColor(e.kind); fade = isFlagged(e) ? 0.15 : 0.62;
       }
-      const [r, g, bl] = hexToRgb(mixHex(hex, PALETTE.bg, fade));
-      pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
-      col.push(r / 255, g / 255, bl / 255, r / 255, g / 255, bl / 255);
+
+      if (litHex) {
+        litPts.push([a.x, a.y, a.z], [b.x, b.y, b.z]);
+        const c = rgb01(litHex);
+        litCol.push(c, c);
+      } else {
+        const [r, g, bl] = hexToRgb(mixHex(hex, PALETTE.bg, fade));
+        pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
+        col.push(r / 255, g / 255, bl / 255, r / 255, g / 255, bl / 255);
+      }
     }
+
     geom.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     geom.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     geom.computeBoundingSphere();
+    return { points: litPts, colors: litCol };
   }, [edges, layout, sel, fwd, impact, mode, feature, edgeFilter, geom]);
 
   useEffect(() => () => geom.dispose(), [geom]);
 
   return (
-    <lineSegments geometry={geom}>
-      <lineBasicMaterial ref={matRef} vertexColors transparent opacity={0.85} />
-    </lineSegments>
+    <>
+      <lineSegments geometry={geom}>
+        <lineBasicMaterial ref={matRef} vertexColors transparent opacity={0.85} />
+      </lineSegments>
+      {lit.points.length > 0 && (
+        <Line
+          // remount when the lit set changes so Line2 resizes its buffers
+          key={lit.points.length}
+          points={lit.points as [number, number, number][]}
+          vertexColors={lit.colors}
+          segments
+          lineWidth={2.2}
+          transparent
+          opacity={0.95}
+          toneMapped={false}
+        />
+      )}
+    </>
   );
 }

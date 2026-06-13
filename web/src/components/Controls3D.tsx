@@ -19,6 +19,15 @@ const SIGNALS: { id: TerrainSignal; label: string }[] = [
   { id: 'risk', label: 'risk — composite' },
 ];
 
+// What each mode encodes — shown under the mode switch so the view is readable
+// without leaving the canvas.
+const MODE_HELP: Record<Mode3D, string> = {
+  layered: 'Stacked by dependency depth — roots on top, leaves below. Red edges rise across layers = cycle back-edges.',
+  fiber: 'One vertical fiber per package family. Bright pink + taller = resolved at multiple versions.',
+  terrain: 'The 2D map lifted into a heightfield; pick the signal below. Peaks are labelled; see the legend, top-right.',
+  tda: 'Gold lights the generator support of the persistence feature picked in the TDA panel.',
+};
+
 interface Props {
   mode: Mode3D;
   setMode: (m: Mode3D) => void;
@@ -64,8 +73,9 @@ export default function Controls3D({ mode, setMode, signal, setSignal, spin, tog
         </div>
       )}
 
+      <p className="text-[10.5px] leading-snug text-ink/80">{MODE_HELP[mode]}</p>
       <p className="text-[10.5px] leading-snug text-muted">
-        Drag to orbit · scroll to zoom · shift-drag to pan · click a node
+        Drag to orbit · scroll to zoom · shift-drag to pan · hover to identify · click a node
       </p>
 
       <div className="flex gap-2">

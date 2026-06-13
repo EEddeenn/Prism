@@ -6,8 +6,9 @@ import { rampRgb } from '@/lib/palette';
 import type { TerrainField } from '@/lib/layout3d';
 
 /* The dependency terrain: a heightfield mesh whose elevation is the chosen
- * analytical signal, coloured by a low→high ramp with a slope shade. Vertex
- * colours bake the shading, so no lights are needed. */
+ * analytical signal, coloured by a low→high ramp. The scene's directional light
+ * sculpts the relief (normals are computed below); a faint baked slope-shade in
+ * the vertex colours deepens valleys so ridges read even in flat light. */
 export default function TerrainMesh({ terrain }: { terrain: TerrainField }) {
   const geom = useMemo(() => {
     const { H, G, cell, size, maxHeight } = terrain;
@@ -25,7 +26,8 @@ export default function TerrainMesh({ terrain }: { terrain: TerrainField }) {
         const hx = (i < G - 1 ? H[j * G + i + 1] : y) - (i > 0 ? H[j * G + i - 1] : y);
         const hz = (j < G - 1 ? H[(j + 1) * G + i] : y) - (j > 0 ? H[(j - 1) * G + i] : y);
         const slope = Math.min(1, Math.hypot(hx, hz) / 45);
-        const shade = 0.72 + 0.28 * (1 - slope);
+        // Lighter baked shade now that real lighting does most of the relief.
+        const shade = 0.85 + 0.15 * (1 - slope);
         const [r, gg, b] = rampRgb(t);
         colors.push((r / 255) * shade, (gg / 255) * shade, (b / 255) * shade);
       }
@@ -50,7 +52,7 @@ export default function TerrainMesh({ terrain }: { terrain: TerrainField }) {
 
   return (
     <mesh geometry={geom}>
-      <meshBasicMaterial vertexColors side={THREE.DoubleSide} />
+      <meshStandardMaterial vertexColors side={THREE.DoubleSide} roughness={0.92} metalness={0} />
     </mesh>
   );
 }

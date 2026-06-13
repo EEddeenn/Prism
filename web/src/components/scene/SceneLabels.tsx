@@ -25,6 +25,7 @@ export default function SceneLabels({ layout }: { layout: Layout3D }) {
   const ctx: StyleCtx = {
     sel, fwd, impact, matches, dup,
     roots: roots ?? new Set(),
+    peaks: new Set(layout.peaks ?? []),
     mode, feature, small: nodes.length <= SMALL,
   };
 

@@ -9,7 +9,18 @@ import type { Layout3D } from '@/lib/layout3d';
 /* Fits the camera to the current layout (and on an explicit reset), and recenters
  * the orbit target when something requests focus (search, duplicate highlight,
  * feature selection). */
-export default function CameraRig({ layout, fitNonce }: { layout: Layout3D; fitNonce: number }) {
+export default function CameraRig({
+  layout,
+  fitKey,
+  fitNonce,
+}: {
+  layout: Layout3D;
+  /** A coarse signature (mode + node count) that changes only when a refit is
+   *  actually warranted — NOT on within-mode signal tweaks, which recompute the
+   *  layout object but should leave the camera where the user put it. */
+  fitKey: string;
+  fitNonce: number;
+}) {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
   // drei's OrbitControls (makeDefault) registers itself here.
   const controls = useThree((s) => s.controls) as unknown as
@@ -44,9 +55,10 @@ export default function CameraRig({ layout, fitNonce }: { layout: Layout3D; fitN
     }
     // `controls` is included so the fit re-runs once OrbitControls registers
     // itself (it mounts a tick after this rig), keeping the orbit target aligned
-    // with where the camera looks.
+    // with where the camera looks. `layout` is intentionally NOT a dep — refit
+    // only on a mode/size change (fitKey) or an explicit reset (fitNonce).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layout, fitNonce, controls]);
+  }, [fitKey, fitNonce, controls]);
 
   // Recenter the orbit target on a focus request.
   useEffect(() => {

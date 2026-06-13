@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls } from '@react-three/drei';
+import { OrbitControls, Grid } from '@react-three/drei';
 import { useGraphStore } from '@/store/useGraphStore';
 import { buildLayout3D, type Layout3D } from '@/lib/layout3d';
 import { PALETTE } from '@/lib/palette';
@@ -12,6 +12,7 @@ import LayerPlanes from './scene/LayerPlanes';
 import Fibers from './scene/Fibers';
 import TerrainMesh from './scene/TerrainMesh';
 import SceneLabels from './scene/SceneLabels';
+import SceneHud from './scene/SceneHud';
 import CameraRig from './scene/CameraRig';
 import Controls3D from './Controls3D';
 
@@ -21,19 +22,44 @@ function SceneContent({ fitNonce, spin }: { fitNonce: number; spin: boolean }) {
   const pos2d = useGraphStore((s) => s.pos2d);
   const mode = useGraphStore((s) => s.mode3d);
   const signal = useGraphStore((s) => s.signal);
+  const run = useGraphStore((s) => s.run);
 
   const layout: Layout3D = useMemo(
     () => (index ? buildLayout3D(mode, nodes, index, pos2d, signal) : { pos: new Map() }),
     [mode, nodes, index, pos2d, signal],
   );
 
+  // Refit only when the spatial structure actually changes (run / mode / size),
+  // NOT on within-mode signal tweaks (which recompute `layout` but should keep
+  // the camera). `run` is folded in so a graph swap that happens to preserve the
+  // node count still refits.
+  const fitKey = `${run}:${mode}:${nodes.length}`;
+  const radius = layout.radius ?? 400;
+
   return (
     <>
       <color attach="background" args={[PALETTE.bg]} />
-      <ambientLight intensity={0.75} />
-      <directionalLight position={[300, 500, 200]} intensity={0.7} />
-      <CameraRig layout={layout} fitNonce={fitNonce} />
+      {/* Linear fog tied to scene size pushes far geometry into the void, giving
+          the cloud real front/back depth instead of a flat overlapping wash. */}
+      <fog attach="fog" args={[PALETTE.bg, radius * 1.4, radius * 5.5]} />
+      <hemisphereLight args={['#3b4a66', PALETTE.bg, 0.55]} />
+      <directionalLight position={[300, 500, 200]} intensity={0.85} color="#fff4e6" />
+      <directionalLight position={[-260, 180, -220]} intensity={0.32} color={PALETTE.accent} />
+      <CameraRig layout={layout} fitKey={fitKey} fitNonce={fitNonce} />
       <OrbitControls makeDefault enableDamping dampingFactor={0.12} autoRotate={spin} autoRotateSpeed={0.5} />
+      {mode === 'fiber' && (
+        <Grid
+          position={[0, -1, 0]}
+          args={[radius * 2.6, radius * 2.6]}
+          cellSize={38}
+          sectionSize={152}
+          cellColor={PALETTE.edge}
+          sectionColor={PALETTE.muted}
+          fadeDistance={radius * 4}
+          fadeStrength={1.4}
+          infiniteGrid={false}
+        />
+      )}
       <Edges layout={layout} />
       <Nodes layout={layout} />
       {layout.planes && <LayerPlanes planes={layout.planes} />}
@@ -61,6 +87,7 @@ export default function Graph3D() {
       >
         <SceneContent fitNonce={fitNonce} spin={spin} />
       </Canvas>
+      <SceneHud />
       <Controls3D
         mode={mode}
         setMode={setMode3d}

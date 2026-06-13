@@ -39,13 +39,38 @@ export interface TerrainField {
   cell: number;
   size: number;
   maxHeight: number;
+  /** Largest raw signal value across nodes — the top of the elevation ramp. */
+  maxSignal: number;
+  /** Which signal the elevation encodes (for the legend's name/units). */
+  signal: TerrainSignal;
+  /** True when revReach/fwdReach fell back to degree proxies (graph over cap). */
+  approximate: boolean;
 }
 export interface Layout3D {
   pos: Map<number, Vec3>;
   planes?: LayerPlane[];
   fibers?: Fiber[];
   terrain?: TerrainField;
+  /** Highest-signal node ids (terrain peaks) to label without a selection. */
+  peaks?: number[];
+  /** A scene-extent radius, for fog/grid sizing without a second bbox pass. */
+  radius?: number;
 }
+
+/** Human name + unit for each terrain signal (shared by the controls + HUD). */
+export const SIGNAL_LABELS: Record<TerrainSignal, { name: string; unit: string }> = {
+  centrality: { name: 'Centrality', unit: 'transitive dependents' },
+  reach: { name: 'Reach', unit: 'transitive dependencies' },
+  fanin: { name: 'Fan-in', unit: 'direct dependents' },
+  fanout: { name: 'Fan-out', unit: 'direct dependencies' },
+  duplicates: { name: 'Duplicate pressure', unit: 'extra versions' },
+  depth: { name: 'Depth', unit: 'filtration value' },
+  risk: { name: 'Risk', unit: 'composite score' },
+};
+
+/** Signals that derive from transitive reach, so they read as approximate when
+ *  the graph is over the reach cap (graph.ts TRANSITIVE_CAP). */
+export const REACH_SIGNALS: ReadonlySet<TerrainSignal> = new Set<TerrainSignal>(['centrality', 'reach', 'risk']);
 
 export function signalValue(m: NodeMetrics, sig: TerrainSignal): number {
   switch (sig) {
@@ -68,9 +93,27 @@ export function buildLayout3D(
   signal: TerrainSignal,
 ): Layout3D {
   if (!nodes.length) return { pos: new Map() };
-  if (mode === 'fiber') return layoutFiber(nodes);
-  if (mode === 'terrain') return layoutTerrain(nodes, index, pos2d, signal);
-  return layoutLayered(nodes, index); // 'layered' and 'tda' share the substrate
+  const layout =
+    mode === 'fiber'
+      ? layoutFiber(nodes)
+      : mode === 'terrain'
+        ? layoutTerrain(nodes, index, pos2d, signal)
+        : layoutLayered(nodes, index); // 'layered' and 'tda' share the substrate
+  layout.radius = sceneRadius(layout.pos);
+  return layout;
+}
+
+/** Half-diagonal of the layout's bounding box — drives fog/grid sizing. */
+function sceneRadius(pos: Map<number, Vec3>): number {
+  let minx = Infinity, miny = Infinity, minz = Infinity;
+  let maxx = -Infinity, maxy = -Infinity, maxz = -Infinity;
+  for (const p of pos.values()) {
+    minx = Math.min(minx, p.x); maxx = Math.max(maxx, p.x);
+    miny = Math.min(miny, p.y); maxy = Math.max(maxy, p.y);
+    minz = Math.min(minz, p.z); maxz = Math.max(maxz, p.z);
+  }
+  if (!Number.isFinite(minx)) return 400;
+  return Math.max(120, Math.hypot(maxx - minx, maxy - miny, maxz - minz) / 2);
 }
 
 export function layoutLayered(nodes: GraphNode[], index: GraphIndex): Layout3D {
@@ -177,14 +220,22 @@ export function layoutTerrain(
   const hScale = TERRAIN_H / (maxSig || 1);
 
   const ground = new Map<number, { gx: number; gz: number }>();
+  const sig = new Map<number, number>();
   for (const n of nodes) {
     const p = pos2d.get(n.id) || { x: 0, y: 0 };
     const gx = (p.x - (minx + maxx) / 2) * s;
     const gz = (p.y - (minz + maxz) / 2) * s;
-    const y = signalValue(index.metrics.get(n.id)!, signal) * hScale;
+    const v = signalValue(index.metrics.get(n.id)!, signal);
+    sig.set(n.id, v);
     ground.set(n.id, { gx, gz });
-    pos.set(n.id, { x: gx, y, z: gz });
+    pos.set(n.id, { x: gx, y: v * hScale, z: gz });
   }
+
+  // The highest-signal nodes are the "peaks" worth naming without a selection.
+  const peaks = Array.from(sig.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, maxSig > 0 ? 12 : 0)
+    .map(([id]) => id);
 
   const G = GRID_N;
   const H = new Float32Array(G * G).fill(NaN);
@@ -199,7 +250,14 @@ export function layoutTerrain(
     if (Number.isNaN(H[k]) || y > H[k]) H[k] = y;
   }
   fillAndBlur(H, G);
-  return { pos, terrain: { H, G, cell, size: TERRAIN_S, maxHeight: TERRAIN_H } };
+  return {
+    pos,
+    peaks,
+    terrain: {
+      H, G, cell, size: TERRAIN_S, maxHeight: TERRAIN_H,
+      maxSignal: maxSig, signal, approximate: index.approximate,
+    },
+  };
 }
 
 function fillAndBlur(H: Float32Array, G: number): void {

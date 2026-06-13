@@ -106,6 +106,19 @@ impl Prism {
         self.store.is_read_only()
     }
 
+    /// Reject a mutating operation on a read-only workspace at the facade boundary,
+    /// BEFORE any side effect (e.g. a content-addressed blob write happens before
+    /// the store's own commit-time guard). Every ingest/resolve/tda entry point
+    /// calls this first.
+    pub(crate) fn ensure_writable(&self) -> Result<()> {
+        if self.store.is_read_only() {
+            return Err(prism_model::PrismError::Other(
+                "workspace is read-only; this operation requires the write lock".into(),
+            ));
+        }
+        Ok(())
+    }
+
     /// The underlying store (read-only borrow), for advanced callers.
     pub fn store(&self) -> &Store {
         &self.store

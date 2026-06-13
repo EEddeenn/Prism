@@ -209,10 +209,10 @@ fn find_finite_pair(
     filt: prism_model::FiltrationId,
 ) -> u64 {
     // The facade does not expose pair ids directly, but `tda_support` over a
-    // scanned id surfaces NotFound for absent pairs; the persisted pair ids are
-    // dense, allocated from `filtration_id` as the base. Scan a small window and
-    // pick the first whose support resolves with objects.
-    let base = filt.get();
+    // scanned id surfaces NotFound for absent pairs; pair ids are packed as
+    // `(filtration_id << 32) | ordinal` (globally unique across filtrations), so
+    // the filtration's pairs start at `filtration_id << 32`. Scan a small window.
+    let base = filt.get() << 32;
     for candidate in base..base + 64 {
         let pid = prism_model::PairId::new(candidate);
         if let Ok(view) = prism.tda_support(run, filt, pid) {

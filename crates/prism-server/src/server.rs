@@ -8,10 +8,10 @@
 
 use std::io::{self, Read};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use prism_api::Prism;
 
@@ -20,8 +20,37 @@ use crate::json::error_body;
 use crate::router::{self, AppState};
 
 /// Read/write timeout per connection, so a slow or stuck client cannot pin a
-/// worker forever.
+/// worker forever. This bounds a single read; [`HEAD_DEADLINE`] bounds the whole
+/// head read so a client dripping one byte per timeout window cannot extend it.
 const CONN_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Aggregate wall-clock budget for reading a request head, regardless of per-read
+/// progress (defeats slowloris-style byte-dripping).
+const HEAD_DEADLINE: Duration = Duration::from_secs(10);
+
+/// Bound on the accept→worker hand-off queue. A flood beyond this drops at accept
+/// rather than buffering `TcpStream`s without limit.
+const ACCEPT_QUEUE_CAP: usize = 256;
+
+/// A reader that fails once an absolute `deadline` passes, so the *total* time
+/// spent reading is bounded even if each individual read makes a little progress
+/// (the per-read socket timeout alone resets on every byte).
+struct DeadlineReader<R> {
+    inner: R,
+    deadline: Instant,
+}
+
+impl<R: Read> Read for DeadlineReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if Instant::now() >= self.deadline {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "request head read deadline exceeded",
+            ));
+        }
+        self.inner.read(buf)
+    }
+}
 
 /// A running server. Dropping it (or calling [`Server::shutdown`]) stops the
 /// accept loop and joins the workers.
@@ -45,8 +74,11 @@ impl Server {
         let state = Arc::new(AppState::new(prism));
         let workers = workers.max(1);
 
-        // Worker pool: a shared, mutex-guarded receiver of accepted streams.
-        let (tx, rx): (Sender<TcpStream>, Receiver<TcpStream>) = mpsc::channel();
+        // Worker pool: a shared, mutex-guarded receiver of accepted streams. The
+        // queue is BOUNDED (sync_channel) so a connection flood blocks/drops at the
+        // accept loop instead of buffering TcpStreams without limit.
+        let (tx, rx): (SyncSender<TcpStream>, Receiver<TcpStream>) =
+            mpsc::sync_channel(ACCEPT_QUEUE_CAP);
         let rx = Arc::new(Mutex::new(rx));
         let mut worker_handles = Vec::with_capacity(workers);
         for _ in 0..workers {
@@ -107,16 +139,21 @@ impl Drop for Server {
 
 /// Accept connections until `running` is cleared, handing each stream to the
 /// worker pool.
-fn accept_loop(listener: TcpListener, tx: &Sender<TcpStream>, running: &Arc<Mutex<bool>>) {
+fn accept_loop(listener: TcpListener, tx: &SyncSender<TcpStream>, running: &Arc<Mutex<bool>>) {
     for stream in listener.incoming() {
         if !*running.lock().unwrap_or_else(|e| e.into_inner()) {
             break;
         }
         match stream {
             Ok(s) => {
-                // A full pool/closed channel just drops the connection.
-                if tx.send(s).is_err() {
-                    break;
+                // Hand off without blocking the accept loop. If the bounded queue
+                // is full (a flood faster than the pool drains), DROP this
+                // connection rather than stall accepting; a disconnected receiver
+                // means the server is shutting down.
+                match tx.try_send(s) {
+                    Ok(()) => {}
+                    Err(mpsc::TrySendError::Full(_)) => continue,
+                    Err(mpsc::TrySendError::Disconnected(_)) => break,
                 }
             }
             // Transient accept errors are ignored; keep serving.
@@ -149,7 +186,13 @@ fn serve_connection(stream: TcpStream, state: &AppState) {
     let _ = stream.set_read_timeout(Some(CONN_TIMEOUT));
     let _ = stream.set_write_timeout(Some(CONN_TIMEOUT));
 
-    let response = build_response(&stream, state);
+    // Bound the whole head read by an absolute deadline (not just per-read), so a
+    // byte-dripping client cannot hold this worker far beyond CONN_TIMEOUT.
+    let reader = DeadlineReader {
+        inner: &stream,
+        deadline: Instant::now() + HEAD_DEADLINE,
+    };
+    let response = build_response(reader, state);
     // std implements `Write for &TcpStream`, so a shared borrow writes the reply.
     let mut writer = &stream;
     let _ = response.write_to(&mut writer);

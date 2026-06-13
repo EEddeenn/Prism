@@ -151,6 +151,36 @@ impl Prism {
         Ok(out)
     }
 
+    /// Export the whole graph of `run` as `(nodes, edges)`, loading, verifying,
+    /// and parsing the snapshot **exactly once**.
+    ///
+    /// The per-node `node()` + one-hop `neighborhood()` exporter re-opened (and
+    /// re-SHA-256-verified, re-parsed) the graph blob ~2N times per export; this
+    /// reads it once and walks the in-memory CSR. Each directed edge is emitted
+    /// once, from its source.
+    pub fn graph_export(&self, run: RunId) -> Result<(Vec<GraphNodeView>, Vec<GraphEdgeView>)> {
+        let g = self.load_graph(run)?;
+        let n = g.node_count() as u32;
+        let mut nodes = Vec::with_capacity(n as usize);
+        let mut edges = Vec::new();
+        for i in 0..n {
+            let from = GraphNodeId::new(i);
+            nodes.push(self.node_view(&g, from)?);
+            let targets = g.out_neighbors(from)?;
+            let edge_ids = g.out_edge_ids(from)?;
+            for (k, &to) in targets.iter().enumerate() {
+                let eid = edge_ids[k];
+                edges.push(GraphEdgeView {
+                    source: from,
+                    target: to,
+                    kind: g.edge_kind(eid)?,
+                    flags: g.edge_flags(eid)?,
+                });
+            }
+        }
+        Ok((nodes, edges))
+    }
+
     // --- internal -----------------------------------------------------------
 
     /// Resolve one snapshot-local node id into a display view.

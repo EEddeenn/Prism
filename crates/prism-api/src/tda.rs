@@ -29,6 +29,7 @@ impl Prism {
     /// [`Store::publish_tda`] keyed by a freshly-allocated, store-global
     /// [`FiltrationId`].
     pub fn tda_run(&mut self, run: RunId, filtration: &str) -> Result<BarcodeView> {
+        self.ensure_writable()?;
         if !matches!(filtration, "depth" | "" | "default") {
             return Err(PrismError::Other(format!(
                 "unsupported filtration {filtration:?} (only \"depth\" in v0.1)"
@@ -42,7 +43,13 @@ impl Prism {
         // A fresh, store-global id for this filtration (the object counter is the
         // single monotonic source the store persists; it never reuses ids).
         let filtration_id = FiltrationId::new(self.store.alloc_run_id().get());
-        let persistence = PersistenceResult::compute(&complex, filtration_id.get())?;
+        // PairIds must be globally unique across filtrations: pack the filtration
+        // id into the high 32 bits and the in-file pair ordinal into the low 32, so
+        // each filtration owns a disjoint 2^32 block (the old base = filtration_id
+        // incremented by 1, so consecutive filtrations' ranges overlapped).
+        // Filtration ids and per-file pair counts each fit in 32 bits in practice.
+        let pair_id_base = filtration_id.get() << 32;
+        let persistence = PersistenceResult::compute(&complex, pair_id_base)?;
 
         let barcode = barcode_from(run, filtration_id, &persistence);
 

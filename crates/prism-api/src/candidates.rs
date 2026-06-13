@@ -120,13 +120,15 @@ impl Prism {
                 .ok()
                 .and_then(|r| self.store.resolve_string(r.raw_requirement));
             let Some(raw) = raw else { continue };
-            // A malformed stored constraint should not abort the whole report;
-            // treat it as matching nothing (an empty admissible set).
-            let admissible = match parse_constraint(ecosystem, &raw) {
-                Ok(req) => admissible_ordinals(&req, &sorted),
-                Err(_) => BTreeSet::new(),
-            };
-            sets.push((*rid, admissible));
+            // A malformed/unparseable stored constraint is SKIPPED, not treated as
+            // matching nothing: an empty admissible set is disjoint from every other
+            // set, so including it would falsely report the requirement as
+            // conflicting with all the others (a parse failure is not a version
+            // conflict). It simply does not participate in the pairwise matrix.
+            match parse_constraint(ecosystem, &raw) {
+                Ok(req) => sets.push((*rid, admissible_ordinals(&req, &sorted))),
+                Err(_) => continue,
+            }
         }
 
         let set_sizes: Vec<(RequirementId, u32)> =
@@ -166,8 +168,15 @@ impl Prism {
     // --- internals -----------------------------------------------------------
 
     /// Load `package`'s versions sorted ascending by the stored
-    /// `version_sort_key`. A version whose raw string does not parse as SemVer is
-    /// skipped (it cannot participate in range math) but logged via its absence.
+    /// `version_sort_key`.
+    ///
+    /// Candidate **ordinals are defined over the SemVer-parseable subset** of the
+    /// package's versions: a version whose raw string does not parse cannot
+    /// participate in range math and is excluded here. Every ordinal-producing path
+    /// (`candidates_for`, `candidate_set`, `conflict_pressure`) goes through this
+    /// one filter, so ordinals are internally self-consistent. (Yanked versions, by
+    /// contrast, ARE retained — they parse — and are reported as exclusions rather
+    /// than removed, so a yank does not shift ordinals.)
     fn sorted_versions(&self, package: PackageId) -> Result<SortedVersions> {
         let mut raw: Vec<(Vec<u8>, VersionId, Version, bool)> = Vec::new();
         for vid in self.store.versions_by_package(package) {

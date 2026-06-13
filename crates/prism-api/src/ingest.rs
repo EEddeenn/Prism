@@ -95,6 +95,7 @@ impl Prism {
         eco: Ecosystem,
         bytes: &[u8],
     ) -> Result<LockfileIngest> {
+        self.ensure_writable()?;
         let parsed = parse_lockfile(eco, bytes)?;
         let graph = &parsed.graph;
 
@@ -198,6 +199,7 @@ impl Prism {
         eco: Ecosystem,
         bytes: &[u8],
     ) -> Result<ManifestIngest> {
+        self.ensure_writable()?;
         let raw = crate::raw::raw_document("file:///manifest", bytes.to_vec());
         let batch = parse_manifest(eco, &raw)?;
         self.write_manifest_batch(eco.id(), &batch)
@@ -296,7 +298,13 @@ impl Prism {
             return Ok(existing);
         }
         let raw_id = self.store.intern_string_in(batch, version_raw)?;
-        let flags = if version_raw.contains('-') {
+        // Decide prerelease via the SemVer engine, not a naive `contains('-')`
+        // (which misfires on build metadata like `1.0.0+2013-03-13`). An
+        // unparseable version is treated as non-prerelease.
+        let is_pre = prism_semver::Version::parse(version_raw)
+            .map(|v| v.is_prerelease())
+            .unwrap_or(false);
+        let flags = if is_pre {
             VersionFlags::PRERELEASE
         } else {
             VersionFlags::EMPTY
@@ -651,8 +659,12 @@ fn purl(eco: EcosystemId, name: &str, namespace: Option<&str>, version: &str) ->
 /// zero-padded to sort numerically; this is a display/sort convenience, not the
 /// ecosystem's authoritative scheme.
 fn version_sort_key(version: &str) -> Vec<u8> {
+    // SemVer 2.0 ignores build metadata (everything after the first '+') for
+    // precedence, so strip it before keying — otherwise `1.0.0` and `1.0.0+build`
+    // would get distinct ordinals despite being precedence-equal.
+    let version = version.split('+').next().unwrap_or(version);
     let mut key = Vec::with_capacity(version.len() + 8);
-    for part in version.split(['.', '-', '+']) {
+    for part in version.split(['.', '-']) {
         if let Ok(n) = part.parse::<u64>() {
             key.push(0x00); // numeric components sort before alpha at equal pos
             key.extend_from_slice(&n.to_be_bytes());

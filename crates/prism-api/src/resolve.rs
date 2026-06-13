@@ -58,6 +58,7 @@ impl Prism {
         graph: &ResolvedGraph,
         resolver_name: &str,
     ) -> Result<RunId> {
+        self.ensure_writable()?;
         self.persist_resolved_graph(eco, graph, resolver_name)
             .map(|r| r.run)
     }
@@ -142,6 +143,7 @@ impl Prism {
         roots: &[VersionId],
         policy: &str,
     ) -> Result<SyntheticResolve> {
+        self.ensure_writable()?;
         let resolve_policy =
             policy_from_label(policy).map_err(|e| PrismError::Other(e.to_string()))?;
 

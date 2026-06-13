@@ -33,6 +33,15 @@ pub fn init(out: &mut dyn Write, path: &str) -> Result<()> {
     // Touch the store so the parameter is plainly used and the workspace is open.
     let _ = prism.store();
     writeln!(out, "initialized prism workspace at {path}").map_err(PrismError::Io)?;
+    // Every other command operates on the workspace in the *current* directory, so
+    // a non-`.` path here needs a matching `cd` to be reachable.
+    if path != "." {
+        writeln!(
+            out,
+            "note: other commands use the workspace in the current directory — run them from {path}"
+        )
+        .map_err(PrismError::Io)?;
+    }
     Ok(())
 }
 
@@ -156,10 +165,22 @@ pub fn graph_duplicates(out: &mut dyn Write, run: u64) -> Result<()> {
     Ok(())
 }
 
+/// Map an out-of-range node/pair id (a user-supplied id that is not in the run)
+/// to `NotFound` (exit 3), so a plain bad-id typo is distinguishable from a
+/// corrupt-store decode bounds failure (which keeps `OutOfBounds`, exit 5).
+fn id_not_found(e: PrismError) -> PrismError {
+    match e {
+        PrismError::OutOfBounds { .. } => PrismError::NotFound,
+        other => other,
+    }
+}
+
 /// `prism graph neighborhood --run <id> --node <id> --depth <n>`.
 pub fn graph_neighborhood(out: &mut dyn Write, run: u64, node: u32, depth: u32) -> Result<()> {
     let prism = open_here()?;
-    let view = prism.neighborhood(RunId::new(run), GraphNodeId::new(node), depth, 1024)?;
+    let view = prism
+        .neighborhood(RunId::new(run), GraphNodeId::new(node), depth, 1024)
+        .map_err(id_not_found)?;
     writeln!(
         out,
         "center: node {} {} (depth {})",
@@ -185,7 +206,9 @@ pub fn graph_neighborhood(out: &mut dyn Write, run: u64, node: u32, depth: u32) 
 pub fn graph_impact(out: &mut dyn Write, run: u64, node: u32) -> Result<()> {
     let prism = open_here()?;
     // Depth `u32::MAX` => the full ancestor set (architecture: all dependents).
-    let view = prism.impact(RunId::new(run), GraphNodeId::new(node), u32::MAX)?;
+    let view = prism
+        .impact(RunId::new(run), GraphNodeId::new(node), u32::MAX)
+        .map_err(id_not_found)?;
     writeln!(out, "impact of node {} {}", view.center.id.get(), view.center.purl)
         .map_err(PrismError::Io)?;
     writeln!(out, "{} dependent(s):", view.nodes.len()).map_err(PrismError::Io)?;
@@ -374,19 +397,19 @@ pub fn resolve(out: &mut dyn Write, manifest: &str, policy: &str) -> Result<()> 
 pub fn export_json(out: &mut dyn Write, run: u64) -> Result<()> {
     let prism = open_here()?;
     let run = RunId::new(run);
-    let stats = prism.graph_stats(run)?;
+    // One snapshot load for the whole export (was O(N x file size)).
+    let (nodes, edges) = prism.graph_export(run)?;
 
     let mut w = JsonWriter::new();
     w.begin_object();
     w.field_u64("run", run.get());
-    w.field_u64("nodes", stats.nodes as u64);
-    w.field_u64("edges", stats.edges as u64);
+    w.field_u64("nodes", nodes.len() as u64);
+    w.field_u64("edges", edges.len() as u64);
 
     // Nodes, resolved for display (id is snapshot-local; purl is the stable key).
     w.key("graph_nodes");
     w.begin_array();
-    for i in 0..stats.nodes as u32 {
-        let node = prism.node(run, GraphNodeId::new(i))?;
+    for node in &nodes {
         w.begin_object();
         w.field_u64("id", node.id.get() as u64);
         w.field_str("purl", &node.purl);
@@ -396,26 +419,15 @@ pub fn export_json(out: &mut dyn Write, run: u64) -> Result<()> {
     }
     w.end_array();
 
-    // Edges: induced over the whole graph via the full forward neighborhood of
-    // every node is wasteful; instead use the neighborhood of each node at depth
-    // 1 to enumerate direct out-edges. We do this through the public facade by
-    // walking each node's one-hop neighborhood.
     w.key("graph_edges");
     w.begin_array();
-    for i in 0..stats.nodes as u32 {
-        let nb = prism.neighborhood(run, GraphNodeId::new(i), 1, u32::MAX)?;
-        for e in &nb.edges {
-            // Keep only edges sourced at `i` so each directed edge is emitted once.
-            if e.source.get() != i {
-                continue;
-            }
-            w.begin_object();
-            w.field_u64("source", e.source.get() as u64);
-            w.field_u64("target", e.target.get() as u64);
-            w.field_u64("kind", e.kind as u64);
-            w.field_u64("flags", e.flags as u64);
-            w.end_object();
-        }
+    for e in &edges {
+        w.begin_object();
+        w.field_u64("source", e.source.get() as u64);
+        w.field_u64("target", e.target.get() as u64);
+        w.field_u64("kind", e.kind as u64);
+        w.field_u64("flags", e.flags as u64);
+        w.end_object();
     }
     w.end_array();
     w.end_object();
@@ -435,7 +447,6 @@ pub fn export_json(out: &mut dyn Write, run: u64) -> Result<()> {
 pub fn export_graphml(out: &mut dyn Write, run: u64) -> Result<()> {
     let prism = open_here()?;
     let run_id = RunId::new(run);
-    let stats = prism.graph_stats(run_id)?;
     let fidelity = prism.store().get_run(run_id)?.fidelity;
     let (tier, caveats) = fidelity_strings(&fidelity);
 
@@ -468,9 +479,11 @@ pub fn export_graphml(out: &mut dyn Write, run: u64) -> Result<()> {
         xml_escape(&caveats)
     ));
 
+    // One snapshot load for nodes + edges.
+    let (nodes, edges) = prism.graph_export(run_id)?;
+
     // Nodes (PURL is the stable key; the element id is snapshot-local).
-    for i in 0..stats.nodes as u32 {
-        let node = prism.node(run_id, GraphNodeId::new(i))?;
+    for node in &nodes {
         s.push_str(&format!("    <node id=\"n{}\">\n", node.id.get()));
         s.push_str(&format!(
             "      <data key=\"purl\">{}</data>\n",
@@ -484,27 +497,19 @@ pub fn export_graphml(out: &mut dyn Write, run: u64) -> Result<()> {
         s.push_str("    </node>\n");
     }
 
-    // Edges: each directed edge once, sourced at `i` (mirrors export_json).
-    let mut eid = 0u64;
-    for i in 0..stats.nodes as u32 {
-        let nb = prism.neighborhood(run_id, GraphNodeId::new(i), 1, u32::MAX)?;
-        for e in &nb.edges {
-            if e.source.get() != i {
-                continue;
-            }
-            s.push_str(&format!(
-                "    <edge id=\"e{eid}\" source=\"n{}\" target=\"n{}\">\n",
-                e.source.get(),
-                e.target.get()
-            ));
-            s.push_str(&format!("      <data key=\"kind\">{}</data>\n", e.kind as u64));
-            s.push_str(&format!(
-                "      <data key=\"flags\">{}</data>\n",
-                e.flags as u64
-            ));
-            s.push_str("    </edge>\n");
-            eid += 1;
-        }
+    // Edges: each directed edge once, sourced at its node (mirrors export_json).
+    for (eid, e) in edges.iter().enumerate() {
+        s.push_str(&format!(
+            "    <edge id=\"e{eid}\" source=\"n{}\" target=\"n{}\">\n",
+            e.source.get(),
+            e.target.get()
+        ));
+        s.push_str(&format!("      <data key=\"kind\">{}</data>\n", e.kind as u64));
+        s.push_str(&format!(
+            "      <data key=\"flags\">{}</data>\n",
+            e.flags as u64
+        ));
+        s.push_str("    </edge>\n");
     }
     s.push_str("  </graph>\n");
     s.push_str("</graphml>\n");
@@ -513,7 +518,12 @@ pub fn export_graphml(out: &mut dyn Write, run: u64) -> Result<()> {
     Ok(())
 }
 
-/// Escape the five XML special characters in attribute/text content.
+/// Escape XML text/attribute content so the output is always well-formed XML 1.0.
+///
+/// Beyond the five predefined entities, this drops C0 control characters that are
+/// illegal in XML 1.0 even as numeric refs (everything below U+0020 except tab,
+/// LF, CR). A crafted package name with an embedded control char (reachable via a
+/// hand-edited lockfile) would otherwise produce malformed GraphML.
 fn xml_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -523,7 +533,9 @@ fn xml_escape(s: &str) -> String {
             '>' => out.push_str("&gt;"),
             '"' => out.push_str("&quot;"),
             '\'' => out.push_str("&apos;"),
-            _ => out.push(c),
+            '\t' | '\n' | '\r' => out.push(c), // the only XML-legal C0 chars
+            c if (c as u32) < 0x20 => out.push('\u{FFFD}'), // illegal C0: replace
+            c => out.push(c),
         }
     }
     out
@@ -723,6 +735,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
     fn xml_escape_handles_specials() {
         assert_eq!(xml_escape("a&b<c>d\"e'f"), "a&amp;b&lt;c&gt;d&quot;e&apos;f");
         assert_eq!(xml_escape("plain"), "plain");
+    }
+
+    #[test]
+    fn xml_escape_drops_illegal_c0_controls() {
+        // U+0001 is illegal in XML 1.0 even as a numeric ref; it must be replaced,
+        // never passed through (which would make GraphML non-well-formed).
+        let escaped = xml_escape("a\u{1}b");
+        assert!(!escaped.contains('\u{1}'));
+        assert_eq!(escaped, "a\u{FFFD}b");
+        // Tab/newline/CR are the only legal C0 chars and pass through.
+        assert_eq!(xml_escape("a\tb\nc\rd"), "a\tb\nc\rd");
     }
 
     /// A Cargo.lock with two serde versions so the candidate/conflict path has a

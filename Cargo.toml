@@ -30,3 +30,8 @@ unsafe_code = "forbid"
 
 [profile.release]
 lto = "thin"
+# Defense-in-depth: keep integer-overflow checks ON in release so an arithmetic
+# bug on untrusted input is a typed failure/panic, not a silent wrap producing a
+# wrong analysis result. The hot paths are bounds-checked already; the cost is
+# negligible for an analysis tool.
+overflow-checks = true

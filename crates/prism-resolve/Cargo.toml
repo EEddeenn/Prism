@@ -8,10 +8,8 @@ description = "Native and synthetic resolver adapters that produce resolved grap
 
 [dependencies]
 prism-model = { path = "../prism-model" }
-prism-codec = { path = "../prism-codec" }
 prism-plugin-api = { path = "../prism-plugin-api" }
 prism-semver = { path = "../prism-semver" }
-prism-graph = { path = "../prism-graph" }
 
 [lints]
 workspace = true

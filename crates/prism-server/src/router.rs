@@ -143,6 +143,11 @@ fn route_api(state: &AppState, rest: &str, q: &Query) -> ApiResult<String> {
     }
 }
 
+// Note: this loopback-only, read-only viewer intentionally uses the snapshot-local
+// integer `run`/`node` ids as ephemeral request handles (the design doc's opaque
+// `<runId>:<nodeId>` string scheme + cursor store is for a future multi-tenant HTTP
+// mode). The portable key — the PURL — is always included in every node payload.
+
 /// A required `run` query param as a [`RunId`].
 fn run_param(q: &Query) -> ApiResult<RunId> {
     q.u64("run")
@@ -375,31 +380,25 @@ fn api_tda(state: &AppState, q: &Query) -> ApiResult<String> {
 fn api_export(state: &AppState, q: &Query) -> ApiResult<String> {
     let run = run_param(q)?;
     state.with_prism(|prism| {
-        let stats = prism.graph_stats(run)?;
+        // Single snapshot load (was ~2N reads + SHA-256 verifies + CSR parses).
+        let (nodes, edges) = prism.graph_export(run)?;
         let mut w = JsonWriter::new();
         w.begin_object();
         w.field_u64("run", run.get());
-        w.field_u64("nodes", stats.nodes as u64);
-        w.field_u64("edges", stats.edges as u64);
+        w.field_u64("nodes", nodes.len() as u64);
+        w.field_u64("edges", edges.len() as u64);
 
         w.key("graph_nodes");
         w.begin_array();
-        for i in 0..stats.nodes as u32 {
-            let n = prism.node(run, GraphNodeId::new(i))?;
-            views_json::node(&mut w, &n);
+        for n in &nodes {
+            views_json::node(&mut w, n);
         }
         w.end_array();
 
         w.key("graph_edges");
         w.begin_array();
-        for i in 0..stats.nodes as u32 {
-            let nb = prism.neighborhood(run, GraphNodeId::new(i), 1, u32::MAX)?;
-            for e in &nb.edges {
-                if e.source.get() != i {
-                    continue; // emit each directed edge once, from its source
-                }
-                views_json::edge(&mut w, e);
-            }
+        for e in &edges {
+            views_json::edge(&mut w, e);
         }
         w.end_array();
         w.end_object();

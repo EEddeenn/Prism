@@ -14,6 +14,7 @@ members = [
     "crates/prism-plugin-npm",
     "crates/prism-api",
     "crates/prism-cli",
+    "crates/prism-server",
 ]
 
 [workspace.package]

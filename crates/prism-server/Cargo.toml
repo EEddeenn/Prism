@@ -1,0 +1,18 @@
+[package]
+name = "prism-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Pure-std local HTTP service + static web graph explorer over prism-api"
+
+[[bin]]
+name = "prism-serve"
+path = "src/main.rs"
+
+[dependencies]
+prism-model = { path = "../prism-model" }
+prism-api = { path = "../prism-api" }
+
+[lints]
+workspace = true

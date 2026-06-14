@@ -608,12 +608,15 @@ fn locate_pair(prism: &Prism, pair: PairId) -> Result<Option<(RunId, FiltrationI
     Ok(None)
 }
 
-/// A short ecosystem label for display, recovered from the stored id.
+/// A short ecosystem label for display, recovered from the stored id. (npm and
+/// Bun share one id; uv is the PyPI id, shown as `pypi`.)
 fn ecosystem_label(eco: prism_model::EcosystemId) -> &'static str {
     if eco == Ecosystem::Npm.id() {
         "npm"
     } else if eco == Ecosystem::Cargo.id() {
         "cargo"
+    } else if eco == Ecosystem::Uv.id() {
+        "pypi"
     } else {
         "?"
     }

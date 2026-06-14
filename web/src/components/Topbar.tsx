@@ -1,9 +1,10 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { Check, Link2, Upload } from 'lucide-react';
 import { useGraphStore } from '@/store/useGraphStore';
 import { EDGE_FILTER_LABELS } from '@/lib/edges';
-import { SegmentedControl, type SegOption } from '@/components/ui';
+import { SegmentedControl, Button, type SegOption } from '@/design-system';
 import Logo from '@/components/Logo';
 import { useLoadBundle } from '@/lib/useLoadBundle';
 import type { EdgeFilter, View } from '@/lib/types';
@@ -22,35 +23,7 @@ const EDGE_OPTIONS: SegOption<EdgeFilter>[] = EDGE_FILTERS.map((f) => ({
 
 /** A thin vertical rule separating Topbar clusters. */
 function Divider() {
-  return <span aria-hidden className="self-stretch w-px bg-line mx-1" />;
-}
-
-/* Lightweight inline glyphs used by the Topbar action buttons. Each is a
- * 14×14 currentColor SVG so it inherits the surrounding text colour and
- * scales cleanly with text-body. Kept inline to avoid a new icon package. */
-function LinkIcon({ className }: { className?: string }) {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden className={className}>
-      <path d="M10 13a5 5 0 0 0 7.07 0l3.54-3.54a5 5 0 0 0-7.07-7.07l-1.41 1.41" />
-      <path d="M14 11a5 5 0 0 0-7.07 0l-3.54 3.54a5 5 0 0 0 7.07 7.07l1.41-1.41" />
-    </svg>
-  );
-}
-function CheckIcon({ className }: { className?: string }) {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden className={className}>
-      <path d="M20 6 9 17l-5-5" />
-    </svg>
-  );
-}
-function UploadIcon({ className }: { className?: string }) {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden className={className}>
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <path d="m17 8-5-5-5 5" />
-      <path d="M12 3v12" />
-    </svg>
-  );
+  return <span aria-hidden className="self-stretch w-px bg-iron mx-1" />;
 }
 
 export default function Topbar() {
@@ -90,7 +63,7 @@ export default function Topbar() {
   };
 
   return (
-    <header className="flex flex-wrap items-center gap-3 px-4 py-2 border-b border-line bg-gradient-to-b from-[#181c28] to-panel">
+    <header className="flex flex-wrap items-center gap-3 px-4 py-2 border-b border-iron bg-charcoal">
       {/* nav cluster: brand + run pickers. Logo + wordmark form a single
           tight unit (negative gap pulls the word toward the mark) and act
           as a "return home" link — clicking either navigates to `/`, which
@@ -104,15 +77,15 @@ export default function Topbar() {
         aria-label="Prism — return to home"
         className="focusable flex items-center gap-1.5 mr-1 rounded-control hover:opacity-80 transition-opacity"
       >
-        <Logo size={26} className="text-accent" />
-        <span className="font-extrabold text-base tracking-wide text-accent">Prism</span>
+        <Logo size={26} className="text-bone" />
+        <span className="font-semibold text-h3 tracking-wide text-bone">Prism</span>
       </a>
 
       <div className="flex items-center gap-1.5">
-        <label htmlFor="run-select" className="text-body text-muted">Run</label>
+        <label htmlFor="run-select" className="text-data text-archive">Run</label>
         <select
           id="run-select"
-          className="px-2.5 py-1.5 text-body max-w-[260px] focus:outline-none focus:border-accent"
+          className="px-2.5 py-1.5 text-data max-w-[260px] focus:border-cyan-gray"
           value={run ?? ''}
           onChange={(e) => e.target.value && selectRun(Number(e.target.value))}
         >
@@ -138,7 +111,7 @@ export default function Topbar() {
       <label
         htmlFor="compare-select"
         title="Diff the active run against another run"
-        className="text-body text-muted"
+        className="text-data text-archive"
       >
         vs
       </label>
@@ -146,7 +119,7 @@ export default function Topbar() {
       <select
         id="compare-select"
         title="Diff the active run against another run"
-        className="px-2.5 py-1.5 text-body max-w-[200px] focus:outline-none focus:border-accent"
+        className="px-2.5 py-1.5 text-data max-w-[200px] focus:border-cyan-gray"
         value={compareRun ?? ''}
         onChange={(e) => setCompareRun(e.target.value ? Number(e.target.value) : null)}
       >
@@ -169,7 +142,7 @@ export default function Topbar() {
       />
 
       <div className="flex items-center gap-1.5" title="Edge lens: filter/colour edges by dependency kind">
-        <span className="text-body text-muted">Edges</span>
+        <span className="text-data text-archive">Edges</span>
         <SegmentedControl
           options={EDGE_OPTIONS}
           value={edgeFilter}
@@ -190,7 +163,7 @@ export default function Topbar() {
           autoComplete="off"
           spellCheck={false}
           value={query}
-          className="w-full min-w-0 px-2.5 py-1.5 text-body placeholder:text-muted focus:outline-none focus:border-accent"
+          className="w-full min-w-0 px-2.5 py-1.5 text-data placeholder:text-archive focus:border-cyan-gray"
           onChange={(e) => runSearch(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Escape') {
@@ -199,7 +172,7 @@ export default function Topbar() {
             }
           }}
         />
-        <span className="text-mini text-muted min-w-[28px]">
+        <span className="font-mono tabular-nums text-meta text-archive min-w-[28px]">
           {matches.size ? `${matches.size} hit${matches.size === 1 ? '' : 's'}` : ''}
         </span>
       </div>
@@ -221,39 +194,38 @@ export default function Topbar() {
           e.target.value = '';
         }}
       />
-      <button
-        type="button"
+      <Button
+        variant={loadError ? 'critical' : 'secondary'}
+        size="sm"
         onClick={() => fileInputRef.current?.click()}
         disabled={loading}
         title={loadError ?? (loading ? 'Decoding…' : 'Load a different .prismbundle')}
         aria-label={loading ? 'Decoding bundle' : 'Load a different bundle'}
-        className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-body font-semibold rounded-control border bg-panel-2 hover:bg-panel-3 disabled:opacity-60 disabled:cursor-wait ${
-          loadError ? 'border-bad text-bad hover:border-bad' : 'border-line-2 text-ink hover:border-accent'
-        }`}
+        className="disabled:cursor-wait"
       >
-        <UploadIcon /> {loading ? 'Loading…' : 'Load bundle'}
-      </button>
+        <Upload aria-hidden className="size-3.5" strokeWidth={1.8} /> {loading ? 'Loading…' : 'Load bundle'}
+      </Button>
 
-      <button
-        type="button"
+      <Button
+        variant="secondary"
+        size="sm"
         onClick={copyLink}
         title="Copy a deep link to this exact view"
         aria-label="Copy a deep link to this exact view"
-        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-body font-semibold rounded-control border border-line-2 bg-panel-2 text-ink hover:border-accent hover:bg-panel-3"
       >
         {copied ? (
           <>
-            <CheckIcon /> Copied
+            <Check aria-hidden className="size-3.5" strokeWidth={1.8} /> Copied
           </>
         ) : (
           <>
-            <LinkIcon /> Copy link
+            <Link2 aria-hidden className="size-3.5" strokeWidth={1.8} /> Copy link
           </>
         )}
-      </button>
+      </Button>
 
       <span
-        className={`ml-auto text-body truncate max-w-[36%] ${statusError ? 'text-bad' : 'text-muted'}`}
+        className={`ml-auto text-data truncate max-w-[36%] ${statusError ? 'text-bad' : 'text-archive'}`}
         role={statusError ? 'alert' : 'status'}
       >
         {statusText}

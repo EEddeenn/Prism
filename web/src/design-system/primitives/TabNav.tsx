@@ -1,12 +1,13 @@
+import { useRef, type KeyboardEvent } from 'react';
+import { cn } from '@/lib/cn';
+import { Badge } from '@/design-system/primitives/Badge';
+
 /* TabNav — an accessible tablist usable as either a horizontal strip OR a
  * vertical rail. Roving tabindex, ARIA-correct (aria-orientation, aria-selected,
  * id/aria-controls), arrow-key navigation that follows the orientation
  * (Left/Right for horizontal, Up/Down for vertical), plus Home/End. The active
- * tab is marked by an accent indicator (underline in horizontal, left rail in
- * vertical) AND bolder ink — never colour alone. */
-
-import { useRef, type KeyboardEvent } from 'react';
-import { Badge } from './Badge';
+ * tab is marked by a cyan-gray accent indicator (underline in horizontal, 2px
+ * left rail in vertical) AND brighter ink — never color alone. */
 
 export interface TabSpec<T extends string> {
   id: T;
@@ -54,24 +55,24 @@ export function TabNav<T extends string>({
       className={
         isVertical
           // Fixed-width rail keeps row positions stable when count badges
-          // appear / disappear; 128 px holds every current label including
-          // "Duplicates" with a small count badge alongside.
-          ? 'flex flex-col shrink-0 w-32 border-r border-line bg-panel min-h-0 overflow-y-auto prism-scrollbar'
-          : 'flex border-b border-line bg-panel sticky top-0 z-10'
+          // appear / disappear.
+          ? 'flex w-32 shrink-0 flex-col overflow-y-auto border-r border-iron bg-charcoal min-h-0 prism-scrollbar'
+          : 'sticky top-0 z-10 flex border-b border-iron bg-charcoal'
       }
     >
       {tabs.map((t, i) => {
         const selected = t.id === active;
         const count = counts[t.id];
-        const horizontalCls = `flex-1 min-w-0 flex items-center justify-center gap-1 px-1 py-2.5 text-mini font-semibold border-b-2 bg-transparent rounded-none ${
-          selected ? 'text-ink border-accent' : 'text-muted border-transparent hover:bg-panel-2 hover:text-ink'
-        }`;
-        // Vertical: a full-width row with a 2-px accent rail on the LEFT (the
-        // moral equivalent of the horizontal underline). Active row gets a
-        // subtle bg so the selection reads at a glance.
-        const verticalCls = `flex items-center justify-between gap-1.5 px-3 py-2 text-mini font-semibold bg-transparent rounded-none border-l-2 text-left transition-colors ${
-          selected ? 'text-ink border-accent bg-panel-2/60' : 'text-muted border-transparent hover:bg-panel-2 hover:text-ink'
-        }`;
+        const horizontalCls = cn(
+          'flex min-w-0 flex-1 items-center justify-center gap-1 rounded-none border-b-2 bg-transparent px-1 py-2.5 text-data-s transition-colors duration-150',
+          selected ? 'border-cyan-gray text-bone' : 'border-transparent text-archive hover:text-bone',
+        );
+        // Vertical: a full-width row with a 2px cyan-gray rail on the LEFT (the
+        // moral equivalent of the horizontal underline).
+        const verticalCls = cn(
+          'flex items-center justify-between gap-1.5 rounded-none border-l-2 bg-transparent px-3 py-2 text-left text-data-s transition-colors duration-150',
+          selected ? 'border-cyan-gray text-bone' : 'border-transparent text-archive hover:text-bone',
+        );
         return (
           <button
             key={t.id}
@@ -88,9 +89,9 @@ export function TabNav<T extends string>({
             onKeyDown={(e) => onKeyDown(e, i)}
             className={isVertical ? verticalCls : horizontalCls}
           >
-            <span className={isVertical ? 'truncate' : 'truncate'}>{t.label}</span>
+            <span className="truncate">{t.label}</span>
             {count ? (
-              <Badge tone={selected ? 'onAccent' : 'muted'} className="px-1 py-0 leading-[15px]">
+              <Badge tone="neutral" mono className="px-1 py-0">
                 {count}
               </Badge>
             ) : null}

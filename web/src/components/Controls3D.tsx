@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { SegmentedControl, type SegOption } from '@/components/ui';
+import { SegmentedControl, type SegOption, Hud, Button, Eyebrow } from '@/design-system';
 import type { Mode3D, TerrainSignal } from '@/lib/types';
 
 const MODES: { id: Mode3D; label: string; title: string }[] = [
@@ -87,7 +87,7 @@ export default function Controls3D({ mode, setMode, signal, setSignal, spin, tog
         onClick={() => setCollapsed(false)}
         title="Show 3D controls"
         aria-label="Show 3D controls"
-        className="absolute left-3.5 top-3.5 z-10 w-9 h-9 inline-flex items-center justify-center rounded-card border border-line bg-panel/90 shadow-panel backdrop-blur-sm text-muted hover:text-ink hover:border-accent transition-colors"
+        className="absolute left-3.5 top-3.5 z-10 w-9 h-9 inline-flex items-center justify-center rounded-control border border-iron bg-charcoal/95 backdrop-blur-sm text-archive hover:text-bone hover:border-dust transition-colors duration-150"
       >
         <SlidersIcon />
       </button>
@@ -95,17 +95,17 @@ export default function Controls3D({ mode, setMode, signal, setSignal, spin, tog
   }
 
   return (
-    <div className="absolute left-3.5 top-3.5 z-10 flex flex-col gap-2 p-2.5 max-w-[330px] rounded-card border border-line bg-panel/90 shadow-panel backdrop-blur-sm">
+    <Hud className="absolute left-3.5 top-3.5 z-10 flex flex-col gap-2 p-2.5 max-w-[330px]">
       {/* Header strip: title + close button. Establishes the box's identity
           and surfaces the hide affordance unambiguously. */}
       <div className="flex items-center justify-between gap-2 -mb-0.5">
-        <span className="text-micro uppercase tracking-[1.5px] text-muted">3D controls</span>
+        <Eyebrow>3D controls</Eyebrow>
         <button
           type="button"
           onClick={() => setCollapsed(true)}
           title="Hide 3D controls"
           aria-label="Hide 3D controls"
-          className="w-5 h-5 inline-flex items-center justify-center rounded-control text-muted hover:text-bad hover:bg-panel-2 transition-colors"
+          className="w-5 h-5 inline-flex items-center justify-center rounded-control text-archive hover:text-bad hover:bg-charcoal transition-colors duration-150"
         >
           <CloseIcon />
         </button>
@@ -122,12 +122,12 @@ export default function Controls3D({ mode, setMode, signal, setSignal, spin, tog
 
       {mode === 'terrain' && (
         <div className="flex items-center gap-2">
-          <label htmlFor="signal" className="text-mini text-muted shrink-0">Height</label>
+          <label htmlFor="signal" className="text-data-s text-archive shrink-0">Height</label>
           <select
             id="signal"
             value={signal}
             onChange={(e) => setSignal(e.target.value as TerrainSignal)}
-            className="flex-1 px-2 py-1 text-mini"
+            className="flex-1 px-2 py-1 text-data-s"
           >
             {SIGNALS.map((s) => (
               <option key={s.id} value={s.id}>{s.label}</option>
@@ -136,30 +136,30 @@ export default function Controls3D({ mode, setMode, signal, setSignal, spin, tog
         </div>
       )}
 
-      <p className="text-micro leading-snug text-ink/80">{MODE_HELP[mode]}</p>
-      <p className="text-micro leading-snug text-muted">
+      <p className="text-meta normal-case tracking-normal leading-snug text-bone/80">{MODE_HELP[mode]}</p>
+      <p className="text-meta normal-case tracking-normal leading-snug text-archive">
         Drag to orbit · scroll to zoom · shift-drag to pan · hover to identify · click a node
       </p>
 
       <div className="flex gap-2">
-        <button
-          type="button"
+        <Button
+          variant={spin ? 'secondary' : 'quiet'}
+          size="sm"
           onClick={toggleSpin}
           aria-pressed={spin}
-          className={`flex-1 px-2 py-1.5 text-mini rounded-control border ${
-            spin ? 'bg-accent text-onAccent border-accent font-semibold' : 'border-line-2 text-muted hover:border-accent'
-          }`}
+          className="flex-1"
         >
           Spin
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="quiet"
+          size="sm"
           onClick={onReset}
-          className="flex-1 px-2 py-1.5 text-mini rounded-control border border-line-2 text-muted hover:border-accent"
+          className="flex-1"
         >
           Reset view
-        </button>
+        </Button>
       </div>
-    </div>
+    </Hud>
   );
 }

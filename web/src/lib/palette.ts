@@ -1,26 +1,64 @@
-/* Colours for the canvas / R3F scene (the Tailwind theme mirrors these hexes).
- * Roles match the original explorer's legend so 2D and 3D read identically. */
+/* Colors for the canvas / R3F scene. The SINGLE source of truth is the
+ * `@theme` block in src/app/globals.css; three.js and inline SVG can't consume
+ * `var(--x)`, so this module RESOLVES those CSS variables to hex strings at
+ * runtime (browser). Literal fallbacks — kept equal to the @theme values — cover
+ * the no-DOM build prerender, where the canvas never actually renders.
+ * Roles match the explorer's legend so 2D and 3D read identically. */
 
-export const PALETTE = {
-  bg: '#0e1016',
-  node: '#3b82f6',
-  root: '#a78bfa',
-  center: '#ffb454',
-  fwd: '#34d399',
-  impact: '#f87171',
-  dup: '#f472b6',
-  edge: '#3a4150',
-  accent: '#5aa9ff',
-  ink: '#e7e9f0',
-  muted: '#8b93a7',
-  gen: '#ffd166',
-  void: '#c084fc', // H2 void generator — violet, distinct from gold gen & pink dup
+/** Read a CSS custom property off :root, falling back when there's no DOM. */
+function cssVar(name: string, fallback: string): string {
+  if (typeof document === 'undefined') return fallback;
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v || fallback;
+}
+
+/* Fallback literals MUST mirror globals.css `@theme`. */
+const FALLBACK = {
+  bg: '#030303', // --color-deep-field
+  node: '#8aa6a3', // --color-node
+  root: '#a99bc0', // --color-node-root
+  center: '#c9a45c', // --color-node-center  (selected)
+  fwd: '#6fa890', // --color-node-fwd
+  impact: '#cf695f', // --color-node-impact
+  dup: '#c77fa0', // --color-node-dup
+  edge: '#3a3a38', // --color-edge
+  accent: '#8fb8ce', // --color-node-match   (search match)
+  ink: '#e8e4d8', // --color-bone
+  muted: '#a8a49a', // --color-archive
+  gen: '#d8c06a', // --color-node-gen
+  void: '#9e84c4', // --color-node-void
+} as const;
+
+type Role = keyof typeof FALLBACK;
+
+const VAR: Record<Role, string> = {
+  bg: '--color-deep-field',
+  node: '--color-node',
+  root: '--color-node-root',
+  center: '--color-node-center',
+  fwd: '--color-node-fwd',
+  impact: '--color-node-impact',
+  dup: '--color-node-dup',
+  edge: '--color-edge',
+  accent: '--color-node-match',
+  ink: '--color-bone',
+  muted: '--color-archive',
+  gen: '--color-node-gen',
+  void: '--color-node-void',
 };
+
+function resolve(): Record<Role, string> {
+  const out = { ...FALLBACK } as Record<Role, string>;
+  for (const k of Object.keys(VAR) as Role[]) out[k] = cssVar(VAR[k], FALLBACK[k]);
+  return out;
+}
+
+/** Resolved role palette (CSS vars in the browser, literals during prerender). */
+export const PALETTE: Record<Role, string> = resolve();
 
 /** Terrain / importance elevation ramp (low → high). A viridis map: perceptually
  *  uniform, monotonically increasing in luminance, and colour-vision-deficiency
- *  safe (no red/green confusion) — unlike a temperature ramp whose amber→red top
- *  reads identically to a deuteranope and dips in luminance at the top. */
+ *  safe (no red/green confusion) — kept as-is from the original encoding. */
 const RAMP: Array<[number, [number, number, number]]> = [
   [0.0, [68, 1, 84]], // dark violet
   [0.25, [59, 82, 139]], // blue
@@ -84,16 +122,18 @@ export function shortLabel(purl: string): string {
   return s;
 }
 
-/** Colours for inline SVG / canvas chrome (TDA diagram, candidate strip), kept
- * here as the single source so panels never re-type theme hexes in markup. */
+/** Colors for inline SVG / canvas chrome (TDA diagram, candidate strip), kept
+ * here as the single source so panels never re-type theme hexes in markup.
+ * Surface/line chrome mirrors the @theme neutral ramp; dim0/1/2 are the three
+ * homology-dimension hues (kept distinct + CVD-aware). */
 export const CHART_COLORS = {
-  frame: '#1d212e', // panel-2
-  grid: '#2a2f3c', // line
-  rail: '#252a3a', // panel-3
-  diagonal: '#353c4d', // line-2
-  highlight: '#5aa9ff', // accent
-  accent2: '#ffb454', // accent-2
-  dim0: '#5aa9ff', // H0 — keep the original accent blue (was historically blue)
-  dim1: '#ffb454', // H1 — accent-2 amber
-  dim2: '#c084fc', // H2 — void violet (matches PALETTE.void)
+  frame: cssVar('--color-charcoal', '#111111'),
+  grid: cssVar('--color-iron', '#2b2b2b'),
+  rail: cssVar('--color-graphite', '#1c1c1c'),
+  diagonal: cssVar('--color-dust', '#6f6f68'),
+  highlight: PALETTE.accent,
+  accent2: cssVar('--color-amber', '#bfa15a'),
+  dim0: PALETTE.accent, // H0 — cool cyan (search-match hue)
+  dim1: cssVar('--color-amber', '#bfa15a'), // H1 — amber
+  dim2: PALETTE.void, // H2 — void violet
 } as const;

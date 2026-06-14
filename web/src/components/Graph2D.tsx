@@ -15,15 +15,19 @@
 
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useGraphStore } from '@/store/useGraphStore';
-import { PALETTE, shortLabel } from '@/lib/palette';
+import { PALETTE, shortLabel, mixHex } from '@/lib/palette';
 import { edgeVisible, isFlagged, kindColor } from '@/lib/edges';
 import { importanceColor, importanceT, radius2D } from '@/lib/encoding';
+import { Hud } from '@/design-system';
 import HoverCard from '@/components/HoverCard';
 import type { MetricStats, NodeMetrics } from '@/lib/graph';
 
 const MIN_K = 0.05, MAX_K = 6, LABEL_ALL_BELOW = 70, LABEL_ZOOM = 1.5;
 // Fixed-corner overview minimap (bottom-right).
 const MINI_W = 150, MINI_H = 110, MINI_PAD = 4;
+// Neutral arrowhead: a mid neutral derived from the edge/archive tokens so it
+// reads as instrument chrome (not a hardcoded blue-gray) over the dark field.
+const ARROW_FILL = mixHex(PALETTE.edge, PALETTE.muted, 0.45);
 const ZERO_STATS: MetricStats = {
   maxRevReach: 0, maxFwdReach: 0, maxInDeg: 0, maxOutDeg: 0, maxFamSize: 0, maxDepth: 0,
 };
@@ -237,7 +241,7 @@ export default function Graph2D() {
     for (const b of nodeBase) {
       if (!b) continue;
       const fill = b.isRoot ? PALETTE.root : importanceColor(b.t);
-      const ring = b.dupNode ? PALETTE.dup : '#0b0d12';
+      const ring = b.dupNode ? PALETTE.dup : PALETTE.bg;
       const ringW = b.dupNode ? 2.5 : 1.5;
       // `data-id` powers the delegated pointer handler on the viewport. Per-node
       // listeners are gone — one listener handles hover + click for the whole
@@ -308,7 +312,7 @@ export default function Graph2D() {
         (b.isRoot ? PALETTE.root : importanceColor(b.t));
 
       // Ring precedence: match accent > dup ring > neutral.
-      const ring = isMatch ? PALETTE.accent : (b.dupNode ? PALETTE.dup : '#0b0d12');
+      const ring = isMatch ? PALETTE.accent : (b.dupNode ? PALETTE.dup : PALETTE.bg);
       const ringW = isMatch ? 3 : (b.dupNode ? 2.5 : 1.5);
 
       // A search hit that's NOT in the active selection's cone stays dimmed —
@@ -472,7 +476,7 @@ export default function Graph2D() {
         <defs>
           <marker id="arrow2d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5"
             markerUnits="userSpaceOnUse" orient="auto-start-reverse">
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="#5b6478" />
+            <path d="M 0 0 L 10 5 L 0 10 z" fill={ARROW_FILL} />
           </marker>
         </defs>
         <g ref={vpRef} className={vpClass}>
@@ -486,22 +490,22 @@ export default function Graph2D() {
       <HoverCard />
 
       {/* On-canvas zoom / fit cluster (mirrors the 3D Reset affordance). */}
-      <div className="absolute right-3.5 top-3.5 z-10 flex flex-col gap-1">
+      <Hud className="absolute right-3.5 top-3.5 z-10 flex flex-col divide-y divide-graphite overflow-hidden">
         <button type="button" aria-label="Zoom in" title="Zoom in"
           onClick={() => zoomCenter(1.3)}
-          className="w-7 h-7 grid place-items-center rounded-control border border-line-2 bg-panel/90 text-muted hover:border-accent hover:text-ink text-head">+</button>
+          className="w-7 h-7 grid place-items-center text-archive hover:text-bone hover:bg-iron text-h4 ease-instrument duration-150">+</button>
         <button type="button" aria-label="Zoom out" title="Zoom out"
           onClick={() => zoomCenter(1 / 1.3)}
-          className="w-7 h-7 grid place-items-center rounded-control border border-line-2 bg-panel/90 text-muted hover:border-accent hover:text-ink text-head">−</button>
+          className="w-7 h-7 grid place-items-center text-archive hover:text-bone hover:bg-iron text-h4 ease-instrument duration-150">−</button>
         <button type="button" aria-label="Fit graph to view" title="Fit"
           onClick={fit}
-          className="w-7 h-7 grid place-items-center rounded-control border border-line-2 bg-panel/90 text-muted hover:border-accent hover:text-ink text-body">⊡</button>
-      </div>
+          className="w-7 h-7 grid place-items-center text-archive hover:text-bone hover:bg-iron text-data ease-instrument duration-150">⊡</button>
+      </Hud>
 
       {/* Overview minimap (bottom-right): static dots + a live viewport rectangle.
           Click / drag to recenter the main view on that world point. */}
       {nodes.length > 0 && (
-        <div className="absolute right-3.5 bottom-3.5 z-10 rounded-control border border-line overflow-hidden bg-panel/85">
+        <Hud className="absolute right-3.5 bottom-3.5 z-10 overflow-hidden">
           <svg
             ref={miniSvgRef}
             width={MINI_W}
@@ -529,7 +533,7 @@ export default function Graph2D() {
               pointerEvents="none"
             />
           </svg>
-        </div>
+        </Hud>
       )}
     </div>
   );

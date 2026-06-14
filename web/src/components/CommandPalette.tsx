@@ -261,7 +261,7 @@ export default function CommandPalette() {
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
-        className="mt-[12vh] w-[min(640px,92vw)] max-h-[70vh] flex flex-col rounded-card border border-line-2 bg-panel shadow-panel overflow-hidden"
+        className="mt-[12vh] w-[min(640px,92vw)] max-h-[70vh] flex flex-col rounded-control border border-iron bg-charcoal overflow-hidden"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <input
@@ -282,7 +282,7 @@ export default function CommandPalette() {
             setActive(0);
           }}
           onKeyDown={onInputKey}
-          className="w-full px-4 py-3 text-sm bg-panel-2 border-0 border-b border-line rounded-none placeholder:text-muted"
+          className="w-full px-4 py-3 text-data bg-model-black border-0 border-b border-iron rounded-none placeholder:text-archive"
         />
 
         <div
@@ -293,7 +293,7 @@ export default function CommandPalette() {
           className="overflow-y-auto min-h-0 py-1"
         >
           {!items.length ? (
-            <div className="px-4 py-6 text-center text-sm text-muted">No matches.</div>
+            <div className="px-4 py-6 text-center text-data text-archive">No matches.</div>
           ) : (
             items.map((it, i) => {
               const heading = it.group !== prevGroup ? it.group : null;
@@ -302,7 +302,7 @@ export default function CommandPalette() {
               return (
                 <div key={`${it.group}-${i}`}>
                   {heading && (
-                    <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-[1px] text-muted">
+                    <div className="metadata-label px-4 pt-2 pb-1">
                       {heading}
                     </div>
                   )}
@@ -316,13 +316,18 @@ export default function CommandPalette() {
                       e.preventDefault();
                       runItem(i);
                     }}
-                    className={`flex items-center gap-2 mx-1 px-3 py-1.5 rounded-control cursor-pointer ${
-                      isActive ? 'bg-panel-3 text-ink' : 'text-ink/90 hover:bg-panel-2'
+                    className={`relative flex items-center gap-2 mx-1 px-3 py-1.5 rounded-control border cursor-pointer transition-colors duration-150 ${
+                      isActive
+                        ? 'border-cyan-gray bg-charcoal text-bone'
+                        : 'border-transparent text-bone/90 hover:bg-model-black'
                     }`}
                   >
-                    <span className="font-mono text-[12.5px] truncate">{it.label}</span>
+                    {isActive && (
+                      <span aria-hidden className="absolute inset-y-1 left-0 w-0.5 rounded-pill bg-node-center" />
+                    )}
+                    <span className="font-mono text-data truncate">{it.label}</span>
                     {it.hint && it.hint !== it.label && (
-                      <span className="text-[11px] text-muted truncate min-w-0 flex-1">
+                      <span className="text-data-s text-archive truncate min-w-0 flex-1">
                         {it.hint}
                       </span>
                     )}
@@ -334,7 +339,7 @@ export default function CommandPalette() {
                         />
                       )}
                       {it.badge && (
-                        <span className="text-[10px] text-muted bg-panel-2 border border-line rounded-badge px-1.5 py-px">
+                        <span className="font-mono tabular-nums text-meta text-archive bg-charcoal border border-iron rounded-control px-1.5 py-px">
                           {it.badge}
                         </span>
                       )}

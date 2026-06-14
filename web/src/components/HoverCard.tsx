@@ -7,6 +7,7 @@
 
 import { useGraphStore } from '@/store/useGraphStore';
 import { shortLabel } from '@/lib/palette';
+import { Hud } from '@/design-system';
 
 function fmt(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
@@ -28,11 +29,11 @@ export default function HoverCard() {
 
   return (
     <div className="absolute top-3.5 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
-      <div className="px-3 py-1.5 rounded-card border border-line bg-panel/90 backdrop-blur-sm shadow-panel flex items-center gap-2 text-mini font-mono whitespace-nowrap">
-        <span className={isHover ? 'text-accent' : 'text-node-center'}>{isHover ? 'hover' : 'selected'}</span>
-        <span className="text-ink">{shortLabel(n.purl)}</span>
+      <Hud className="px-3 py-1.5 flex items-center gap-2 text-data-s font-mono whitespace-nowrap">
+        <span className={isHover ? 'text-cyan-gray' : 'text-node-center'}>{isHover ? 'hover' : 'selected'}</span>
+        <span className="text-bone">{shortLabel(n.purl)}</span>
         {m && (
-          <span className="flex items-center gap-1.5 text-muted">
+          <span className="flex items-center gap-1.5 text-archive">
             <span title="blast radius — transitive dependents">blast {fmt(m.revReach)}</span>
             <span title="transitive dependencies">· reach {fmt(m.fwdReach)}</span>
             <span title="direct dependents · direct dependencies">· in {m.inDeg} · out {m.outDeg}</span>
@@ -42,7 +43,7 @@ export default function HoverCard() {
             <span title="depth from a root">· d{n.depth}</span>
           </span>
         )}
-      </div>
+      </Hud>
     </div>
   );
 }

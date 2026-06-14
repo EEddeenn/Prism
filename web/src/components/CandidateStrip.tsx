@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { PanelState } from '@/components/ui';
+import { PanelState } from '@/design-system';
 import { api } from '@/lib/api';
 import { CHART_COLORS, shortLabel } from '@/lib/palette';
 import type { CandidatesResp } from '@/lib/types';
@@ -80,7 +80,7 @@ export default function CandidateStrip({ nodePurl }: { nodePurl: string }) {
       <div className="mt-2">
         <PanelState kind="empty">
           only version
-          {constraint && <span className="font-mono text-muted"> · {constraint}</span>}
+          {constraint && <span className="font-mono text-archive"> · {constraint}</span>}
         </PanelState>
       </div>
     );
@@ -110,13 +110,13 @@ export default function CandidateStrip({ nodePurl }: { nodePurl: string }) {
       role="group"
       aria-label={`Version room: ${caption}${constraint ? `, constraint ${constraint}` : ''}`}
     >
-      <div className="flex items-baseline gap-1.5 text-micro">
-        <span className="text-muted">{caption}</span>
-        {constraint && <span className="ml-auto font-mono text-muted truncate">{constraint}</span>}
+      <div className="flex items-baseline gap-1.5">
+        <span className="metadata-label">{caption}</span>
+        {constraint && <span className="ml-auto font-mono text-meta text-archive truncate">{constraint}</span>}
       </div>
 
       {/* Oldest → newest, left → right. */}
-      <div className="mt-1 flex gap-px overflow-hidden rounded-control bg-panel-3 p-px">
+      <div className="mt-1 flex gap-px overflow-hidden rounded-control bg-model-black p-px">
         {Array.from({ length: total_versions }, (_, o) => {
           const ver = purlByOrdinal.get(o);
           const reason = excludedReason.get(o);
@@ -131,7 +131,7 @@ export default function CandidateStrip({ nodePurl }: { nodePurl: string }) {
 
           // Fill: excluded → hatched + muted (off-limits), satisfying → accent,
           // otherwise a flat panel cell. The current version gets a bright ring.
-          const fill = reason ? '' : satisfies ? 'bg-accent' : 'bg-panel-3';
+          const fill = reason ? '' : satisfies ? 'bg-node-match' : 'bg-model-black';
           const ring = isCurrent ? 'ring-2 ring-inset ring-node-center' : '';
 
           return (
@@ -149,7 +149,7 @@ export default function CandidateStrip({ nodePurl }: { nodePurl: string }) {
 
       {/* Current version label, anchored under the strip. */}
       {currentOrdinal >= 0 && (
-        <div className="mt-0.5 font-mono text-micro text-node-center">{shortLabel(current)}</div>
+        <div className="mt-0.5 font-mono text-meta text-node-center">{shortLabel(current)}</div>
       )}
     </div>
   );

@@ -1,6 +1,6 @@
 'use client';
 
-import { Badge, Callout } from '@/components/ui';
+import { Badge, Callout } from '@/design-system';
 import { useGraphStore } from '@/store/useGraphStore';
 
 export default function FidelityBanner() {
@@ -22,7 +22,7 @@ export default function FidelityBanner() {
       {caveats.length > 0 && (
         <div className="flex flex-wrap gap-1 mt-1">
           {caveats.map((c) => (
-            <Badge key={c} tone="muted" mono>
+            <Badge key={c} tone="neutral" mono>
               {c}
             </Badge>
           ))}

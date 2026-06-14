@@ -52,7 +52,7 @@ export default function Fibers({ fibers }: { fibers: Fiber[] }) {
           zIndexRange={[8, 0]}
           style={{ pointerEvents: 'none' }}
         >
-          <div className="px-1 text-[10px] font-mono text-node-dup whitespace-nowrap" style={{ textShadow: '0 0 4px #000' }}>
+          <div className="px-1 text-meta font-mono text-node-dup whitespace-nowrap" style={{ textShadow: '0 0 4px #000' }}>
             {f.label} ·{f.count}
           </div>
         </Html>

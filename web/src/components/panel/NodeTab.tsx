@@ -5,10 +5,21 @@ import { useGraphStore } from '@/store/useGraphStore';
 import { api, ApiError } from '@/lib/api';
 import { shortLabel } from '@/lib/palette';
 import { kindName, flagNames } from '@/lib/edges';
+import { edgeKindTone, flagTone } from '@/lib/tone';
 import type { GraphNode, Explanation } from '@/lib/types';
 import type { GraphIndex } from '@/lib/graph';
 import CandidateStrip from '@/components/CandidateStrip';
-import { SectionHeader, RowButton, Row, Badge, Callout, PanelState, type Tone } from '@/components/ui';
+import {
+  SectionHeader,
+  ListRow,
+  Row,
+  Badge,
+  Button,
+  Callout,
+  PanelState,
+  PathTrail,
+  PurlLabel,
+} from '@/design-system';
 
 /** BFS upward from `sel` over `inn` to the nearest depth-0 root, then
  *  reconstruct the shortest path root -> ... -> sel. Returns node ids
@@ -51,60 +62,29 @@ function Crumbs({ index, sel }: { index: GraphIndex; sel: number }) {
 
   if (index.rootIds.has(sel)) {
     return (
-      <div className="mb-2 text-mini text-muted">
-        This node <span className="text-accent-2">is a root</span>.
+      <div className="mb-2 text-data-s text-archive">
+        This node <span className="text-node-match">is a root</span>.
       </div>
     );
   }
 
   const path = pathToRoot(index, sel);
   if (!path || path.length < 2) {
-    return <div className="mb-2 text-mini text-muted">No path to a root (orphan).</div>;
+    return <div className="mb-2 text-data-s text-archive">No path to a root (orphan).</div>;
   }
 
   return (
-    <nav aria-label="path to root" className="mb-2">
-      <ol className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-mini list-none m-0 p-0">
-        {path.map((id, i) => {
-          const n = index.byId.get(id);
-          const label = n ? shortLabel(n.purl) : `#${id}`;
-          const isLast = i === path.length - 1;
-          return (
-            <li key={id} className="flex items-center gap-x-1">
-              {i > 0 && (
-                <span aria-hidden className="text-muted select-none">
-                  ›
-                </span>
-              )}
-              <button
-                type="button"
-                title={n?.purl}
-                aria-label={`Select ${label}`}
-                aria-current={isLast ? 'true' : undefined}
-                onClick={() => selectNode(id)}
-                className={
-                  'font-mono rounded-control px-0.5 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ' +
-                  (isLast ? 'text-accent-2' : 'text-muted hover:text-accent')
-                }
-              >
-                {label}
-              </button>
-            </li>
-          );
-        })}
-      </ol>
-    </nav>
+    <PathTrail
+      ariaLabel="path to root"
+      className="mb-2"
+      items={path.map((id) => {
+        const n = index.byId.get(id);
+        const label = n ? shortLabel(n.purl) : `#${id}`;
+        return { label, purl: n?.purl, onSelect: () => selectNode(id) };
+      })}
+    />
   );
 }
-
-/** Smell flags → Badge tone (peer-unmet is a hard failure, overridden a warning,
- *  the rest informational). */
-const FLAG_TONE: Record<string, Tone> = {
-  'peer-unmet': 'bad',
-  overridden: 'warn',
-  'optional-omitted': 'muted',
-  'back-edge': 'muted',
-};
 
 /** Incoming dependents, each annotated with its edge kind tag + smell chips,
  *  resolved from edgeMeta key `${dependentId}>${sel}`. */
@@ -126,7 +106,7 @@ function Provenance({ index, sel }: { index: GraphIndex; sel: number }) {
     <div>
       <SectionHeader count={items.length}>Provenance</SectionHeader>
       {!items.length ? (
-        <p className="text-muted text-xs">Nothing depends on this node.</p>
+        <p className="text-archive text-data-s">Nothing depends on this node.</p>
       ) : (
         <ul className="list-none m-0 p-0 flex flex-col gap-[3px]">
           {items.map(({ node, meta }) => {
@@ -134,17 +114,17 @@ function Provenance({ index, sel }: { index: GraphIndex; sel: number }) {
             const label = shortLabel(node.purl);
             return (
               <li key={node.id}>
-                <RowButton
+                <ListRow
                   onSelect={() => selectNode(node.id)}
                   ariaLabel={`Select ${label}`}
                   title={node.purl}
-                  className="flex-wrap gap-1.5"
+                  className="flex items-center flex-wrap gap-1.5"
                 >
-                  <span className="font-mono text-mini truncate">{label}</span>
+                  <span className="font-mono text-data-s truncate">{label}</span>
                   {meta && (
                     <Badge
                       mono
-                      tone="accent"
+                      tone={edgeKindTone(kindName(meta.kind))}
                       title={`kind: ${kindName(meta.kind)}`}
                       className="shrink-0"
                     >
@@ -152,12 +132,12 @@ function Provenance({ index, sel }: { index: GraphIndex; sel: number }) {
                     </Badge>
                   )}
                   {flags.map((f) => (
-                    <Badge key={f} tone={FLAG_TONE[f] ?? 'muted'} className="shrink-0">
+                    <Badge key={f} tone={flagTone(f)} className="shrink-0">
                       {f}
                     </Badge>
                   ))}
-                  <span className="ml-auto text-micro text-muted shrink-0">d{node.depth}</span>
-                </RowButton>
+                  <span className="ml-auto text-meta text-archive shrink-0">d{node.depth}</span>
+                </ListRow>
               </li>
             );
           })}
@@ -182,7 +162,7 @@ function PeerList({ title, ids }: { title: string; ids: number[] }) {
     <div>
       <SectionHeader count={items.length}>{title}</SectionHeader>
       {!items.length ? (
-        <p className="text-muted text-xs">
+        <p className="text-archive text-data-s">
           {title === 'Dependencies'
             ? 'A leaf — depends on nothing.'
             : 'A root — nothing depends on it.'}
@@ -193,14 +173,15 @@ function PeerList({ title, ids }: { title: string; ids: number[] }) {
             const label = shortLabel(n.purl);
             return (
               <li key={n.id}>
-                <RowButton
+                <ListRow
                   onSelect={() => selectNode(n.id)}
                   ariaLabel={`Select ${label}`}
                   title={n.purl}
+                  className="flex items-center"
                 >
-                  <span className="font-mono text-mini truncate">{label}</span>
-                  <span className="ml-auto text-micro text-muted shrink-0">d{n.depth}</span>
-                </RowButton>
+                  <span className="font-mono text-data-s truncate">{label}</span>
+                  <span className="ml-auto text-meta text-archive shrink-0">d{n.depth}</span>
+                </ListRow>
               </li>
             );
           })}
@@ -209,18 +190,6 @@ function PeerList({ title, ids }: { title: string; ids: number[] }) {
     </div>
   );
 }
-
-/** Edge-kind chip tone: runtime is the load-bearing case (accent), dev/build/peer
- *  informational (muted), optional de-emphasised. */
-const KIND_TONE: Record<string, Tone> = {
-  runtime: 'accent',
-  prod: 'accent',
-  production: 'accent',
-  dev: 'muted',
-  build: 'muted',
-  peer: 'warn',
-  optional: 'muted',
-};
 
 /**
  * "Why is this here?" — server-computed provenance for the selected node:
@@ -267,38 +236,35 @@ function WhyHere({ run, sel }: { run: number; sel: number }) {
       ) : (
         <div className="flex flex-col gap-2">
           {/* Reachability status */}
-          <div className="flex flex-wrap items-center gap-1.5 text-mini">
+          <div className="flex flex-wrap items-center gap-1.5 text-data-s">
             {why.production_reachable ? (
-              <Badge tone="ok">runtime-reachable</Badge>
+              <Badge tone="good">runtime-reachable</Badge>
             ) : why.non_production_only ? (
               <Badge tone="warn">dev/build-only</Badge>
             ) : (
-              <Badge tone="muted">unreachable from roots</Badge>
+              <Badge tone="neutral">unreachable from roots</Badge>
             )}
           </div>
 
           {/* Nearest first-party owner */}
           {why.nearest_owner && (
-            <div className="text-mini text-muted">
+            <div className="text-data-s text-archive">
               nearest first-party owner:{' '}
-              <button
-                type="button"
-                title={why.nearest_owner.purl}
-                aria-label={`Select ${shortLabel(why.nearest_owner.purl)}`}
-                onClick={() => selectNode(why.nearest_owner!.id)}
-                className="font-mono rounded-control px-0.5 text-accent-2 cursor-pointer hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
-              >
-                {shortLabel(why.nearest_owner.purl)}
-              </button>{' '}
+              <PurlLabel
+                purl={why.nearest_owner.purl}
+                onSelect={() => selectNode(why.nearest_owner!.id)}
+                ariaLabel={`Select ${shortLabel(why.nearest_owner.purl)}`}
+                className="text-bone hover:text-cyan-gray"
+              />{' '}
               · {why.owner_distance} {why.owner_distance === 1 ? 'hop' : 'hops'}
             </div>
           )}
 
           {/* Introducers */}
           <div>
-            <div className="text-micro text-muted mb-1">pulled in by</div>
+            <div className="text-meta text-archive mb-1">pulled in by</div>
             {why.introducers.length === 0 ? (
-              <p className="text-muted text-mini">
+              <p className="text-archive text-data-s">
                 This is a root / first-party package (no parents).
               </p>
             ) : (
@@ -307,20 +273,20 @@ function WhyHere({ run, sel }: { run: number; sel: number }) {
                   const label = shortLabel(node.purl);
                   return (
                     <li key={node.id}>
-                      <RowButton
+                      <ListRow
                         onSelect={() => selectNode(node.id)}
                         ariaLabel={`Select ${label}`}
                         title={node.purl}
-                        className="flex-wrap gap-1.5"
+                        className="flex items-center flex-wrap gap-1.5"
                       >
-                        <span className="font-mono text-mini truncate">{label}</span>
+                        <span className="font-mono text-data-s truncate">{label}</span>
                         {kinds.map((k) => (
-                          <Badge key={k} mono tone={KIND_TONE[k] ?? 'muted'} className="shrink-0">
+                          <Badge key={k} mono tone={edgeKindTone(k)} className="shrink-0">
                             {k}
                           </Badge>
                         ))}
-                        <span className="ml-auto text-micro text-muted shrink-0">d{node.depth}</span>
-                      </RowButton>
+                        <span className="ml-auto text-meta text-archive shrink-0">d{node.depth}</span>
+                      </ListRow>
                     </li>
                   );
                 })}
@@ -331,36 +297,19 @@ function WhyHere({ run, sel }: { run: number; sel: number }) {
           {/* Shortest root → target chains */}
           {why.paths.length > 0 && (
             <div>
-              <div className="text-micro text-muted mb-1">shortest paths from a root</div>
+              <div className="text-meta text-archive mb-1">shortest paths from a root</div>
               <ul className="list-none m-0 p-0 flex flex-col gap-1">
                 {why.paths.slice(0, 3).map((path, pi) => (
-                  <li key={pi} className="px-2.5 py-1.5 rounded-control bg-panel-2">
-                    <ol className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-micro list-none m-0 p-0">
-                      {path.map((n, ni) => {
-                        const label = shortLabel(n.purl);
-                        const isLast = ni === path.length - 1;
-                        return (
-                          <li key={`${n.id}-${ni}`} className="flex items-center gap-x-1">
-                            {ni > 0 && (
-                              <span aria-hidden className="text-muted select-none">→</span>
-                            )}
-                            <button
-                              type="button"
-                              title={n.purl}
-                              aria-label={`Select ${label}`}
-                              aria-current={isLast ? 'true' : undefined}
-                              onClick={() => selectNode(n.id)}
-                              className={
-                                'font-mono rounded-control px-0.5 max-w-[180px] truncate cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ' +
-                                (isLast ? 'text-accent-2' : 'text-muted hover:text-accent')
-                              }
-                            >
-                              {label}
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ol>
+                  <li key={pi} className="px-2.5 py-1.5 rounded-control bg-model-black">
+                    <PathTrail
+                      sep="→"
+                      ariaLabel="shortest path from a root"
+                      items={path.map((n) => ({
+                        label: shortLabel(n.purl),
+                        purl: n.purl,
+                        onSelect: () => selectNode(n.id),
+                      }))}
+                    />
                   </li>
                 ))}
               </ul>
@@ -399,14 +348,15 @@ export default function NodeTab() {
       <Crumbs index={index} sel={sel} />
 
       <div className="flex items-start gap-2 mb-2">
-        <div className="font-mono text-head text-accent-2 break-all flex-1">{node.purl}</div>
-        <button
-          type="button"
+        <div className="font-mono text-h4 text-node-match break-all flex-1">{node.purl}</div>
+        <Button
+          variant="secondary"
+          size="sm"
           onClick={() => requestFocus(sel)}
-          className="shrink-0 rounded-control px-2 py-1 text-mini bg-panel-2 border border-line text-muted hover:border-accent hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+          className="shrink-0"
         >
           Recenter
-        </button>
+        </Button>
       </div>
 
       {rows.map(({ label, value, tone }) => (

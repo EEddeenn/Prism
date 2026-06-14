@@ -37,17 +37,19 @@ export function isFlagged(e: GraphEdge): boolean {
   return (e.flags & SMELL_FLAGS) !== 0;
 }
 
-/** Per-kind edge colour for the lens (kept distinct on the dark theme). */
+/** Per-kind edge colour for the lens — warm-desaturated to match the
+ * "Human Gravity" palette (mirrors the --color-node-* / accent tokens),
+ * kept distinct on the deep-field theme. */
 export const EDGE_KIND_COLOR: Record<string, string> = {
-  runtime: '#5aa9ff',
-  dev: '#6b7280',
-  build: '#a78bfa',
-  peer: '#f472b6',
-  optional: '#586074',
-  test: '#586074',
-  plugin: '#34d399',
-  workspace: '#ffb454',
-  unknown: '#3a4150',
+  runtime: '#8aa6a3', // cyan-gray (active)
+  dev: '#6f6f68', // dust
+  build: '#a99bc0', // lilac (root family)
+  peer: '#c77fa0', // rose (dup family)
+  optional: '#4a4a46', // dim iron-ish
+  test: '#4a4a46',
+  plugin: '#6fa890', // teal-green (fwd family)
+  workspace: '#bfa15a', // amber
+  unknown: '#3a3a38', // edge
 };
 
 export function kindColor(kind: number): string {

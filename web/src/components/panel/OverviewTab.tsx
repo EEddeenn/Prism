@@ -3,14 +3,22 @@
 import { useGraphStore } from '@/store/useGraphStore';
 import type { CompareData } from '@/store/useGraphStore';
 import type { Barcode, GraphStats, RunMeta } from '@/lib/types';
-import { Badge, DivergingBar, PanelState, SectionHeader, type Tone } from '@/components/ui';
+import {
+  Badge,
+  CompareGrid,
+  DeltaTag,
+  DivergingBar,
+  PanelState,
+  Row,
+  SectionHeader,
+} from '@/design-system';
 
 /** Fidelity tier + caveats for one run, rendered as a single chip row. */
 function FidelityChips({ meta }: { meta: RunMeta | null }) {
-  if (!meta) return <span className="text-muted text-mini">—</span>;
+  if (!meta) return <span className="text-archive text-data-s">—</span>;
   return (
     <div className="flex flex-wrap gap-1.5">
-      <Badge tone={meta.fidelity_tier === 'lockfile-exact' ? 'ok' : 'warn'}>
+      <Badge tone={meta.fidelity_tier === 'lockfile-exact' ? 'good' : 'warn'}>
         <b className="font-semibold">fidelity</b>
         {meta.fidelity_tier}
       </Badge>
@@ -55,23 +63,11 @@ function numericRows(
   ];
 }
 
-/** Signed delta badge (B − A) with a direction tint (more = worse for risk metrics). */
-function DeltaBadge({ delta, worseUp }: { delta: number; worseUp: boolean }) {
-  if (delta === 0) {
-    return <Badge tone="muted">±0</Badge>;
-  }
-  const sign = delta > 0 ? '+' : '−';
-  const mag = Math.abs(delta);
-  // For risk metrics an increase is bad; for neutral metrics any change stays muted-accent.
-  const bad = worseUp && delta > 0;
-  const good = worseUp && delta < 0;
-  const tone: Tone = bad ? 'bad' : good ? 'ok' : 'accent';
-  return (
-    <Badge tone={tone}>
-      {sign}
-      {mag}
-    </Badge>
-  );
+/** Signed delta (B − A). Risk metrics carry good/bad sentiment via deltaTone;
+ *  neutral metrics keep the direction arrow but stay colorless (no sentiment). */
+function DeltaCell({ delta, worseUp }: { delta: number; worseUp: boolean }) {
+  // For neutral metrics any change reads as informational, not good/bad.
+  return <DeltaTag value={delta} moreIsWorse={worseUp} className={worseUp ? undefined : 'text-archive'} />;
 }
 
 function CompareView({
@@ -92,77 +88,69 @@ function CompareView({
   const aCycle = stats?.has_cycle ?? null;
   const bCycle = compare.stats?.has_cycle ?? null;
 
+  const aLabel = `A${aRun != null ? ` · run ${aRun}` : ''}`;
+  const bLabel = `B${bRun != null ? ` · run ${bRun}` : ''}`;
+
+  // Rows with both sides present — drive the value grid + the magnitude bars.
+  const pairedRows = rows.filter((r) => r.a != null && r.b != null);
+
+  const gridRows = rows.map((r) => {
+    const worseUp = MORE_IS_WORSE.has(r.key);
+    const hasBoth = r.a != null && r.b != null;
+    const delta = hasBoth ? (r.b as number) - (r.a as number) : null;
+    return {
+      label: r.label,
+      a: r.a != null ? r.a : '—',
+      b: r.b != null ? r.b : '—',
+      delta: delta != null ? <DeltaCell delta={delta} worseUp={worseUp} /> : undefined,
+    };
+  });
+
+  // has_cycle: yes/no per run (not a numeric delta) → gained/resolved badge.
+  const cycleChanged = aCycle != null && bCycle != null && aCycle !== bCycle;
+  gridRows.push({
+    label: 'has cycle',
+    a: aCycle == null ? '—' : aCycle ? 'yes' : 'no',
+    b: bCycle == null ? '—' : bCycle ? 'yes' : 'no',
+    delta: cycleChanged ? (
+      <Badge tone={bCycle && !aCycle ? 'bad' : 'good'}>{bCycle && !aCycle ? 'gained' : 'resolved'}</Badge>
+    ) : undefined,
+  });
+
   return (
     <div>
-      {/* A | B column headers */}
-      <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 items-baseline mb-2">
-        <div />
-        <div className="text-right text-label uppercase tracking-wide text-muted font-semibold">
-          A {aRun != null ? `· run ${aRun}` : ''}
-        </div>
-        <div className="text-right text-label uppercase tracking-wide text-accent font-semibold">
-          B {bRun != null ? `· run ${bRun}` : ''}
-        </div>
-      </div>
+      <SectionHeader as="h3">Graph · A | B</SectionHeader>
+      <CompareGrid rows={gridRows} aLabel={aLabel} bLabel={bLabel} />
 
-      <SectionHeader>Graph · A | B</SectionHeader>
-      <div className="space-y-2">
-        {rows.map((r) => {
-          const worseUp = MORE_IS_WORSE.has(r.key);
-          const hasBoth = r.a != null && r.b != null;
-          const delta = hasBoth ? (r.b as number) - (r.a as number) : null;
-          return (
-            <div key={r.key}>
-              <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 items-center text-body">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-muted truncate">{r.label}</span>
-                  {delta != null && <DeltaBadge delta={delta} worseUp={worseUp} />}
+      {pairedRows.length > 0 && (
+        <>
+          <SectionHeader as="h3">Magnitude · A | B</SectionHeader>
+          <div className="space-y-2">
+            {pairedRows.map((r) => {
+              const worseUp = MORE_IS_WORSE.has(r.key);
+              return (
+                <div key={r.key}>
+                  <span className="text-archive text-data-s">{r.label}</span>
+                  <DivergingBar
+                    a={r.a as number}
+                    b={r.b as number}
+                    leftTone={worseUp && (r.a as number) > (r.b as number) ? 'warn' : 'neutral'}
+                    rightTone={worseUp && (r.b as number) > (r.a as number) ? 'warn' : 'info'}
+                    ariaLabel={`${r.label}: A ${r.a}, B ${r.b}`}
+                  />
                 </div>
-                <div className="text-right tabular-nums font-semibold text-ink">
-                  {r.a != null ? r.a : '—'}
-                </div>
-                <div className="text-right tabular-nums font-semibold text-accent">
-                  {r.b != null ? r.b : '—'}
-                </div>
-              </div>
-              {hasBoth && (
-                <DivergingBar
-                  a={r.a as number}
-                  b={r.b as number}
-                  leftTone={worseUp && (r.a as number) > (r.b as number) ? 'warn' : 'muted'}
-                  rightTone={worseUp && (r.b as number) > (r.a as number) ? 'warn' : 'accent'}
-                  ariaLabel={`${r.label}: A ${r.a}, B ${r.b}`}
-                />
-              )}
-            </div>
-          );
-        })}
-
-        {/* has_cycle: yes/no per run, not a numeric delta. */}
-        <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 items-center text-body">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-muted truncate">has cycle</span>
-            {aCycle != null && bCycle != null && aCycle !== bCycle && (
-              <Badge tone={bCycle && !aCycle ? 'bad' : 'ok'}>
-                {bCycle && !aCycle ? 'gained' : 'resolved'}
-              </Badge>
-            )}
+              );
+            })}
           </div>
-          <div className={`text-right font-semibold ${aCycle ? 'text-warn' : 'text-ink'}`}>
-            {aCycle == null ? '—' : aCycle ? 'yes' : 'no'}
-          </div>
-          <div className={`text-right font-semibold ${bCycle ? 'text-warn' : 'text-accent'}`}>
-            {bCycle == null ? '—' : bCycle ? 'yes' : 'no'}
-          </div>
-        </div>
-      </div>
+        </>
+      )}
 
       {/* Fidelity for BOTH runs as two chip rows — a downgrade in B is obvious. */}
-      <SectionHeader>Fidelity · A | B</SectionHeader>
+      <SectionHeader as="h3">Fidelity · A | B</SectionHeader>
       <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 items-start">
-        <span className="text-muted font-semibold text-label uppercase tracking-wide pt-1">A</span>
+        <span className="metadata-label pt-1">A</span>
         <FidelityChips meta={meta} />
-        <span className="text-accent font-semibold text-label uppercase tracking-wide pt-1">B</span>
+        <span className="metadata-label pt-1">B</span>
         <FidelityChips meta={compare.runMeta} />
       </div>
     </div>
@@ -181,7 +169,7 @@ export default function OverviewTab() {
     <div>
       {meta && (
         <div className="flex flex-wrap gap-1.5 mb-2">
-          <Badge tone="accent">
+          <Badge tone="info">
             <b className="font-semibold">ecosystem</b>
             {meta.ecosystem}
           </Badge>
@@ -195,7 +183,7 @@ export default function OverviewTab() {
               shows them per-run (A | B) so a downgrade in B stays obvious. */}
           {!compareMode && (
             <>
-              <Badge tone={meta.fidelity_tier === 'lockfile-exact' ? 'ok' : 'warn'}>
+              <Badge tone={meta.fidelity_tier === 'lockfile-exact' ? 'good' : 'warn'}>
                 <b className="font-semibold">fidelity</b>
                 {meta.fidelity_tier}
               </Badge>
@@ -213,9 +201,9 @@ export default function OverviewTab() {
         <CompareView meta={meta} stats={stats} barcode={barcode} compare={compareData} />
       ) : (
         <>
-          <SectionHeader>Graph</SectionHeader>
+          <SectionHeader as="h3">Graph</SectionHeader>
           {stats ? (
-            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-body">
+            <div>
               {(
                 [
                   ['nodes', String(stats.nodes), false],
@@ -226,23 +214,20 @@ export default function OverviewTab() {
                   ['duplicate families', String(stats.duplicate_version_count), stats.duplicate_version_count > 0],
                 ] as [string, string, boolean][]
               ).map(([k, v, flag]) => (
-                <div key={k} className="contents">
-                  <dt className="text-muted">{k}</dt>
-                  <dd className={`text-right tabular-nums font-semibold ${flag ? 'text-warn' : ''}`}>{v}</dd>
-                </div>
+                <Row key={k} label={k} value={v} valueTone={flag ? 'text-warn' : 'text-bone'} />
               ))}
-            </dl>
+            </div>
           ) : (
             <PanelState kind="prompt">Pick a run to see its graph stats.</PanelState>
           )}
         </>
       )}
 
-      <SectionHeader>How to read it</SectionHeader>
-      <ul className="list-disc pl-4 text-muted text-xs space-y-1">
-        <li>Click a node to trace what it <b className="text-ink">depends on</b> and what <b className="text-ink">depends on it</b>.</li>
-        <li><b className="text-ink">2D</b> is a layered graph; <b className="text-ink">3D</b> is a spatial topology.</li>
-        <li>In 3D: <b className="text-ink">Layered</b> stacks by depth, <b className="text-ink">Fiber</b> by version, <b className="text-ink">Terrain</b> by a signal, <b className="text-ink">TDA</b> lights up a feature.</li>
+      <SectionHeader as="h3">How to read it</SectionHeader>
+      <ul className="list-disc pl-4 text-archive text-data-s space-y-1">
+        <li>Click a node to trace what it <b className="text-bone">depends on</b> and what <b className="text-bone">depends on it</b>.</li>
+        <li><b className="text-bone">2D</b> is a layered graph; <b className="text-bone">3D</b> is a spatial topology.</li>
+        <li>In 3D: <b className="text-bone">Layered</b> stacks by depth, <b className="text-bone">Fiber</b> by version, <b className="text-bone">Terrain</b> by a signal, <b className="text-bone">TDA</b> lights up a feature.</li>
       </ul>
     </div>
   );

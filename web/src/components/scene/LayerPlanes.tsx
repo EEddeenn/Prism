@@ -52,7 +52,7 @@ export default function LayerPlanes({ planes }: { planes: LayerPlane[] }) {
               style={{ pointerEvents: 'none' }}
             >
               <div
-                className="px-1.5 py-0.5 rounded-badge bg-panel-2/80 border text-[10px] text-muted whitespace-nowrap font-mono"
+                className="px-1.5 py-0.5 rounded-control bg-charcoal/80 border text-meta text-archive whitespace-nowrap font-mono"
                 style={{ borderColor: tint }}
               >
                 {pl.depth === 0 ? 'roots' : `d${pl.depth}`} · {pl.count}

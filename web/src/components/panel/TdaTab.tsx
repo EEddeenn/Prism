@@ -3,7 +3,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useGraphStore } from '@/store/useGraphStore';
 import FidelityBanner from '@/components/FidelityBanner';
-import { Badge, MetricPill, RowButton, SectionHeader, PanelState, Callout } from '@/components/ui';
+import {
+  Badge,
+  MetricPill,
+  ListRow,
+  Section,
+  SectionHeader,
+  PanelState,
+  Card,
+  Legend,
+  SearchField,
+  DataTable,
+  TruncationNote,
+} from '@/design-system';
 import { api, ApiError } from '@/lib/api';
 import { CHART_COLORS, PALETTE, shortLabel } from '@/lib/palette';
 import type { TdaPair, H2View, FiltrationSummary } from '@/lib/types';
@@ -71,10 +83,10 @@ function PersistenceDiagram({
           <g key={d}>
             <line x1={sx(d)} y1={m.t} x2={sx(d)} y2={m.t + innerH} stroke={CHART_COLORS.rail} strokeWidth={0.5} />
             <line x1={m.l} y1={sy(d)} x2={m.l + innerW} y2={sy(d)} stroke={CHART_COLORS.rail} strokeWidth={0.5} />
-            <text x={sx(d)} y={m.t + innerH + 11} textAnchor="middle" className="fill-muted" fontSize={7}>
+            <text x={sx(d)} y={m.t + innerH + 11} textAnchor="middle" className="fill-archive" fontSize={7}>
               {d}
             </text>
-            <text x={m.l - 4} y={sy(d) + 2.5} textAnchor="end" className="fill-muted" fontSize={7}>
+            <text x={m.l - 4} y={sy(d) + 2.5} textAnchor="end" className="fill-archive" fontSize={7}>
               {d}
             </text>
           </g>
@@ -85,15 +97,15 @@ function PersistenceDiagram({
 
         {/* dashed ∞ rail for essentials */}
         <line x1={m.l} y1={railY} x2={m.l + innerW} y2={railY} stroke={CHART_COLORS.diagonal} strokeWidth={0.75} strokeDasharray="3 2" />
-        <text x={m.l + innerW} y={railY - 3} textAnchor="end" className="fill-muted" fontSize={8}>
+        <text x={m.l + innerW} y={railY - 3} textAnchor="end" className="fill-archive" fontSize={8}>
           ∞
         </text>
 
         {/* axis labels */}
-        <text x={m.l} y={H - 4} className="fill-muted" fontSize={7}>
+        <text x={m.l} y={H - 4} className="fill-archive" fontSize={7}>
           birth →
         </text>
-        <text x={m.l - 22} y={m.t + 6} className="fill-muted" fontSize={7}>
+        <text x={m.l - 22} y={m.t + 6} className="fill-archive" fontSize={7}>
           death
         </text>
 
@@ -127,7 +139,7 @@ function PersistenceDiagram({
       </svg>
 
       {hoverPair && (
-        <div className="absolute top-0 right-0 px-2 py-1 rounded-control bg-panel-3 border border-line-2 text-micro font-mono pointer-events-none whitespace-nowrap">
+        <div className="absolute top-0 right-0 px-2 py-1 rounded-control bg-charcoal/95 border border-iron backdrop-blur-sm text-meta font-mono tabular-nums text-bone pointer-events-none whitespace-nowrap">
           <span className="font-bold" style={{ color: dimColor(hoverPair.dim) }}>
             {DIM[hoverPair.dim === 1 ? 1 : 0].label}
           </span>{' '}
@@ -184,7 +196,7 @@ function Barcode({
       {ticks.map((d) => (
         <g key={d}>
           <line x1={sx(d)} y1={m.t} x2={sx(d)} y2={H - m.b} stroke={CHART_COLORS.rail} strokeWidth={0.5} />
-          <text x={sx(d)} y={H - 5} textAnchor="middle" className="fill-muted" fontSize={7}>
+          <text x={sx(d)} y={H - 5} textAnchor="middle" className="fill-archive" fontSize={7}>
             {d}
           </text>
         </g>
@@ -246,22 +258,22 @@ function FeatureRow({ p }: { p: TdaPair }) {
     ? `born d${fmt(p.birth)} · never dies`
     : `d${fmt(p.birth)} → d${fmt(p.death)} · life ${fmt(p.persistence)}`;
   return (
-    <RowButton
+    <ListRow
       onSelect={() => selectFeature(p.pair, p.dim)}
       active={active}
       ariaLabel={`H${p.dim} feature ${p.pair}, ${desc}, ${p.essential ? 'essential' : 'finite'}`}
-      className="my-1"
+      className="my-1 flex items-center gap-2"
     >
-      <span className="shrink-0 font-mono font-bold text-mini min-w-[22px]" style={{ color: dimColor(p.dim) }}>
+      <span className="shrink-0 font-mono font-bold text-data-s min-w-[22px]" style={{ color: dimColor(p.dim) }}>
         H{p.dim}
       </span>
-      <span className="flex-1 text-mini tabular-nums">{desc}</span>
+      <span className="flex-1 font-mono tabular-nums text-data-s">{desc}</span>
       {p.essential ? (
         <Badge tone="warn">essential</Badge>
       ) : (
-        <Badge tone="muted">finite</Badge>
+        <Badge tone="neutral">finite</Badge>
       )}
-    </RowButton>
+    </ListRow>
   );
 }
 
@@ -280,7 +292,9 @@ function Group({ title, list }: { title: string; list: TdaPair[] }) {
         <FeatureRow key={p.pair} p={p} />
       ))}
       {sorted.length > CAP && (
-        <p className="text-muted text-mini mt-1.5">… and {sorted.length - CAP} more (showing the {CAP} longest-lived).</p>
+        <p className="mt-1.5 font-mono tabular-nums text-meta text-dust">
+          …+{sorted.length - CAP} more (showing the {CAP} longest-lived).
+        </p>
       )}
     </div>
   );
@@ -321,28 +335,28 @@ function VoidsSection({ run }: { run: number }) {
   const CAP = 24;
 
   return (
-    <section className="mt-4">
-      <SectionHeader right={<Badge tone="muted">experimental</Badge>}>Voids (H₂)</SectionHeader>
-      <p className="text-muted text-mini mb-1.5">
+    <Section className="mt-4">
+      <SectionHeader right={<Badge tone="neutral">experimental</Badge>}>Voids (H₂)</SectionHeader>
+      <p className="mb-1.5 text-data-s text-archive">
         Flag-complex homology — computed independently of the filtration barcode above, so its H₁ may differ.
       </p>
 
       {error ? (
-        <Callout tone="bad" role="alert">{error}</Callout>
+        <PanelState kind="error">{error}</PanelState>
       ) : loading && !h2 ? (
         <PanelState kind="loading">Computing flag-complex homology…</PanelState>
       ) : h2 ? (
         <>
           <div className="flex flex-wrap items-center gap-1.5 mb-2">
-            <MetricPill label="H₀" value={h2.betti0} tone="accent" title="Connected components (flag complex)" />
+            <MetricPill label="H₀" value={h2.betti0} tone="info" title="Connected components (flag complex)" />
             <MetricPill label="H₁" value={h2.betti1} tone="warn" title="Independent loops (flag complex)" />
             <MetricPill
               label="H₂ voids"
               value={h2.betti2}
-              tone={h2.betti2 > 0 ? 'accent' : 'muted'}
+              tone={h2.betti2 > 0 ? 'accent' : 'neutral'}
               title="2-dimensional voids — hollow shells in the dependency graph"
             />
-            <MetricPill label="triangles" value={h2.triangles} tone="muted" title="2-simplices in the flag complex" />
+            <MetricPill label="triangles" value={h2.triangles} tone="neutral" title="2-simplices in the flag complex" />
           </div>
 
           {h2.betti2 === 0 || h2.voids.length === 0 ? (
@@ -353,24 +367,29 @@ function VoidsSection({ run }: { run: number }) {
                 const preview = members.slice(0, 3).map((n) => shortLabel(n.purl)).join(' · ');
                 return (
                   <li key={i}>
-                    <RowButton
+                    <ListRow
                       onSelect={() => selectVoid(i, members)}
                       ariaLabel={`Void ${i + 1}, ${members.length} packages: ${preview}`}
+                      className="flex items-center gap-2"
                     >
                       <span
-                        className="shrink-0 font-mono font-bold text-mini min-w-[22px]"
+                        className="shrink-0 font-mono font-bold text-data-s min-w-[22px]"
                         style={{ color: DIM[2].stroke }}
                       >
                         H₂
                       </span>
-                      <span className="shrink-0 text-mini tabular-nums text-muted min-w-[28px]">{members.length}</span>
-                      <span className="flex-1 text-mini font-mono truncate">{preview}</span>
-                    </RowButton>
+                      <span className="shrink-0 font-mono tabular-nums text-data-s text-archive min-w-[28px]">
+                        {members.length}
+                      </span>
+                      <span className="flex-1 font-mono text-data-s truncate">{preview}</span>
+                    </ListRow>
                   </li>
                 );
               })}
               {h2.voids.length > CAP && (
-                <li className="text-muted text-mini mt-0.5">… and {h2.voids.length - CAP} more voids.</li>
+                <li>
+                  <TruncationNote className="mt-0.5" shown={CAP} total={h2.voids.length} more={h2.voids.length - CAP} />
+                </li>
               )}
             </ul>
           )}
@@ -378,7 +397,7 @@ function VoidsSection({ run }: { run: number }) {
       ) : (
         <PanelState kind="empty">No flag-complex homology for this run.</PanelState>
       )}
-    </section>
+    </Section>
   );
 }
 
@@ -413,48 +432,46 @@ function FiltrationComparison({ run }: { run: number }) {
   }, [run]);
 
   return (
-    <section className="mt-4">
+    <Section className="mt-4">
       <SectionHeader>Filtration comparison</SectionHeader>
 
       {error ? (
-        <Callout tone="bad" role="alert">{error}</Callout>
+        <PanelState kind="error">{error}</PanelState>
       ) : loading && rows.length === 0 ? (
         <PanelState kind="loading">Comparing filtration lenses…</PanelState>
       ) : rows.length === 0 ? (
         <PanelState kind="empty">No filtration comparison available for this run.</PanelState>
       ) : (
         <>
-          <table className="w-full text-mini tabular-nums">
-            <thead className="text-muted">
-              <tr>
-                <th className="text-left font-medium">filtration</th>
-                <th className="text-right font-medium">H₀</th>
-                <th className="text-right font-medium">H₁</th>
-                <th className="text-right font-medium">finite bars</th>
-                <th className="text-right font-medium text-ink">Σ persistence</th>
-                <th className="text-right font-medium text-ink">max persistence</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.filtration} className="border-t border-line">
-                  <td className="py-0.5 font-mono">{r.filtration}</td>
-                  <td className="text-right">{r.h0_components}</td>
-                  <td className="text-right">{r.h1_loops}</td>
-                  <td className="text-right">{r.finite_bars}</td>
-                  <td className="text-right font-semibold text-ink">{fmt(r.total_persistence)}</td>
-                  <td className="text-right font-semibold text-ink">{fmt(r.max_persistence)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className="text-muted text-micro mt-1">
+          <DataTable
+            caption="Filtration comparison — Betti numbers and persistence per lens"
+            columns={[
+              { key: 'filtration', header: 'filtration', align: 'left' },
+              { key: 'h0', header: 'H₀', align: 'right' },
+              { key: 'h1', header: 'H₁', align: 'right' },
+              { key: 'finite', header: 'finite bars', align: 'right' },
+              { key: 'sum', header: 'Σ persistence', align: 'right' },
+              { key: 'max', header: 'max persistence', align: 'right' },
+            ]}
+            rows={rows.map((r) => ({
+              key: r.filtration,
+              cells: {
+                filtration: <span className="font-mono">{r.filtration}</span>,
+                h0: r.h0_components,
+                h1: r.h1_loops,
+                finite: r.finite_bars,
+                sum: fmt(r.total_persistence),
+                max: fmt(r.max_persistence),
+              },
+            }))}
+          />
+          <p className="mt-1 text-meta text-archive">
             H₀/H₁ Betti numbers are invariant across lenses; persistence shows how long-lived features are under each
             filtration (depth / centrality / scope).
           </p>
         </>
       )}
-    </section>
+    </Section>
   );
 }
 
@@ -526,7 +543,7 @@ export default function TdaTab() {
         <PanelState
           kind="empty"
           cta={
-            <code className="bg-panel-2 px-1.5 rounded-badge">prism tda run --run {run}</code>
+            <code className="bg-charcoal px-1.5 rounded-control font-mono text-data-s">prism tda run --run {run}</code>
           }
         >
           No persistent homology for this run yet.
@@ -547,7 +564,7 @@ export default function TdaTab() {
         <MetricPill
           label="H₀ components"
           value={barcode.component_count}
-          tone="accent"
+          tone="info"
           title="Connected components (H₀)"
         />
         <MetricPill
@@ -561,27 +578,27 @@ export default function TdaTab() {
       {pairs.length > 0 ? (
         <>
           <SectionHeader>Persistence diagram</SectionHeader>
-          <div className="rounded-card border border-line bg-panel p-1.5">
+          <Card className="p-1.5">
             <PersistenceDiagram pairs={pairs} maxDepth={maxDepth} activePair={activePair} onPick={(p) => selectFeature(p.pair, p.dim)} />
-          </div>
-          <p className="text-muted text-mini mt-1">
+          </Card>
+          <p className="mt-1 text-data-s text-archive">
             Each dot is a feature at (birth, death); distance above the diagonal is persistence.
             Dots on the <span className="font-mono">∞</span> rail never die.
           </p>
 
           <SectionHeader>Barcode</SectionHeader>
-          <div className="rounded-card border border-line bg-panel p-1.5">
+          <Card className="p-1.5">
             <Barcode pairs={pairs} maxDepth={maxDepth} activePair={activePair} onPick={(p) => selectFeature(p.pair, p.dim)} />
-          </div>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-mini text-muted">
-            <span className="flex items-center gap-1">
-              <span className="w-2.5 h-1.5 rounded-badge" style={{ background: DIM[0].stroke }} /> H0 components
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="w-2.5 h-1.5 rounded-badge" style={{ background: DIM[1].stroke }} /> H1 loops
-            </span>
-            <span>→ never dies</span>
-            <span>dim = noise (life ≤ 1)</span>
+          </Card>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+            <Legend
+              items={[
+                { color: DIM[0].stroke, label: 'H0 components' },
+                { color: DIM[1].stroke, label: 'H1 loops' },
+              ]}
+            />
+            <span className="font-mono text-meta text-archive">→ never dies</span>
+            <span className="font-mono text-meta text-archive">dim = noise (life ≤ 1)</span>
           </div>
         </>
       ) : (
@@ -593,18 +610,18 @@ export default function TdaTab() {
           <SectionHeader
             className="mt-4"
             right={
-              <input
+              <SearchField
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="search H0 / H1 / d3 / essential…"
                 aria-label="Search features"
-                className="w-[180px] text-mini px-2 py-1 rounded-control bg-panel-2 border border-line-2 text-ink placeholder:text-muted focus:outline-none focus:border-accent"
+                className="w-[180px] text-data-s"
               />
             }
           >
             Features
           </SectionHeader>
-          <p className="text-muted text-mini mb-1">Click a feature to light up the packages that carry it (opens 3D · TDA).</p>
+          <p className="mb-1 text-data-s text-archive">Click a feature to light up the packages that carry it (opens 3D · TDA).</p>
 
           {q.trim() ? (
             filtered.length ? (

@@ -7,24 +7,30 @@ import { shortLabel } from '@/lib/palette';
 import { api, ApiError } from '@/lib/api';
 import type { TopologyDistance, MetricDelta } from '@/lib/types';
 import {
-  MetricPill,
-  SectionHeader,
-  RowButton,
-  Sparkline,
+  Card,
+  DataCard,
+  DeltaTag,
   DivergingBar,
-  Callout,
+  HeroFigure,
+  MetricPill,
+  MonoLabel,
   PanelState,
-  type MeterTone,
-} from '@/components/ui';
+  Section,
+  SectionHeader,
+  ListRow,
+  Sparkline,
+  TruncationNote,
+} from '@/design-system';
+import { deltaTone, toneText, type Tone } from '@/lib/tone';
 
 const ROW_CAP = 50;
 
-// Per-section accent: added reads as ok/green, removed as bad/red, changed as
-// warn/amber. `text` is a literal class (Tailwind can't see template strings).
-const SECTION: Record<DiffStatus, { title: string; text: string }> = {
-  added: { title: 'Added', text: 'text-ok' },
-  removed: { title: 'Removed', text: 'text-bad' },
-  changed: { title: 'Changed', text: 'text-warn' },
+// Per-section sentiment: added reads good (green), removed bad (red), changed
+// warn (amber). One Tone each, resolved to a text class via toneText.
+const SECTION: Record<DiffStatus, { title: string; tone: Tone }> = {
+  added: { title: 'Added', tone: 'good' },
+  removed: { title: 'Removed', tone: 'bad' },
+  changed: { title: 'Changed', tone: 'warn' },
 };
 
 /** Direction glyph for a changed family: a single arrow, with an aria-label so the
@@ -32,12 +38,12 @@ const SECTION: Record<DiffStatus, { title: string; text: string }> = {
 function Direction({ direction }: { direction: number }) {
   const cfg =
     direction > 0
-      ? { glyph: '↑', cls: 'text-ok', label: 'version increased' }
+      ? { glyph: '↑', tone: 'good' as Tone, label: 'version increased' }
       : direction < 0
-        ? { glyph: '↓', cls: 'text-warn', label: 'version decreased' }
-        : { glyph: '↔', cls: 'text-muted', label: 'version set changed' };
+        ? { glyph: '↓', tone: 'warn' as Tone, label: 'version decreased' }
+        : { glyph: '↔', tone: 'neutral' as Tone, label: 'version set changed' };
   return (
-    <span className={`mx-1 ${cfg.cls}`} role="img" aria-label={cfg.label} title={cfg.label}>
+    <span className={`mx-1 ${toneText[cfg.tone]}`} role="img" aria-label={cfg.label} title={cfg.label}>
       {cfg.glyph}
     </span>
   );
@@ -53,19 +59,19 @@ function DiffRow({ row, onPick }: { row: FamilyDiff; onPick: (r: FamilyDiff) => 
   // show just the side that exists.
   const delta =
     row.status === 'changed' ? (
-      <span className="font-mono text-mini text-muted truncate">
-        <span className="text-ink">{row.aVersions.join(', ')}</span>
+      <span className="font-mono text-data-s text-archive truncate">
+        <span className="text-bone">{row.aVersions.join(', ')}</span>
         <Direction direction={row.direction} />
-        <span className="text-ink">{row.bVersions.join(', ')}</span>
+        <span className="text-bone">{row.bVersions.join(', ')}</span>
       </span>
     ) : row.status === 'added' ? (
-      <span className="font-mono text-mini text-ok truncate">{row.bVersions.join(', ')}</span>
+      <MonoLabel text={row.bVersions.join(', ')} className="text-data-s text-good truncate" />
     ) : (
-      <span className="font-mono text-mini text-bad truncate">{row.aVersions.join(', ')}</span>
+      <MonoLabel text={row.aVersions.join(', ')} className="text-data-s text-bad truncate" />
     );
 
   return (
-    <RowButton
+    <ListRow
       onSelect={() => onPick(row)}
       disabled={!clickable}
       ariaLabel={`${shortLabel(row.name)}, blast ${row.blast}`}
@@ -75,25 +81,31 @@ function DiffRow({ row, onPick }: { row: FamilyDiff; onPick: (r: FamilyDiff) => 
           : 'This family exists only in the compare run'
       }
     >
-      <div className="min-w-0 flex-1">
-        <div className="font-mono text-body truncate text-ink" title={row.name}>{shortLabel(row.name)}</div>
-        <div className="mt-0.5 flex items-center gap-1.5">
-          {delta}
-          {onlyInB && <span className="text-micro text-muted shrink-0">(only in B)</span>}
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <MonoLabel
+            text={shortLabel(row.name)}
+            full={row.name}
+            className="block text-data text-bone"
+          />
+          <div className="mt-0.5 flex items-center gap-1.5">
+            {delta}
+            {onlyInB && <span className="text-meta text-archive shrink-0">(only in B)</span>}
+          </div>
         </div>
+        <span className="shrink-0">
+          <MetricPill
+            label="blast"
+            value={row.blast}
+            title="max transitive dependents (blast radius)"
+          />
+        </span>
       </div>
-      <span className="shrink-0">
-        <MetricPill
-          label="blast"
-          value={row.blast}
-          title="max transitive dependents (blast radius)"
-        />
-      </span>
-    </RowButton>
+    </ListRow>
   );
 }
 
-function Section({
+function DiffSection({
   status,
   rows,
   onPick,
@@ -107,84 +119,61 @@ function Section({
   const more = rows.length - shown.length;
 
   return (
-    <section className="mb-3">
+    <Section className="mb-3">
       <SectionHeader count={rows.length}>
-        <span className={cfg.text}>{cfg.title}</span>
+        <span className={toneText[cfg.tone]}>{cfg.title}</span>
       </SectionHeader>
       {rows.length === 0 ? (
         // Empty is a neutral outcome — don't announce "Removed: none" as an alert.
-        <p className="text-muted text-mini">No {cfg.title.toLowerCase()} families.</p>
+        <p className="text-archive text-data-s">No {cfg.title.toLowerCase()} families.</p>
       ) : (
         <div className="flex flex-col gap-0.5">
           {shown.map((r) => (
             <DiffRow key={r.key} row={r} onPick={onPick} />
           ))}
           {more > 0 && (
-            <p className="px-2 py-1 text-mini text-muted tabular-nums">
-              … {more} more (capped at {ROW_CAP}; refine the diff to see the rest)
-            </p>
+            <TruncationNote
+              shown={shown.length}
+              total={rows.length}
+              more={more}
+              className="px-2 py-1"
+            />
           )}
         </div>
       )}
-    </section>
+    </Section>
   );
 }
-
-/** Format a signed percent integer with an explicit + / − (true minus glyph), or
- *  "0%" when it rounds to nothing. change_pct is already a percent integer. */
-function signedPct(n: number): string {
-  const r = Math.round(n);
-  if (r > 0) return `+${r}%`;
-  if (r < 0) return `−${Math.abs(r)}%`;
-  return '0%';
-}
-
-/** Tone for a single dimension's change: growth reads warn (or bad when large),
- *  shrink reads ok, near-zero muted. Mirrors the diff's added/removed sentiment. */
-function deltaTone(changePct: number): MeterTone {
-  const r = Math.round(changePct);
-  if (r === 0) return 'muted';
-  if (r > 0) return r >= 50 ? 'bad' : 'warn';
-  return 'ok';
-}
-
-// Literal text classes per tone — Tailwind can't see template strings (see the
-// SECTION map above for the same constraint).
-const TONE_TEXT: Record<MeterTone, string> = {
-  accent: 'text-accent',
-  ok: 'text-ok',
-  warn: 'text-warn',
-  bad: 'text-bad',
-  muted: 'text-muted',
-};
 
 /** One structural dimension: name, base → head values, a diverging bar (base left,
  *  head right) and a signed change label. */
 function DistanceRow({ d }: { d: MetricDelta }) {
+  // Growth in a structural dimension reads as drift away from the baseline (bad);
+  // shrink reads good; near-zero neutral — the shared drift sentiment.
   const tone = deltaTone(d.change_pct);
   return (
-    <div className="rounded-card bg-panel-2 border border-line px-2.5 py-2">
+    <Card className="px-2.5 py-2">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="font-mono text-mini text-ink truncate" title={d.metric}>
-          {d.metric}
-        </span>
-        <span className={`text-mini font-semibold tabular-nums shrink-0 ${TONE_TEXT[tone]}`}>
-          {signedPct(d.change_pct)}
-        </span>
+        <MonoLabel text={d.metric} className="text-data-s text-bone" />
+        <DeltaTag
+          pct={d.change_pct}
+          ariaLabel={`${d.metric}: base ${d.base}, head ${d.head}, changed ${Math.round(d.change_pct)} percent`}
+          className="shrink-0"
+        />
       </div>
       <DivergingBar
         a={d.base}
         b={d.head}
-        leftTone="muted"
+        leftTone="neutral"
         rightTone={tone}
-        ariaLabel={`${d.metric}: base ${d.base}, head ${d.head}, ${signedPct(d.change_pct)}`}
+        ariaLabel={`${d.metric}: base ${d.base}, head ${d.head}`}
       />
-      <div className="mt-1 flex items-baseline gap-1 text-micro text-muted tabular-nums">
-        <span className="text-ink">{d.base}</span>
+      <div className="mt-1 flex items-baseline gap-1 text-meta text-archive tabular-nums">
+        <span className="font-mono text-bone">{d.base}</span>
         <span aria-hidden>→</span>
-        <span className="text-ink">{d.head}</span>
+        <span className="font-mono text-bone">{d.head}</span>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -217,23 +206,23 @@ function TopologyDistanceSection({ base, head }: { base: number; head: number })
   }, [base, head]);
 
   return (
-    <section className="mb-3">
+    <Section className="mb-3">
       <SectionHeader>Topology distance</SectionHeader>
       {error ? (
-        <Callout tone="bad" role="alert">{error}</Callout>
+        <PanelState kind="error">{error}</PanelState>
       ) : loading && !dist ? (
         <PanelState kind="loading">Measuring topology distance…</PanelState>
       ) : !dist ? null : (
         <div className="flex flex-col gap-2">
-          <div className="rounded-card bg-panel-2 border border-line px-2.5 py-2">
-            <div className="text-head font-semibold tabular-nums text-ink">
-              topology distance: {Math.round(dist.distance_pct)}%
-            </div>
-            <p className="mt-0.5 text-micro text-muted">
-              mean absolute change across structural dimensions; 0% = identical shape (can
-              exceed 100% for very different runs).
-            </p>
-          </div>
+          <Card className="px-2.5 py-2">
+            <HeroFigure
+              value={Math.round(dist.distance_pct)}
+              unit="%"
+              tone={deltaTone(dist.distance_pct)}
+              label="topology distance"
+              sub="mean absolute change across structural dimensions; 0% = identical shape (can exceed 100% for very different runs)."
+            />
+          </Card>
           {dist.deltas.length === 0 ? (
             <PanelState kind="empty">No per-dimension deltas reported.</PanelState>
           ) : (
@@ -245,7 +234,7 @@ function TopologyDistanceSection({ base, head }: { base: number; head: number })
           )}
         </div>
       )}
-    </section>
+    </Section>
   );
 }
 
@@ -284,43 +273,43 @@ export default function DiffTab() {
   return (
     <div>
       {/* Summary header */}
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm mb-3">
-        <span className="text-ok font-semibold tabular-nums">+{addedN} added</span>
-        <span className="text-muted">·</span>
-        <span className="text-bad font-semibold tabular-nums">−{removedN} removed</span>
-        <span className="text-muted">·</span>
-        <span className="text-warn font-semibold tabular-nums">~{changedN} changed</span>
-        <span className="text-muted">·</span>
-        <span className="text-muted tabular-nums">{diff.unchangedCount} unchanged</span>
+      <div className="mb-3 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-data">
+        <span className="font-mono tabular-nums text-good">+{addedN} added</span>
+        <span aria-hidden className="text-archive">·</span>
+        <span className="font-mono tabular-nums text-bad">−{removedN} removed</span>
+        <span aria-hidden className="text-archive">·</span>
+        <span className="font-mono tabular-nums text-warn">~{changedN} changed</span>
+        <span aria-hidden className="text-archive">·</span>
+        <span className="font-mono tabular-nums text-archive">{diff.unchangedCount} unchanged</span>
       </div>
 
-      <p className="text-muted text-xs mb-3">
-        Active run vs. run <span className="font-mono text-ink">{compareRun ?? compareData.run}</span>. Click a
+      <p className="mb-3 text-data-s text-archive">
+        Active run vs. run{' '}
+        <span className="font-mono tabular-nums text-bone">{compareRun ?? compareData.run}</span>. Click a
         changed/removed family to highlight its nodes in the active run.
       </p>
 
       {/* Changes by depth */}
       {depthRows.length > 0 && (
-        <div className="mb-3 rounded-card bg-panel-2 border border-line px-2.5 py-2">
-          <SectionHeader className="mt-0">Changes by depth</SectionHeader>
+        <DataCard eyebrow="Changes by depth" className="mb-3">
           <Sparkline
             data={depthRows.map(([, count]) => count)}
             ariaLabel={depthRows
               .map(([depth, count]) => `depth ${depth}: ${count} change${count === 1 ? '' : 's'}`)
               .join('; ')}
           />
-          <div className="flex gap-px mt-0.5">
+          <div className="mt-0.5 flex gap-px">
             {depthRows.map(([depth, count]) => (
               <div
                 key={depth}
-                className="flex-1 min-w-0 text-center text-micro text-muted tabular-nums leading-none"
+                className="min-w-0 flex-1 text-center font-mono text-meta text-archive tabular-nums leading-none"
                 title={`depth ${depth}: ${count} change${count === 1 ? '' : 's'}`}
               >
                 {depth}
               </div>
             ))}
           </div>
-        </div>
+        </DataCard>
       )}
 
       {/* Topology distance: structural shape delta, active (base) → compare (head),
@@ -330,9 +319,9 @@ export default function DiffTab() {
       )}
 
       {/* Sections, most impactful first within each (rows are pre-sorted by blast). */}
-      <Section status="added" rows={diff.added} onPick={onPick} />
-      <Section status="removed" rows={diff.removed} onPick={onPick} />
-      <Section status="changed" rows={diff.changed} onPick={onPick} />
+      <DiffSection status="added" rows={diff.added} onPick={onPick} />
+      <DiffSection status="removed" rows={diff.removed} onPick={onPick} />
+      <DiffSection status="changed" rows={diff.changed} onPick={onPick} />
     </div>
   );
 }

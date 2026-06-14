@@ -10,6 +10,7 @@ import { useGraphStore } from '@/store/useGraphStore';
 import { rampHex, PALETTE } from '@/lib/palette';
 import { signalValue, SIGNAL_LABELS, REACH_SIGNALS } from '@/lib/layout3d';
 import HoverCard from '@/components/HoverCard';
+import { Hud, Eyebrow, Button } from '@/design-system';
 
 function fmt(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
@@ -39,23 +40,23 @@ function TerrainLegend() {
   const midValue = sqrtHeight ? max * 0.25 : max * 0.5;
 
   return (
-    <div className="absolute top-3.5 right-3.5 z-10 p-2.5 rounded-card border border-line bg-panel/90 backdrop-blur-sm shadow-panel text-mini">
-      <div className="font-semibold text-ink mb-0.5">{meta.name}</div>
-      <div className="text-muted text-micro mb-1.5">height · {meta.unit}{sqrtHeight ? ' · √ scale' : ''}</div>
+    <Hud className="absolute top-3.5 right-3.5 z-10 p-2.5 text-data-s">
+      <Eyebrow className="mb-0.5">{meta.name}</Eyebrow>
+      <div className="text-archive text-meta mb-1.5">height · {meta.unit}{sqrtHeight ? ' · √ scale' : ''}</div>
       <div className="flex items-stretch gap-2">
-        <div className="w-3 rounded-badge" style={{ background: gradient, minHeight: 84 }} aria-hidden />
-        <div className="flex flex-col justify-between text-muted tabular-nums">
+        <div className="w-3 rounded-control" style={{ background: gradient, minHeight: 84 }} aria-hidden />
+        <div className="flex flex-col justify-between text-archive font-mono tabular-nums">
           <span style={{ color: stops[0] }}>{fmt(max)}</span>
           <span>{fmt(midValue)}</span>
           <span style={{ color: stops[5] }}>0</span>
         </div>
       </div>
       {approx && (
-        <div className="text-micro text-warn mt-1.5 max-w-[150px] leading-snug">
+        <div className="text-meta text-warn mt-1.5 max-w-[150px] leading-snug">
           approximate (graph over reach cap — degree proxy)
         </div>
       )}
-    </div>
+    </Hud>
   );
 }
 
@@ -64,23 +65,24 @@ function TdaHint() {
   const setActiveTab = useGraphStore((s) => s.setActiveTab);
   return (
     <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
-      <div className="px-4 py-3 rounded-card border border-line bg-panel/85 backdrop-blur-sm shadow-panel text-center max-w-[320px] pointer-events-auto">
-        <div className="text-ink text-sm font-semibold mb-1">Pick a topology feature</div>
-        <p className="text-muted text-mini leading-snug">
-          {barcode
-            ? `This run has ${barcode.component_count} H₀ component(s) and ${barcode.cycle_count} H₁ loop(s). `
-            : ''}
-          Choose one in the <span className="text-accent">TDA</span> panel to light up the packages and edges
+      <Hud className="px-4 py-3 text-center max-w-[320px] pointer-events-auto">
+        <div className="text-bone text-h4 font-semibold mb-1">Pick a topology feature</div>
+        <p className="text-archive text-data-s leading-snug">
+          {barcode ? (
+            <>
+              This run has <span className="font-mono tabular-nums">{barcode.component_count}</span> H₀ component(s)
+              and <span className="font-mono tabular-nums">{barcode.cycle_count}</span> H₁ loop(s).{' '}
+            </>
+          ) : (
+            ''
+          )}
+          Choose one in the <span className="text-cyan-gray">TDA</span> panel to light up the packages and edges
           that generate it.
         </p>
-        <button
-          type="button"
-          onClick={() => setActiveTab('tda')}
-          className="mt-2 px-2.5 py-1 text-mini hover:border-accent"
-        >
+        <Button variant="quiet" size="sm" onClick={() => setActiveTab('tda')} className="mt-2">
           Open TDA panel
-        </button>
-      </div>
+        </Button>
+      </Hud>
     </div>
   );
 }
@@ -97,28 +99,20 @@ function FeatureCard() {
   const label = isVoid ? 'H₂ void' : `H${feature.dim} generator`;
 
   return (
-    <div className="absolute top-3.5 left-3.5 z-10 p-2.5 rounded-card border border-line bg-panel/90 backdrop-blur-sm shadow-panel text-mini">
+    <Hud className="absolute top-3.5 left-3.5 z-10 p-2.5 text-data-s">
       <div className="font-semibold mb-0.5" style={{ color: accent }}>{label}</div>
-      <div className="text-muted tabular-nums">
+      <div className="text-archive font-mono tabular-nums">
         {feature.nodeIds.size} package(s) · {feature.edgeKeys.size} arc(s) lit
       </div>
       <div className="flex gap-1.5 mt-2">
-        <button
-          type="button"
-          onClick={() => clearFeature()}
-          className="px-2 py-1 text-mini hover:border-accent"
-        >
+        <Button variant="quiet" size="sm" onClick={() => clearFeature()}>
           Clear
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('tda')}
-          className="px-2 py-1 text-mini hover:border-accent"
-        >
+        </Button>
+        <Button variant="secondary" size="sm" onClick={() => setActiveTab('tda')}>
           Open TDA panel
-        </button>
+        </Button>
       </div>
-    </div>
+    </Hud>
   );
 }
 

@@ -5,7 +5,7 @@ import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Grid } from '@react-three/drei';
 import { useGraphStore } from '@/store/useGraphStore';
 import { buildLayout3D, type Layout3D } from '@/lib/layout3d';
-import { PALETTE } from '@/lib/palette';
+import { PALETTE, dimHex, mixHex } from '@/lib/palette';
 import Nodes from './scene/Nodes';
 import Edges from './scene/Edges';
 import LayerPlanes from './scene/LayerPlanes';
@@ -42,8 +42,12 @@ function SceneContent({ fitNonce, spin }: { fitNonce: number; spin: boolean }) {
       {/* Linear fog tied to scene size pushes far geometry into the void, giving
           the cloud real front/back depth instead of a flat overlapping wash. */}
       <fog attach="fog" args={[PALETTE.bg, radius * 1.4, radius * 5.5]} />
-      <hemisphereLight args={['#3b4a66', PALETTE.bg, 0.55]} />
-      <directionalLight position={[300, 500, 200]} intensity={0.85} color="#fff4e6" />
+      {/* Warm-monochrome ambient: a dim warm sky term from the neutral ramp (was a
+          cool blue) over the deep-field ground keeps the instrument palette intact. */}
+      <hemisphereLight args={[dimHex(PALETTE.muted, 0.55), PALETTE.bg, 0.55]} />
+      {/* Warm key light derived from the bone token (nudged toward gold), with the
+          rim/fill aligned to the search-match accent. */}
+      <directionalLight position={[300, 500, 200]} intensity={0.85} color={mixHex(PALETTE.ink, PALETTE.center, 0.18)} />
       <directionalLight position={[-260, 180, -220]} intensity={0.32} color={PALETTE.accent} />
       <CameraRig layout={layout} fitKey={fitKey} fitNonce={fitNonce} />
       <OrbitControls makeDefault enableDamping dampingFactor={0.12} autoRotate={spin} autoRotateSpeed={0.5} />

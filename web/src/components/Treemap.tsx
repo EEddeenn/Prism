@@ -12,8 +12,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGraphStore } from '@/store/useGraphStore';
 import type { NodeMetrics } from '@/lib/graph';
-import { PALETTE, rampHex, shortLabel } from '@/lib/palette';
-import { Badge, PanelState, SectionHeader, SegmentedControl, type SegOption } from '@/components/ui';
+import { PALETTE, rampHex, mixHex, shortLabel } from '@/lib/palette';
+import { Badge, Eyebrow, Hud, Legend, PanelState, SegmentedControl, type SegOption } from '@/design-system';
 
 // The signals you can weight tile area by. Each maps to a field on NodeMetrics;
 // `revReach` (blast radius / transitive dependents) is the default.
@@ -137,20 +137,6 @@ const GAP = 1; // px gap between tiles (the dark bg shows through)
 // step through ~900 tiles to leave the map.
 const FOCUSABLE_COUNT = 80;
 
-/** A single legend swatch + label, used for the contextual role chips. */
-function LegendChip({ color, label }: { color: string; label: string }) {
-  return (
-    <span className="flex items-center gap-1.5 text-micro text-muted whitespace-nowrap">
-      <span
-        className="h-2.5 w-2.5 rounded-tile border"
-        style={{ borderColor: color, boxShadow: `inset 0 0 0 1.5px ${color}` }}
-        aria-hidden
-      />
-      {label}
-    </span>
-  );
-}
-
 export default function Treemap() {
   const nodes = useGraphStore((s) => s.nodes);
   const index = useGraphStore((s) => s.index);
@@ -227,11 +213,25 @@ export default function Treemap() {
 
   const SIGNAL_META = SIGNALS.find((s) => s.id === signal)!;
 
+  // Contextual neighbourhood role chips for the legend — swatch color comes from
+  // the shared graph-role PALETTE so the key matches the on-tile rings exactly.
+  const roleChips: { color: string; label: string }[] = [];
+  if (hasSel) {
+    roleChips.push(
+      { color: PALETTE.center, label: 'selected' },
+      { color: PALETTE.fwd, label: 'depends-on' },
+      { color: PALETTE.impact, label: 'depended-on-by' },
+    );
+  }
+  if (searchActive) roleChips.push({ color: PALETTE.accent, label: 'search-match' });
+  if (dupVersionIds.size > 0) roleChips.push({ color: PALETTE.dup, label: 'duplicated' });
+  if (rootIds?.size) roleChips.push({ color: PALETTE.root, label: 'root' });
+
   return (
-    <div className="absolute inset-0 bg-bg overflow-hidden">
+    <div className="absolute inset-0 bg-deep-field overflow-hidden">
       {/* in-component signal toggle (mirrors the Controls3D button-group idiom) */}
-      <div className="absolute left-3.5 top-3.5 z-10 flex flex-col gap-2 p-2.5 rounded-card border border-line bg-panel/90 shadow-panel backdrop-blur-sm">
-        <SectionHeader className="mt-0 mb-0">Tile area</SectionHeader>
+      <Hud className="absolute left-3.5 top-3.5 z-10 flex flex-col gap-2 p-2.5">
+        <Eyebrow>Tile area</Eyebrow>
         <SegmentedControl
           options={SIGNAL_OPTIONS}
           value={signal}
@@ -240,10 +240,10 @@ export default function Treemap() {
           size="sm"
           className="w-full [&>button]:flex-1"
         />
-        <p className="text-micro leading-snug text-muted max-w-[280px]">
+        <p className="text-meta leading-snug text-archive max-w-[280px]">
           {nodes.length} tiles · area ∝ {SIGNALS.find((s) => s.id === signal)!.title.toLowerCase()} · colour = depth
         </p>
-      </div>
+      </Hud>
 
       {/* approximate-data badge: reach signals fell back to degree proxies */}
       {approximate && signalsThatNeedReach && (
@@ -309,8 +309,10 @@ export default function Treemap() {
           // Always-on markers (beneath the contextual ring): dup pink, root purple.
           if (isDup) shadows.push(`inset 0 0 0 1.5px ${PALETTE.dup}`);
           if (isRoot) shadows.push(`inset 0 0 0 1.5px ${PALETTE.root}`);
-          // Faint dark inner edge keeps adjacent same-depth tiles legible.
-          shadows.push('inset 0 0 0 1px rgba(0,0,0,0.28)');
+          // Faint dark inner edge keeps adjacent same-depth tiles legible — the
+          // tile's own fill mixed most of the way toward the page background.
+          const edge = mixHex(fill, PALETTE.bg, 0.55);
+          shadows.push(`inset 0 0 0 1px ${edge}`);
 
           // Lift highlighted tiles above their neighbours so rings aren't clipped.
           let zIndex = 1;
@@ -348,7 +350,7 @@ export default function Treemap() {
                   activate();
                 }
               }}
-              className="absolute box-border cursor-pointer overflow-hidden flex items-start outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="absolute box-border cursor-pointer overflow-hidden flex items-start outline-none focus-visible:ring-2 focus-visible:ring-cyan-gray"
               style={{
                 left: t.x,
                 top: t.y,
@@ -362,8 +364,10 @@ export default function Treemap() {
             >
               {showLabel && (
                 <span
-                  className="px-1 pt-0.5 text-micro leading-tight font-mono truncate w-full pointer-events-none"
-                  style={{ color: 'rgba(8,10,14,0.92)' }}
+                  className="px-1 pt-0.5 text-meta leading-tight font-mono truncate w-full pointer-events-none"
+                  // Dark label = the tile's own fill mixed almost all the way to
+                  // the page background, so it stays legible on the bright ramp.
+                  style={{ color: mixHex(fill, PALETTE.bg, 0.92) }}
                 >
                   {shortLabel(n.purl)}
                 </span>
@@ -376,9 +380,9 @@ export default function Treemap() {
       {/* In-component legend (page.tsx legend is hidden in the map view). Depth
           ramp on top; neighbourhood role chips shown only when relevant. */}
       {nodes.length > 0 && (
-        <div className="absolute left-3.5 bottom-3.5 z-10 flex flex-col gap-2 p-2.5 rounded-card border border-line bg-panel/90 shadow-panel backdrop-blur-sm">
+        <Hud className="absolute left-3.5 bottom-3.5 z-10 flex flex-col gap-2 p-2.5">
           <div className="flex items-center gap-2">
-            <span className="text-micro text-muted">shallow</span>
+            <span className="text-meta text-archive">shallow</span>
             <span
               className="h-2.5 w-24 rounded-pill"
               style={{
@@ -386,21 +390,10 @@ export default function Treemap() {
               }}
               aria-hidden
             />
-            <span className="text-micro text-muted">deep</span>
+            <span className="text-meta text-archive">deep</span>
           </div>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 max-w-[280px]">
-            {hasSel && (
-              <>
-                <LegendChip color={PALETTE.center} label="selected" />
-                <LegendChip color={PALETTE.fwd} label="depends-on" />
-                <LegendChip color={PALETTE.impact} label="depended-on-by" />
-              </>
-            )}
-            {searchActive && <LegendChip color={PALETTE.accent} label="search-match" />}
-            {dupVersionIds.size > 0 && <LegendChip color={PALETTE.dup} label="duplicated" />}
-            {!!rootIds?.size && <LegendChip color={PALETTE.root} label="root" />}
-          </div>
-        </div>
+          {roleChips.length > 0 && <Legend items={roleChips} className="max-w-[280px]" />}
+        </Hud>
       )}
 
       {nodes.length === 0 && (

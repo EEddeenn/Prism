@@ -6,72 +6,33 @@ import { api, ApiError } from '@/lib/api';
 import { shortLabel } from '@/lib/palette';
 import FidelityBanner from '@/components/FidelityBanner';
 import {
+  Section,
   SectionHeader,
-  RowButton,
+  Eyebrow,
   Badge,
   MetricPill,
   Callout,
-  StatBar,
   PanelState,
-  type MeterTone,
-  type Tone,
-} from '@/components/ui';
+  DataTable,
+  HeroFigure,
+  RankedBarRow,
+  PurlLabel,
+  DataCard,
+  TruncationNote,
+} from '@/design-system';
+import { type Tone, severity, pickTone } from '@/lib/tone';
 import type {
   RiskProfile, Chokepoint, ClassifiedCycle, Fragmentation, ScopeRow,
   Subsystem, DiamondReuse, MinimalView, OverlapView,
 } from '@/lib/types';
 
-/** Tone a 0–100 risk score (low → high) so risk red matches the shared `bad` red. */
-function scoreTone(score: number): MeterTone | 'gen' {
-  if (score >= 75) return 'bad';
-  if (score >= 50) return 'warn';
-  if (score >= 25) return 'gen';
-  return 'ok';
-}
-
-/** A score tone as a Tailwind text-color token (`gen` has no semantic alias). */
-function scoreTextClass(score: number): string {
-  const t = scoreTone(score);
-  return t === 'gen' ? 'text-gen' : `text-${t}`;
-}
-
-/** A score tone usable by StatBar, collapsing the bespoke `gen` ramp stop to warn. */
-function scoreMeterTone(score: number): MeterTone {
-  const t = scoreTone(score);
-  return t === 'gen' ? 'warn' : t;
-}
-
+/** Cycle class → tone. These are classifier verdicts (not edge kinds), so they
+ *  resolve through `pickTone` against this small map. */
 const CYCLE_TONE: Record<string, Tone> = {
   'runtime-coupling': 'bad',
   'runtime-cluster': 'warn',
-  'tooling-cycle': 'muted',
+  'tooling-cycle': 'neutral',
 };
-
-/**
- * Render a purl's shortLabel: a clickable button selecting its node when the purl
- * maps to one in the loaded graph (e.g. a versioned purl), else plain text (e.g. a
- * base purl with no `@version`).
- */
-function PurlLabel({
-  purl, id, selectNode, className,
-}: {
-  purl: string;
-  id: number | undefined;
-  selectNode: (id: number) => void;
-  className?: string;
-}) {
-  const label = shortLabel(purl);
-  if (id == null) return <span className={className}>{label}</span>;
-  return (
-    <button
-      type="button"
-      onClick={() => selectNode(id)}
-      className={`text-left hover:text-accent transition-colors ${className ?? ''}`}
-    >
-      {label}
-    </button>
-  );
-}
 
 /**
  * The Structure tab: a server-computed structural-analysis dashboard — risk
@@ -132,7 +93,7 @@ export default function StructureTab() {
   }, [run]);
 
   if (run == null) return <PanelState kind="prompt">Pick a run.</PanelState>;
-  if (error) return <Callout tone="bad" role="alert">{error}</Callout>;
+  if (error) return <PanelState kind="error">{error}</PanelState>;
   if (loading && !risk) return <PanelState kind="loading">Computing structural analysis…</PanelState>;
 
   return (
@@ -142,27 +103,23 @@ export default function StructureTab() {
       {/* Risk profile */}
       {risk && (
         <section>
-          <div className="flex items-baseline gap-2 mb-2">
-            <span className="text-head font-semibold">Structural risk</span>
-            <span className={`text-display font-bold tabular-nums ${scoreTextClass(risk.overall)}`}>
-              {risk.overall}
-            </span>
-            <span className="text-muted text-mini">/ 100 · {risk.band}</span>
-          </div>
-          <div className="flex flex-col gap-1.5">
+          <Eyebrow>Structural risk</Eyebrow>
+          <HeroFigure
+            value={risk.overall}
+            unit={`/ 100 · ${risk.band}`}
+            tone={severity(risk.overall)}
+          />
+          <div className="mt-2 flex flex-col gap-1.5">
             {risk.dimensions.map((d) => (
-              <div key={d.name} className="flex items-center gap-2" title={d.detail}>
-                <span className="w-[120px] shrink-0 text-mini text-muted">{d.name}</span>
-                <StatBar
-                  value={d.score}
-                  max={100}
-                  tone={scoreMeterTone(d.score)}
-                  height="lg"
-                  ariaLabel={`${d.name} risk ${d.score} of 100`}
-                  className="flex-1"
-                />
-                <span className="w-[26px] text-right text-mini tabular-nums">{d.score}</span>
-              </div>
+              <RankedBarRow
+                key={d.name}
+                label={<span className="text-data-s text-archive">{d.name}</span>}
+                value={d.score}
+                max={100}
+                tone={severity(d.score)}
+                title={d.detail}
+                ariaLabel={`${d.name} risk ${d.score} of 100`}
+              />
             ))}
           </div>
         </section>
@@ -170,25 +127,27 @@ export default function StructureTab() {
 
       {/* Scope footprints */}
       {scope.length > 0 && (
-        <section>
-          <SectionHeader>Scope footprints</SectionHeader>
-          <table className="w-full text-mini tabular-nums">
-            <thead className="text-muted">
-              <tr><th className="text-left font-medium">scope</th><th className="text-right font-medium">footprint</th><th className="text-right font-medium">exclusive</th><th className="text-right font-medium">depth</th></tr>
-            </thead>
-            <tbody>
-              {scope.map((s) => (
-                <tr key={s.kind} className="border-t border-line">
-                  <td className="py-0.5">{s.kind}</td>
-                  <td className="text-right">{s.footprint}</td>
-                  <td className="text-right">{s.exclusive}</td>
-                  <td className="text-right">{s.max_depth}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className="text-muted text-micro mt-1">footprint = reachable under production + scope; exclusive = added beyond production.</p>
-        </section>
+        <Section title="Scope footprints">
+          <DataTable
+            caption="Scope footprints"
+            columns={[
+              { key: 'kind', header: 'scope' },
+              { key: 'footprint', header: 'footprint', align: 'right' },
+              { key: 'exclusive', header: 'exclusive', align: 'right' },
+              { key: 'max_depth', header: 'depth', align: 'right' },
+            ]}
+            rows={scope.map((s) => ({
+              key: s.kind,
+              cells: {
+                kind: s.kind,
+                footprint: s.footprint,
+                exclusive: s.exclusive,
+                max_depth: s.max_depth,
+              },
+            }))}
+          />
+          <p className="mt-1 font-mono text-meta text-dust">footprint = reachable under production + scope; exclusive = added beyond production.</p>
+        </Section>
       )}
 
       {/* Subsystems — the top-level partition */}
@@ -200,32 +159,32 @@ export default function StructureTab() {
         return (
           <section>
             <SectionHeader count={subsystems.length}>Subsystems</SectionHeader>
-            <p className="text-muted text-micro mb-1.5">the top-level partition: who owns what.</p>
+            <p className="mb-1.5 font-mono text-meta text-dust">the top-level partition: who owns what.</p>
             <ul className="flex flex-col gap-1">
-              {shown.map((sub) => (
-                <li key={sub.owner_purl} className="flex items-center gap-2">
-                  <PurlLabel
-                    purl={sub.owner_purl}
-                    id={purlToId.get(sub.owner_purl)}
-                    selectNode={selectNode}
-                    className="text-mini truncate min-w-0 flex-[2]"
-                  />
-                  <StatBar
-                    value={sub.size}
-                    max={maxSize}
-                    tone="accent"
-                    ariaLabel={`${shortLabel(sub.owner_purl)} subsystem size ${sub.size}`}
-                    className="flex-1"
-                  />
-                  <span className="w-[34px] text-right text-mini tabular-nums shrink-0">{sub.size}</span>
-                  <span className="w-[44px] text-right text-micro text-muted tabular-nums shrink-0" title={`${sub.exclusive} exclusive`}>
-                    {sub.exclusive} excl
-                  </span>
-                  <Badge tone={sub.runtime ? 'ok' : 'muted'}>{sub.runtime ? 'runtime' : 'dev'}</Badge>
-                </li>
-              ))}
+              {shown.map((sub) => {
+                const id = purlToId.get(sub.owner_purl);
+                return (
+                  <li key={sub.owner_purl}>
+                    <RankedBarRow
+                      label={
+                        <PurlLabel
+                          purl={sub.owner_purl}
+                          onSelect={id != null ? () => selectNode(id) : undefined}
+                          className="text-data-s"
+                        />
+                      }
+                      value={sub.size}
+                      max={maxSize}
+                      tone="accent"
+                      sub={`${sub.exclusive} excl`}
+                      badge={<Badge tone={sub.runtime ? 'good' : 'neutral'}>{sub.runtime ? 'runtime' : 'dev'}</Badge>}
+                      ariaLabel={`${shortLabel(sub.owner_purl)} subsystem size ${sub.size}, ${sub.exclusive} exclusive`}
+                    />
+                  </li>
+                );
+              })}
             </ul>
-            {more > 0 && <p className="text-muted text-micro mt-1">… +{more} more</p>}
+            {more > 0 && <TruncationNote shown={shown.length} total={sorted.length} more={more} className="mt-1" />}
           </section>
         );
       })()}
@@ -235,30 +194,32 @@ export default function StructureTab() {
         <section>
           <SectionHeader>Shared surfaces</SectionHeader>
           {shared.shared_surfaces.length === 0 ? (
-            <p className="text-muted text-mini">
+            <p className="text-data-s text-archive">
               Only {shared.subsystems} subsystem{shared.subsystems === 1 ? '' : 's'} — no packages span multiple subsystems.
             </p>
           ) : (
             <>
-              <p className="text-muted text-micro mb-1.5">packages reached across more than one subsystem.</p>
+              <p className="mb-1.5 font-mono text-meta text-dust">packages reached across more than one subsystem.</p>
               <ul className="flex flex-col gap-1">
-                {shared.shared_surfaces.map((s) => (
-                  <li key={s.purl} className="flex items-center gap-2 text-mini">
-                    <PurlLabel
-                      purl={s.purl}
-                      id={purlToId.get(s.purl)}
-                      selectNode={selectNode}
-                      className="truncate min-w-0 flex-1"
-                    />
-                    <span className="text-muted text-micro tabular-nums shrink-0">in {s.spread} subsystems</span>
-                  </li>
-                ))}
+                {shared.shared_surfaces.map((s) => {
+                  const id = purlToId.get(s.purl);
+                  return (
+                    <li key={s.purl} className="flex items-center gap-2 text-data-s">
+                      <PurlLabel
+                        purl={s.purl}
+                        onSelect={id != null ? () => selectNode(id) : undefined}
+                        className="min-w-0 flex-1 text-data-s"
+                      />
+                      <span className="shrink-0 font-mono tabular-nums text-meta text-archive">in {s.spread} subsystems</span>
+                    </li>
+                  );
+                })}
               </ul>
               {shared.top_pairs.length > 0 && (
-                <ul className="flex flex-col gap-1 mt-1.5">
+                <ul className="mt-1.5 flex flex-col gap-1">
                   {shared.top_pairs.map((p, i) => (
-                    <li key={i} className="text-micro text-muted px-2.5 py-1 rounded-control bg-panel-2 truncate">
-                      <span className="text-ink">{shortLabel(p.a)}</span> ∩ <span className="text-ink">{shortLabel(p.b)}</span>:{' '}
+                    <li key={i} className="truncate rounded-control bg-charcoal px-2.5 py-1 font-mono text-meta text-archive">
+                      <span className="text-bone">{shortLabel(p.a)}</span> ∩ <span className="text-bone">{shortLabel(p.b)}</span>:{' '}
                       <span className="tabular-nums">{p.shared}</span>
                     </li>
                   ))}
@@ -273,17 +234,18 @@ export default function StructureTab() {
       {chokepoints.length > 0 && (
         <section>
           <SectionHeader>Chokepoints</SectionHeader>
-          <p className="text-muted text-micro mb-1.5">packages that solely gate access to large parts of the graph.</p>
+          <p className="mb-1.5 font-mono text-meta text-dust">packages that solely gate access to large parts of the graph.</p>
           <ul className="flex flex-col gap-1">
             {chokepoints.map((c) => (
               <li key={c.node.id}>
-                <RowButton
+                <RankedBarRow
+                  label={<PurlLabel purl={c.node.purl} className="text-data-s" />}
+                  value={c.dominated}
+                  max={chokepoints[0]?.dominated ?? 1}
+                  tone="bad"
                   onSelect={() => selectNode(c.node.id)}
                   ariaLabel={`${shortLabel(c.node.purl)} dominates ${c.dominated} packages`}
-                >
-                  <span className="font-mono text-bad text-mini tabular-nums min-w-[34px]">{c.dominated}</span>
-                  <span className="text-mini truncate">{shortLabel(c.node.purl)}</span>
-                </RowButton>
+                />
               </li>
             ))}
           </ul>
@@ -294,20 +256,22 @@ export default function StructureTab() {
       <section>
         <SectionHeader count={cycles.length}>Cycles</SectionHeader>
         {cycles.length === 0 ? (
-          <p className="text-muted text-mini">no dependency cycles.</p>
+          <p className="text-data-s text-archive">no dependency cycles.</p>
         ) : (
           <ul className="flex flex-col gap-1.5">
             {cycles.slice(0, 8).map((c, i) => (
-              <li key={i} className="px-2.5 py-1.5 rounded-control bg-panel-2">
-                <div className="flex items-center gap-2 text-mini">
-                  <Badge tone={CYCLE_TONE[c.class] ?? 'muted'}>{c.class}</Badge>
-                  <span className="text-muted">{c.members.length} members</span>
-                  <span className="ml-auto"><MetricPill label="blast" value={c.external_dependents} /></span>
+              <DataCard
+                key={i}
+                right={<MetricPill label="blast" value={c.external_dependents} />}
+              >
+                <div className="flex items-center gap-2 text-data-s">
+                  <Badge tone={pickTone(CYCLE_TONE, c.class)}>{c.class}</Badge>
+                  <span className="font-mono tabular-nums text-archive">{c.members.length} members</span>
                 </div>
-                <div className="text-micro text-muted truncate mt-0.5">
+                <div className="mt-0.5 truncate font-mono text-meta text-archive">
                   {c.members.map((m) => shortLabel(m.purl)).join(' ⇄ ')}
                 </div>
-              </li>
+              </DataCard>
             ))}
           </ul>
         )}
@@ -317,34 +281,33 @@ export default function StructureTab() {
       {diamonds && (
         <section>
           <SectionHeader>Diamond reuse</SectionHeader>
-          <div className="flex items-baseline gap-2 mb-1">
-            <span className="text-head font-semibold tabular-nums">{diamonds.total_reconvergence}</span>
-            <span className="text-muted text-mini">reconvergence</span>
-          </div>
+          <HeroFigure value={diamonds.total_reconvergence} label="reconvergence" tone="neutral" />
           {diamonds.foundations.length > 0 && (
-            <p className="text-muted text-micro mb-1.5">
+            <p className="mb-1.5 mt-2 font-mono text-meta text-dust">
               top {diamonds.foundations.length} foundation{diamonds.foundations.length === 1 ? '' : 's'} carry {Math.round(diamonds.top_share_pct)}% of reconvergence.
             </p>
           )}
           {diamonds.foundations.length === 0 ? (
-            <p className="text-muted text-mini">no shared foundations.</p>
+            <p className="mt-2 text-data-s text-archive">no shared foundations.</p>
           ) : (
             <ul className="flex flex-col gap-1">
-              {diamonds.foundations.map((f) => (
-                <li key={f.purl} className="flex items-center gap-2 text-mini">
-                  <PurlLabel
-                    purl={f.purl}
-                    id={purlToId.get(f.purl)}
-                    selectNode={selectNode}
-                    className="truncate min-w-0 flex-1"
-                  />
-                  <span className="text-muted text-micro tabular-nums shrink-0" title={`${f.parents} parents`}>{f.parents} parents</span>
-                  <span className="text-accent text-micro tabular-nums shrink-0 w-[40px] text-right" title={`${f.reconvergence} reconvergence`}>{f.reconvergence}</span>
-                </li>
-              ))}
+              {diamonds.foundations.map((f) => {
+                const id = purlToId.get(f.purl);
+                return (
+                  <li key={f.purl} className="flex items-center gap-2 text-data-s">
+                    <PurlLabel
+                      purl={f.purl}
+                      onSelect={id != null ? () => selectNode(id) : undefined}
+                      className="min-w-0 flex-1 text-data-s"
+                    />
+                    <span className="shrink-0 font-mono tabular-nums text-meta text-archive" title={`${f.parents} parents`}>{f.parents} parents</span>
+                    <span className="w-[40px] shrink-0 text-right font-mono tabular-nums text-meta text-bone" title={`${f.reconvergence} reconvergence`}>{f.reconvergence}</span>
+                  </li>
+                );
+              })}
             </ul>
           )}
-          <p className="text-muted text-micro mt-1">shared foundations reached along many paths — the diamonds that create reconvergence (≈ the H₁ loop count).</p>
+          <p className="mt-1 font-mono text-meta text-dust">shared foundations reached along many paths — the diamonds that create reconvergence (≈ the H₁ loop count).</p>
         </section>
       )}
 
@@ -352,24 +315,24 @@ export default function StructureTab() {
       {minimal && (
         <section>
           <SectionHeader>Minimal skeleton</SectionHeader>
-          <div className="flex items-baseline gap-2 mb-1">
-            <span className="text-head font-semibold tabular-nums">{minimal.original_edges}</span>
-            <span className="text-muted text-mini">→</span>
-            <span className="text-head font-semibold tabular-nums">{minimal.reduced_edges}</span>
+          <div className="flex items-baseline gap-2">
+            <span className="font-mono text-h3 tabular-nums text-bone">{minimal.original_edges}</span>
+            <span className="font-mono text-data-s text-archive">→</span>
+            <span className="font-mono text-h3 tabular-nums text-bone">{minimal.reduced_edges}</span>
             {minimal.original_edges > 0 && (
-              <span className="text-muted text-mini tabular-nums">
+              <span className="font-mono text-data-s tabular-nums text-archive">
                 −{Math.round(100 * (1 - minimal.reduced_edges / minimal.original_edges))}%
               </span>
             )}
           </div>
-          <p className="text-muted text-micro">the dominator skeleton: the edges that actually control reachability.</p>
+          <p className="mt-1 font-mono text-meta text-dust">the dominator skeleton: the edges that actually control reachability.</p>
           {minimal.edges.length > 0 && (
-            <ul className="flex flex-col gap-1 mt-1.5">
+            <ul className="mt-1.5 flex flex-col gap-1">
               {minimal.edges.slice(0, 6).map((e, i) => (
-                <li key={i} className="flex items-center gap-1.5 text-micro text-muted truncate">
-                  <span className="text-ink truncate min-w-0">{shortLabel(e.gateway)}</span>
+                <li key={i} className="flex items-center gap-1.5 truncate font-mono text-meta text-archive">
+                  <span className="min-w-0 truncate text-bone">{shortLabel(e.gateway)}</span>
                   <span className="shrink-0">→</span>
-                  <span className="text-ink truncate min-w-0">{shortLabel(e.node)}</span>
+                  <span className="min-w-0 truncate text-bone">{shortLabel(e.node)}</span>
                 </li>
               ))}
             </ul>
@@ -381,12 +344,12 @@ export default function StructureTab() {
       {frag && (
         <section>
           <SectionHeader>Fragmentation</SectionHeader>
-          <p className="text-mini">{frag.note}</p>
+          <p className="text-data-s text-bone">{frag.note}</p>
           {frag.subsystem_islands.length > 0 && (
-            <ul className="flex flex-col gap-1 mt-1.5">
+            <ul className="mt-1.5 flex flex-col gap-1">
               {frag.subsystem_islands.slice(0, 5).map((isl, i) => (
-                <li key={i} className="text-micro text-muted px-2.5 py-1 rounded-control bg-panel-2">
-                  <span className="font-semibold text-ink tabular-nums">{isl.size}</span> pkgs
+                <li key={i} className="rounded-control bg-charcoal px-2.5 py-1 font-mono text-meta text-archive">
+                  <span className="font-semibold tabular-nums text-bone">{isl.size}</span> pkgs
                   {isl.detached_from_roots ? ' · detached' : ''} — {isl.members.slice(0, 3).map(shortLabel).join(', ')}
                 </li>
               ))}

@@ -2,6 +2,8 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { useLoadBundle } from '@/lib/useLoadBundle';
+import { Callout, buttonClass } from '@/design-system';
+import { cn } from '@/lib/cn';
 
 export default function BundleDropzone() {
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -43,19 +45,19 @@ export default function BundleDropzone() {
       onDrop={onDrop}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
-      className={[
-        'flex flex-col items-center justify-center gap-2 rounded-card border border-dashed px-8 py-7 transition-colors',
-        'bg-panel border-line',
-        dragOver ? 'border-accent bg-panel-2' : '',
-      ].join(' ')}
+      className={cn(
+        'flex flex-col items-center justify-center gap-2 rounded-control border border-dashed px-8 py-7 transition-colors duration-150 ease-instrument',
+        'bg-charcoal border-iron',
+        dragOver && 'border-cyan-gray bg-model-black',
+      )}
     >
       {/* Document-with-down-arrow glyph: telegraphs "drop a file here". */}
       <svg
-        className={`h-8 w-8 mb-1 transition-colors ${dragOver ? 'text-accent' : 'text-muted'}`}
+        className={cn('h-8 w-8 mb-1 transition-colors duration-150', dragOver ? 'text-cyan-gray' : 'text-archive')}
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
-        strokeWidth={1.5}
+        strokeWidth={1.8}
         strokeLinecap="round"
         strokeLinejoin="round"
         aria-hidden
@@ -65,17 +67,11 @@ export default function BundleDropzone() {
         <path d="M12 12v6" />
         <path d="M9 15l3 3 3-3" />
       </svg>
-      <p className="text-ink text-sm">
-        Drop a <code className="bg-panel-2 px-1.5 rounded-badge">.prismbundle</code> file here
+      <p className="text-bone text-data">
+        Drop a <code className="font-mono bg-model-black px-1.5 py-px rounded-control">.prismbundle</code> file here
       </p>
-      <p className="text-muted text-xs">or</p>
-      <label
-        className={[
-          'inline-flex items-center cursor-pointer rounded-control border border-line px-3 py-1.5 text-xs',
-          'bg-panel-2 text-ink hover:border-ink transition-colors',
-          busy ? 'opacity-60 cursor-wait' : '',
-        ].join(' ')}
-      >
+      <p className="text-archive text-data-s">or</p>
+      <label className={buttonClass('secondary', 'sm', cn('cursor-pointer', busy && 'opacity-60 cursor-wait'))}>
         <input
           ref={inputRef}
           type="file"
@@ -87,9 +83,9 @@ export default function BundleDropzone() {
         {busy ? `decoding ${status.name}…` : 'choose file'}
       </label>
       {status.kind === 'error' && (
-        <p className="text-xs text-red-400 max-w-md text-center break-words">
+        <Callout tone="bad" role="alert" showWord className="mt-1 w-full max-w-md break-words">
           {status.error}
-        </p>
+        </Callout>
       )}
     </div>
   );

@@ -23,6 +23,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { getBundle } from '@/lib/bundleStore';
 import { wasm } from '@/lib/wasm';
+import { Callout, Eyebrow } from '@/design-system';
 import BundleDropzone from './BundleDropzone';
 import Logo from './Logo';
 
@@ -54,13 +55,13 @@ function GitHubIcon({ className }: { className?: string }) {
  *  own chrome. */
 function LandingFooter() {
   return (
-    <footer className="flex items-center justify-center gap-2 py-4 text-mini text-muted border-t border-line">
+    <footer className="flex items-center justify-center gap-2 py-4 text-meta text-archive border-t border-iron">
       <a
         href={REPO_URL}
         target="_blank"
         rel="noopener noreferrer"
         aria-label="Prism source on GitHub"
-        className="inline-flex items-center gap-1.5 hover:text-ink transition-colors"
+        className="inline-flex items-center gap-1.5 font-mono hover:text-bone transition-colors duration-150"
       >
         <GitHubIcon />
         <span>EEddeenn/Prism</span>
@@ -144,10 +145,15 @@ export default function WasmBundleLoader({ children }: { children: ReactNode }) 
 
   if (state.kind === 'loading') {
     return (
-      <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-4">
-        <Logo size={44} className="text-accent opacity-80" />
-        <p className="text-ink text-sm">Loading bundle…</p>
-        <p className="text-muted text-xs font-mono break-all max-w-md">{state.sha}</p>
+      <div
+        className="flex flex-col items-center justify-center h-full gap-3 text-center px-4 bg-deep-field"
+        aria-live="polite"
+        aria-busy="true"
+      >
+        <Logo size={44} className="text-cyan-gray opacity-80 animate-pulse" />
+        <Eyebrow>Decoding</Eyebrow>
+        <p className="text-bone text-data">Loading bundle…</p>
+        <p className="text-archive text-data-s font-mono break-all max-w-md">{state.sha}</p>
       </div>
     );
   }
@@ -164,41 +170,38 @@ export default function WasmBundleLoader({ children }: { children: ReactNode }) 
         : null;
 
   return (
-    <div className="flex flex-col min-h-full">
+    <div className="flex flex-col min-h-full bg-deep-field">
       <main className="flex-1 flex flex-col items-center justify-center gap-7 px-6 py-12">
         {/* Hero: logo + brand + tagline. The vertex tints on the logo
-            (sky / pink / gold) echo the H₀ / H₁ / H₂ palette used in the
+            (H₀ / H₁ / H₂ graph-role tokens) echo the palette used in the
             TDA views, so the brand mark also reads as a small legend. */}
         <header className="flex flex-col items-center gap-3 text-center">
-          <Logo size={64} className="text-accent" />
-          <h1 className="text-4xl font-extrabold tracking-tight text-accent leading-none">
+          <Logo size={64} className="text-cyan-gray" />
+          <h1 className="text-figure-l font-semibold tracking-tight text-bone leading-none">
             Prism
           </h1>
-          <p className="text-mini uppercase tracking-[2px] text-muted">
-            dependency topology
-          </p>
+          <Eyebrow>dependency topology</Eyebrow>
         </header>
 
         {/* Dropzone column, capped at a comfortable reading width so the
             dashed border doesn't stretch across an ultrawide monitor. */}
         <div className="w-full max-w-md flex flex-col gap-3">
           <BundleDropzone />
-          {hint && (
-            <p
-              className={[
-                'text-xs text-center max-w-md break-words mx-auto',
-                state.kind === 'error' ? 'text-red-400' : 'text-muted',
-              ].join(' ')}
-              role={state.kind === 'error' ? 'alert' : undefined}
-            >
-              {hint}
-            </p>
-          )}
-          <p className="text-muted text-xs text-center">
+          {hint &&
+            (state.kind === 'error' ? (
+              <Callout tone="bad" role="alert" showWord className="break-words">
+                {hint}
+              </Callout>
+            ) : (
+              <p className="text-data-s text-center max-w-md break-words mx-auto text-archive">
+                {hint}
+              </p>
+            ))}
+          <p className="text-archive text-data-s text-center">
             Or produce one with{' '}
-            <code className="bg-panel-2 px-1.5 rounded-badge">prism analyze</code>
+            <code className="font-mono bg-charcoal px-1.5 py-px rounded-control">prism analyze</code>
             {' / '}
-            <code className="bg-panel-2 px-1.5 rounded-badge">prism export bundle</code>.
+            <code className="font-mono bg-charcoal px-1.5 py-px rounded-control">prism export bundle</code>.
           </p>
         </div>
       </main>

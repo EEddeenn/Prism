@@ -60,7 +60,7 @@ export default function SceneLabels({ layout }: { layout: Layout3D }) {
             zIndexRange={[8, 0]}
             style={{ pointerEvents: 'none' }}
           >
-            <div className="px-1 text-micro font-mono text-ink whitespace-nowrap" style={{ textShadow: '0 0 3px #000, 0 0 3px #000' }}>
+            <div className="px-1 text-meta font-mono text-bone whitespace-nowrap" style={{ textShadow: '0 0 3px #000, 0 0 3px #000' }}>
               {shortLabel(n.purl)}
             </div>
           </Html>

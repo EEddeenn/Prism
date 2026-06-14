@@ -5,7 +5,17 @@ import { useGraphStore } from '@/store/useGraphStore';
 import FidelityBanner from '@/components/FidelityBanner';
 import { shortLabel } from '@/lib/palette';
 import { signalValue } from '@/lib/layout3d';
-import { Callout, PanelState, RowButton, StatBar } from '@/components/ui';
+import {
+  Callout,
+  DataTable,
+  Eyebrow,
+  PanelState,
+  StatBar,
+  TruncationNote,
+  type DataTableColumn,
+  type DataTableRow,
+} from '@/design-system';
+import { severity, type Tone } from '@/lib/tone';
 
 /** A numeric column of the leaderboard. `key` indexes a Row's value bag. */
 type ColKey = 'revReach' | 'fwdReach' | 'inDeg' | 'outDeg' | 'famSize' | 'depth' | 'score';
@@ -42,8 +52,14 @@ interface Row {
 const CAP = 40;
 const fmtScore = (x: number) => (x >= 100 ? String(Math.round(x)) : String(Math.round(x * 10) / 10));
 
-/** Shared grid template: a flexible pkg column followed by seven numeric columns. */
-const GRID = 'grid items-center gap-1.5 grid-cols-[minmax(0,1fr)_repeat(7,minmax(2.5rem,1fr))]';
+/** Tone for a numeric cell's mini-bar: the risk column always rides its own
+ *  severity ramp; the active sort column reads `info` (cyan-gray); the rest stay
+ *  neutral. The sort arrow + bold value carry the active signal too (never color
+ *  alone). */
+function cellTone(key: ColKey, value: number, sortKey: ColKey): Tone {
+  if (key === 'score') return severity(value);
+  return key === sortKey ? 'info' : 'neutral';
+}
 
 export default function RiskTab() {
   const nodes = useGraphStore((s) => s.nodes);
@@ -92,6 +108,74 @@ export default function RiskTab() {
     return sorted.slice(0, CAP);
   }, [rows, sortKey]);
 
+  // Schema-driven columns: a left pkg column plus the seven sortable numerics.
+  const columns = useMemo<DataTableColumn[]>(
+    () => [
+      { key: 'pkg', header: 'pkg', align: 'left' },
+      ...COLS.map((c): DataTableColumn => ({
+        key: c.key,
+        header: (
+          <span title={c.title} className="whitespace-nowrap">
+            {c.label}
+          </span>
+        ),
+        align: 'right',
+        sortable: true,
+      })),
+    ],
+    [],
+  );
+
+  const tableRows = useMemo<DataTableRow[]>(
+    () =>
+      ranked.map((r, i) => {
+        const selected = r.id === sel;
+        return {
+          key: String(r.id),
+          active: selected,
+          onSelect: () => {
+            void selectNode(r.id);
+            requestFocus(r.id);
+          },
+          cells: {
+            pkg: (
+              <span className="flex min-w-0 items-center" title={r.purl}>
+                <span className="mr-1 font-mono tabular-nums text-dust">{i + 1}.</span>
+                <span className={`truncate font-mono ${selected ? 'text-node-center' : 'text-bone'}`}>
+                  {r.label}
+                </span>
+              </span>
+            ),
+            ...Object.fromEntries(
+              COLS.map((c) => {
+                const v = r[c.key];
+                const active = c.key === sortKey;
+                return [
+                  c.key,
+                  <span key={c.key} className="flex flex-col items-end gap-0.5">
+                    <span
+                      className={`leading-none tabular-nums ${active ? 'font-bold text-bone' : 'text-bone'}`}
+                    >
+                      {c.key === 'score' ? fmtScore(v) : v}
+                    </span>
+                    <StatBar
+                      value={v}
+                      max={maxes[c.key] || 1}
+                      tone={cellTone(c.key, v, sortKey)}
+                      height="sm"
+                      ariaLabel={`${c.label} ${c.key === 'score' ? fmtScore(v) : v}`}
+                      className="w-full"
+                    />
+                  </span>,
+                ];
+              }),
+            ),
+          },
+        };
+      }),
+    [ranked, sel, sortKey, maxes, selectNode, requestFocus],
+  );
+
   if (!index) {
     return <PanelState kind="prompt">Pick a run to rank packages by blast radius.</PanelState>;
   }
@@ -108,99 +192,34 @@ export default function RiskTab() {
     <div>
       <FidelityBanner />
 
-      <p className="text-muted text-xs mb-2">
-        Packages ranked by <b className="text-ink">blast radius</b> — how much of the graph breaks if
-        this one does. Click a header to re-sort, a row to inspect it.
+      <Eyebrow className="mb-1">Blast radius</Eyebrow>
+      <p className="mb-2 text-data-s text-archive">
+        Packages ranked by <b className="text-bone">blast radius</b> — how much of the graph breaks
+        if this one does. Click a header to re-sort, a row to inspect it.
       </p>
 
       {index.approximate && (
-        <Callout tone="warn" className="mb-2">
+        <Callout tone="warn" showWord className="mb-2">
           approximate (degree proxy on large graphs)
         </Callout>
       )}
 
-      <div className="border border-line rounded-card overflow-hidden bg-panel-2">
-        {/* Column headers — a real header row whose sort controls are <button>s. */}
-        <div role="row" className={`${GRID} bg-panel-3 text-muted font-mono text-label font-semibold px-2 py-1.5`}>
-          <div role="columnheader" className="text-left">pkg</div>
-          {COLS.map((c) => {
-            const active = c.key === sortKey;
-            return (
-              <div
-                key={c.key}
-                role="columnheader"
-                aria-sort={active ? 'descending' : 'none'}
-                className="text-right"
-              >
-                <button
-                  type="button"
-                  title={c.title}
-                  onClick={() => setSortKey(c.key)}
-                  aria-pressed={active}
-                  className={`inline-flex items-center justify-end gap-0.5 whitespace-nowrap select-none cursor-pointer hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded-badge ${
-                    active ? 'text-accent font-bold' : 'font-semibold'
-                  }`}
-                >
-                  {c.label}
-                  <span aria-hidden className="inline-block w-1.5 text-accent">{active ? '▾' : ''}</span>
-                </button>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Data rows — each is a keyboard-actionable drill-in button. */}
-        {ranked.map((r, i) => {
-          const selected = r.id === sel;
-          return (
-            <RowButton
-              key={r.id}
-              active={selected}
-              ariaLabel={`${r.label}: blast ${r.revReach}, reach ${r.fwdReach}, risk ${fmtScore(r.score)}`}
-              title={r.purl}
-              onSelect={() => {
-                void selectNode(r.id);
-                requestFocus(r.id);
-              }}
-              className={`${GRID} !rounded-none !border-x-0 !border-t border-line font-mono text-label`}
-            >
-              <span className="min-w-0 flex items-center">
-                <span className="text-muted mr-1 tabular-nums">{i + 1}.</span>
-                <span className={`truncate ${selected ? 'text-accent-2' : 'text-ink'}`}>{r.label}</span>
-              </span>
-              {COLS.map((c) => {
-                const v = r[c.key];
-                const active = c.key === sortKey;
-                return (
-                  <span key={c.key} className="flex flex-col items-end gap-0.5">
-                    <span
-                      className={`tabular-nums leading-none ${
-                        active ? 'text-accent font-bold' : 'text-ink'
-                      }`}
-                    >
-                      {c.key === 'score' ? fmtScore(v) : v}
-                    </span>
-                    <span aria-hidden className="block w-full">
-                      <StatBar
-                        value={v}
-                        max={maxes[c.key] || 1}
-                        tone={active ? 'accent' : 'muted'}
-                        height="sm"
-                        className="w-full !h-[2px]"
-                      />
-                    </span>
-                  </span>
-                );
-              })}
-            </RowButton>
-          );
-        })}
-      </div>
+      <DataTable
+        caption="Packages ranked by blast radius and related metrics"
+        columns={columns}
+        rows={tableRows}
+        sort={{ key: sortKey, dir: 'desc' }}
+        onSort={(key) => setSortKey(key as ColKey)}
+        className="border border-iron"
+      />
 
       {rows.length > CAP && (
-        <p className="text-muted text-label mt-2">
-          Showing the top {CAP} of {rows.length} by {COLS.find((c) => c.key === sortKey)?.label}.
-        </p>
+        <div className="mt-2 flex flex-wrap items-baseline gap-x-1">
+          <TruncationNote shown={CAP} total={rows.length} />
+          <span className="font-mono text-meta text-dust">
+            by {COLS.find((c) => c.key === sortKey)?.label}
+          </span>
+        </div>
       )}
     </div>
   );

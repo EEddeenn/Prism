@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ComponentType } from 'react';
 import { useGraphStore } from '@/store/useGraphStore';
 import { TABS, TAB_LABELS, type TabId } from '@/lib/tabs';
-import { TabNav } from '@/components/ui';
+import { TabNav, Eyebrow } from '@/design-system';
 import OverviewTab from './panel/OverviewTab';
 import RiskTab from './panel/RiskTab';
 import StructureTab from './panel/StructureTab';
@@ -150,14 +150,14 @@ export default function SidePanel() {
     // the chevron oriented to invite expansion. Keeps a visible separator
     // between the graph and the (now-hidden) inspector.
     return (
-      <aside className="flex flex-col w-9 shrink-0 bg-panel border-l border-line min-h-0">
+      <aside className="flex flex-col w-9 shrink-0 bg-charcoal border-l border-iron min-h-0">
         <button
           type="button"
           onClick={() => setCollapsed(false)}
           title="Show inspector panel"
           aria-label="Show inspector panel"
           aria-expanded={false}
-          className="w-full h-9 flex items-center justify-center text-muted hover:text-ink hover:bg-panel-2 transition-colors border-b border-line"
+          className="w-full h-9 flex items-center justify-center text-archive hover:text-bone hover:bg-model-black transition-colors border-b border-iron"
         >
           <Chevron open={false} />
         </button>
@@ -167,7 +167,7 @@ export default function SidePanel() {
 
   return (
     <aside
-      className="relative flex flex-col shrink-0 bg-panel border-l border-line min-h-0"
+      className="relative flex flex-col shrink-0 bg-charcoal border-l border-iron min-h-0"
       style={{ width }}
     >
       {/* Drag-to-resize handle. A 6-px-wide invisible target on the very
@@ -188,16 +188,16 @@ export default function SidePanel() {
         aria-valuemax={MAX_WIDTH}
         aria-valuenow={width}
         title="Drag to resize"
-        className="absolute left-0 top-0 bottom-0 w-1.5 -ml-px cursor-col-resize z-20 hover:bg-accent/40 active:bg-accent/60 transition-colors"
+        className="absolute left-0 top-0 bottom-0 w-1.5 -ml-px cursor-col-resize z-20 hover:bg-cyan-gray/40 active:bg-cyan-gray/60 transition-colors"
       />
 
       {/* Panel header: a slim row identifying the surface ("Inspector") and
           surfacing the active tab title, plus the collapse toggle. Gives the
           right rail a clear identity instead of dropping straight into tabs. */}
-      <div className="flex items-center justify-between gap-2 px-3.5 h-9 border-b border-line bg-panel-2/40">
+      <div className="flex items-center justify-between gap-2 px-3.5 h-9 border-b border-iron bg-model-black/40">
         <div className="flex items-baseline gap-2 min-w-0">
-          <span className="text-mini uppercase tracking-[1.5px] text-muted">Inspector</span>
-          <span className="text-body text-ink truncate" title={titleLabel}>
+          <Eyebrow>Inspector</Eyebrow>
+          <span className="text-data text-bone truncate" title={titleLabel}>
             {titleLabel}
           </span>
         </div>
@@ -207,7 +207,7 @@ export default function SidePanel() {
           title="Hide inspector panel"
           aria-label="Hide inspector panel"
           aria-expanded
-          className="shrink-0 w-6 h-6 flex items-center justify-center rounded-control text-muted hover:text-ink hover:bg-panel-3 transition-colors"
+          className="shrink-0 w-6 h-6 flex items-center justify-center rounded-control text-archive hover:text-bone hover:bg-model-black transition-colors"
         >
           <Chevron open />
         </button>

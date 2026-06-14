@@ -119,9 +119,12 @@ export default function Page() {
             </div>
           )}
 
-          <div className="absolute right-3.5 bottom-3.5 z-10 text-[11px] text-muted/70 pointer-events-none select-none">
-            ⌘K
-          </div>
+          {/* The 2D view owns the bottom-right corner with its overview minimap. */}
+          {view !== '2d' && (
+            <div className="absolute right-3.5 bottom-3.5 z-10 text-mini text-muted/70 pointer-events-none select-none">
+              ⌘K
+            </div>
+          )}
         </section>
         <SidePanel />
       </main>

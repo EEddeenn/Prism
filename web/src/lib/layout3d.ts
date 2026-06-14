@@ -45,6 +45,9 @@ export interface TerrainField {
   signal: TerrainSignal;
   /** True when revReach/fwdReach fell back to degree proxies (graph over cap). */
   approximate: boolean;
+  /** True when height uses √ compression (heavy-tailed reach signals), so the
+   *  legend can map a height fraction `f` back to the value `f²·maxSignal`. */
+  sqrtHeight: boolean;
 }
 export interface Layout3D {
   pos: Map<number, Vec3>;
@@ -217,7 +220,13 @@ export function layoutTerrain(
   );
   let maxSig = 0;
   for (const n of nodes) maxSig = Math.max(maxSig, signalValue(index.metrics.get(n.id)!, signal));
-  const hScale = TERRAIN_H / (maxSig || 1);
+
+  // Reach signals (centrality/reach/risk) are heavy-tailed — one mega-hub would
+  // otherwise flatten the whole field to a plain. √-compress their height so the
+  // bulk of the terrain shows relief; linear for the bounded signals.
+  const sqrtHeight = REACH_SIGNALS.has(signal);
+  const xf = sqrtHeight ? (v: number) => Math.sqrt(Math.max(0, v)) : (v: number) => v;
+  const hScale = TERRAIN_H / (xf(maxSig) || 1);
 
   const ground = new Map<number, { gx: number; gz: number }>();
   const sig = new Map<number, number>();
@@ -228,7 +237,7 @@ export function layoutTerrain(
     const v = signalValue(index.metrics.get(n.id)!, signal);
     sig.set(n.id, v);
     ground.set(n.id, { gx, gz });
-    pos.set(n.id, { x: gx, y: v * hScale, z: gz });
+    pos.set(n.id, { x: gx, y: xf(v) * hScale, z: gz });
   }
 
   // The highest-signal nodes are the "peaks" worth naming without a selection.
@@ -255,7 +264,7 @@ export function layoutTerrain(
     peaks,
     terrain: {
       H, G, cell, size: TERRAIN_S, maxHeight: TERRAIN_H,
-      maxSignal: maxSig, signal, approximate: index.approximate,
+      maxSignal: maxSig, signal, approximate: index.approximate, sqrtHeight,
     },
   };
 }

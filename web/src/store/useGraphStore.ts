@@ -239,15 +239,14 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       set({ statusText: `No occurrences of ${label} in this graph.` });
       return;
     }
-    // The treemap shows only the single `sel` ring, not the multi-node fwd set,
-    // so a highlight there would be invisible — drop back to the 2D graph.
-    set((s) => ({
-      view: s.view === 'map' ? '2d' : s.view,
+    // The treemap honours the shared fwd/impact/match/dup sets, so a highlight
+    // stays visible in any view — no need to bail out of the map.
+    set({
       sel: ids[0],
       fwd: new Set(ids),
       impact: new Set(),
       feature: null,
-    }));
+    });
     get().requestFocus(ids[0]);
     const short = label.replace(/^pkg:[^/]+\//, '');
     set({ statusText: `${ids.length} occurrence(s) of ${short} highlighted.` });

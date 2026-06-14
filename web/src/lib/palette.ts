@@ -16,12 +16,16 @@ export const PALETTE = {
   gen: '#ffd166',
 };
 
-/** Terrain elevation ramp (low → high): cool deep → teal → warm → hot. */
+/** Terrain / importance elevation ramp (low → high). A viridis map: perceptually
+ *  uniform, monotonically increasing in luminance, and colour-vision-deficiency
+ *  safe (no red/green confusion) — unlike a temperature ramp whose amber→red top
+ *  reads identically to a deuteranope and dips in luminance at the top. */
 const RAMP: Array<[number, [number, number, number]]> = [
-  [0.0, [30, 48, 80]],
-  [0.35, [37, 110, 120]],
-  [0.7, [202, 166, 74]],
-  [1.0, [224, 88, 79]],
+  [0.0, [68, 1, 84]], // dark violet
+  [0.25, [59, 82, 139]], // blue
+  [0.5, [33, 145, 140]], // teal
+  [0.75, [94, 201, 98]], // green
+  [1.0, [253, 231, 37]], // yellow
 ];
 
 function lerp(a: number, b: number, t: number): number {

@@ -29,20 +29,24 @@ function TerrainLegend() {
   }, [nodes, index, signal]);
 
   const meta = SIGNAL_LABELS[signal];
-  const approx = !!index?.approximate && REACH_SIGNALS.has(signal);
+  const sqrtHeight = REACH_SIGNALS.has(signal);
+  const approx = !!index?.approximate && sqrtHeight;
   // 6-stop CSS gradient sampled from the elevation ramp (top = high).
   const stops = [1, 0.8, 0.6, 0.4, 0.2, 0].map((t) => rampHex(t));
   const gradient = `linear-gradient(to top, ${[0, 0.2, 0.4, 0.6, 0.8, 1].map((t) => rampHex(t)).join(', ')})`;
+  // The colour bar runs 0..1 in HEIGHT; under √ compression the midpoint height
+  // maps back to ¼·max (height f ↦ value f²·max), so label the value honestly.
+  const midValue = sqrtHeight ? max * 0.25 : max * 0.5;
 
   return (
     <div className="absolute top-3.5 right-3.5 z-10 p-2.5 rounded-xl border border-line bg-panel/90 backdrop-blur-sm shadow-panel text-mini">
       <div className="font-semibold text-ink mb-0.5">{meta.name}</div>
-      <div className="text-muted text-micro mb-1.5">height · {meta.unit}</div>
+      <div className="text-muted text-micro mb-1.5">height · {meta.unit}{sqrtHeight ? ' · √ scale' : ''}</div>
       <div className="flex items-stretch gap-2">
         <div className="w-3 rounded" style={{ background: gradient, minHeight: 84 }} aria-hidden />
         <div className="flex flex-col justify-between text-muted tabular-nums">
           <span style={{ color: stops[0] }}>{fmt(max)}</span>
-          <span>{fmt(max / 2)}</span>
+          <span>{fmt(midValue)}</span>
           <span style={{ color: stops[5] }}>0</span>
         </div>
       </div>

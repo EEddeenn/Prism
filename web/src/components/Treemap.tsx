@@ -132,10 +132,33 @@ function squarify(items: Item[], x0: number, y0: number, w: number, h: number): 
 
 const GAP = 1; // px gap between tiles (the dark bg shows through)
 
+// Cap on how many of the largest tiles join the keyboard tab order. The long
+// tail keeps tabIndex=-1 so a screen-reader / keyboard user isn't forced to
+// step through ~900 tiles to leave the map.
+const FOCUSABLE_COUNT = 80;
+
+/** A single legend swatch + label, used for the contextual role chips. */
+function LegendChip({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1.5 text-micro text-muted whitespace-nowrap">
+      <span
+        className="h-2.5 w-2.5 rounded-[3px] border"
+        style={{ borderColor: color, boxShadow: `inset 0 0 0 1.5px ${color}` }}
+        aria-hidden
+      />
+      {label}
+    </span>
+  );
+}
+
 export default function Treemap() {
   const nodes = useGraphStore((s) => s.nodes);
   const index = useGraphStore((s) => s.index);
   const sel = useGraphStore((s) => s.sel);
+  const fwd = useGraphStore((s) => s.fwd);
+  const impact = useGraphStore((s) => s.impact);
+  const matches = useGraphStore((s) => s.matches);
+  const dupVersionIds = useGraphStore((s) => s.dupVersionIds);
   const selectNode = useGraphStore((s) => s.selectNode);
   const requestFocus = useGraphStore((s) => s.requestFocus);
 
@@ -191,8 +214,17 @@ export default function Treemap() {
   };
 
   const byId = index?.byId;
+  const rootIds = index?.rootIds;
   const approximate = !!index?.approximate;
   const signalsThatNeedReach = signal === 'revReach' || signal === 'fwdReach';
+
+  // Which contextual neighbourhood is active drives both per-tile dimming and
+  // the legend's role chips. Selection takes priority over search; dup/root are
+  // always-on. Mirrors the precedence used by the 2D/3D views.
+  const hasSel = sel != null;
+  const searchActive = !hasSel && matches.size > 0;
+
+  const SIGNAL_META = SIGNALS.find((s) => s.id === signal)!;
 
   return (
     <div className="absolute inset-0 bg-bg overflow-hidden">
@@ -226,40 +258,89 @@ export default function Treemap() {
       )}
 
       <div ref={hostRef} className="absolute inset-0">
-        {tiles.map((t) => {
+        {tiles.map((t, ti) => {
           const n = byId?.get(t.id);
           if (!n) return null;
 
           const innerW = Math.max(0, t.w - GAP);
           const innerH = Math.max(0, t.h - GAP);
-          const selected = sel === t.id;
           const fill = rampHex(maxDepth > 0 ? n.depth / maxDepth : 0);
           // Only label tiles roomy enough to read the short label without clipping.
           const showLabel = innerW >= 46 && innerH >= 16;
+
+          // --- shared highlight state (same precedence as the 2D/3D views) ---
+          const selected = sel === t.id;
+          const inFwd = hasSel && fwd.has(t.id);
+          const inImpact = hasSel && impact.has(t.id);
+          const isMatch = searchActive && matches.has(t.id);
+          const isDup = dupVersionIds.has(n.version_id);
+          const isRoot = !!rootIds?.has(t.id);
+
+          // Dim anything outside the active neighbourhood / search results.
+          let opacity = 1;
+          if (hasSel && !inFwd && !inImpact) opacity = 0.25;
+          else if (searchActive && !isMatch) opacity = 0.25;
+
+          // Compose rings as a layered box-shadow. CSS paints the FIRST shadow in
+          // the list on top, so the contextual selection/search ring is pushed
+          // first (takes priority over the always-on dup/root markers, which
+          // overlap the same inset edge), then dup/root, then the faint dark edge.
+          const shadows: string[] = [];
+          // Contextual rings (highest priority — painted on top).
+          if (selected) {
+            shadows.push(`inset 0 0 0 2px ${PALETTE.center}`, `0 0 0 1px ${PALETTE.center}`);
+          } else if (inFwd) {
+            shadows.push(`inset 0 0 0 2px ${PALETTE.fwd}`);
+          } else if (inImpact) {
+            shadows.push(`inset 0 0 0 2px ${PALETTE.impact}`);
+          } else if (isMatch) {
+            shadows.push(`inset 0 0 0 2px ${PALETTE.accent}`);
+          }
+          // Always-on markers (beneath the contextual ring): dup pink, root purple.
+          if (isDup) shadows.push(`inset 0 0 0 1.5px ${PALETTE.dup}`);
+          if (isRoot) shadows.push(`inset 0 0 0 1.5px ${PALETTE.root}`);
+          // Faint dark inner edge keeps adjacent same-depth tiles legible.
+          shadows.push('inset 0 0 0 1px rgba(0,0,0,0.28)');
+
+          // Lift highlighted tiles above their neighbours so rings aren't clipped.
+          let zIndex = 1;
+          if (selected) zIndex = 6;
+          else if (inFwd || inImpact || isMatch) zIndex = 4;
+          else if (isDup || isRoot) zIndex = 2;
+
+          // Keyboard focus only for the largest tiles (tiles are size-descending),
+          // so the long tail doesn't bloat the tab order.
+          const focusable = ti < FOCUSABLE_COUNT;
+
+          const activate = () => {
+            void selectNode(t.id);
+            requestFocus(t.id);
+          };
 
           return (
             <div
               key={t.id}
               role="button"
-              tabIndex={-1}
-              title={`${n.purl}\n${SIGNALS.find((s) => s.id === signal)!.label} = ${rawValue(t.id)} · depth ${n.depth}`}
-              onClick={() => {
-                void selectNode(t.id);
-                requestFocus(t.id);
+              tabIndex={focusable ? 0 : -1}
+              aria-label={`${shortLabel(n.purl)} — ${SIGNAL_META.label} ${rawValue(t.id)}, depth ${n.depth}`}
+              title={`${n.purl}\n${SIGNAL_META.label} = ${rawValue(t.id)} · depth ${n.depth}`}
+              onClick={activate}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  activate();
+                }
               }}
-              className="absolute box-border cursor-pointer overflow-hidden flex items-start"
+              className="absolute box-border cursor-pointer overflow-hidden flex items-start outline-none focus-visible:ring-2 focus-visible:ring-accent"
               style={{
                 left: t.x,
                 top: t.y,
                 width: innerW,
                 height: innerH,
                 background: fill,
-                // A bright ring for the shared selection; a faint dark inner edge
-                // otherwise, so adjacent same-depth tiles stay distinguishable.
-                boxShadow: selected
-                  ? `inset 0 0 0 2px ${PALETTE.center}, 0 0 0 1px ${PALETTE.center}`
-                  : 'inset 0 0 0 1px rgba(0,0,0,0.28)',
-                zIndex: selected ? 5 : 1,
+                opacity,
+                boxShadow: shadows.join(', '),
+                zIndex,
               }}
             >
               {showLabel && (
@@ -274,6 +355,36 @@ export default function Treemap() {
           );
         })}
       </div>
+
+      {/* In-component legend (page.tsx legend is hidden in the map view). Depth
+          ramp on top; neighbourhood role chips shown only when relevant. */}
+      {nodes.length > 0 && (
+        <div className="absolute left-3.5 bottom-3.5 z-10 flex flex-col gap-2 p-2.5 rounded-xl border border-line bg-panel/90 shadow-panel backdrop-blur-sm">
+          <div className="flex items-center gap-2">
+            <span className="text-micro text-muted">shallow</span>
+            <span
+              className="h-2.5 w-24 rounded-full"
+              style={{
+                background: `linear-gradient(to right, ${rampHex(0)}, ${rampHex(0.25)}, ${rampHex(0.5)}, ${rampHex(0.75)}, ${rampHex(1)})`,
+              }}
+              aria-hidden
+            />
+            <span className="text-micro text-muted">deep</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 max-w-[280px]">
+            {hasSel && (
+              <>
+                <LegendChip color={PALETTE.center} label="selected" />
+                <LegendChip color={PALETTE.fwd} label="depends-on" />
+                <LegendChip color={PALETTE.impact} label="depended-on-by" />
+              </>
+            )}
+            {searchActive && <LegendChip color={PALETTE.accent} label="search-match" />}
+            {dupVersionIds.size > 0 && <LegendChip color={PALETTE.dup} label="duplicated" />}
+            {!!rootIds?.size && <LegendChip color={PALETTE.root} label="root" />}
+          </div>
+        </div>
+      )}
 
       {nodes.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">

@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useGraphStore } from '@/store/useGraphStore';
 import { EDGE_FILTER_LABELS } from '@/lib/edges';
 import { SegmentedControl, type SegOption } from '@/components/ui';
 import Logo from '@/components/Logo';
+import { useLoadBundle } from '@/lib/useLoadBundle';
 import type { EdgeFilter, View } from '@/lib/types';
 
 const VIEW_LABELS: Record<View, string> = { '2d': '2D', '3d': '3D', map: 'Map' };
@@ -42,11 +43,12 @@ function CheckIcon({ className }: { className?: string }) {
     </svg>
   );
 }
-function ReloadIcon({ className }: { className?: string }) {
+function UploadIcon({ className }: { className?: string }) {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden className={className}>
-      <path d="M21 12a9 9 0 1 1-3-6.7" />
-      <path d="M21 4v5h-5" />
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <path d="m17 8-5-5-5 5" />
+      <path d="M12 3v12" />
     </svg>
   );
 }
@@ -67,11 +69,15 @@ export default function Topbar() {
   const setEdgeFilter = useGraphStore((s) => s.setEdgeFilter);
   const runSearch = useGraphStore((s) => s.runSearch);
   const [copied, setCopied] = useState(false);
-  // Local busy state — guards the Refresh button against concurrent presses
-  // and drives its visible spin. Local (not store.statusText) because a
-  // node-click sets statusText to 'Tracing…' too, and we don't want to
-  // disable Refresh for unrelated activity.
-  const [refreshing, setRefreshing] = useState(false);
+
+  // Bundle loading from the topbar (separate entry point from the landing
+  // dropzone — uses the same shared hook). Errors surface as a destructive
+  // tooltip + red border on the button; success replaces the URL and
+  // triggers a full reload so the WASM singleton is released cleanly.
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const { status: loadStatus, loadFile } = useLoadBundle();
+  const loading = loadStatus.kind === 'decoding';
+  const loadError = loadStatus.kind === 'error' ? loadStatus.error : null;
 
   const copyLink = async () => {
     try {
@@ -86,12 +92,21 @@ export default function Topbar() {
   return (
     <header className="flex flex-wrap items-center gap-3 px-4 py-2 border-b border-line bg-gradient-to-b from-[#181c28] to-panel">
       {/* nav cluster: brand + run pickers. Logo + wordmark form a single
-          tight unit (negative gap pulls the word toward the mark), which
-          reads as one brand instead of two stacked items. */}
-      <div className="flex items-center gap-1.5 mr-1">
+          tight unit (negative gap pulls the word toward the mark) and act
+          as a "return home" link — clicking either navigates to `/`, which
+          drops the `?bundle=…` query so WasmBundleLoader re-renders the
+          landing dropzone. Plain <a> (not next/link) for a full reload so
+          the WASM singleton is released cleanly. `focusable` opts into the
+          global keyboard focus ring. */}
+      <a
+        href="/"
+        title="Return to home"
+        aria-label="Prism — return to home"
+        className="focusable flex items-center gap-1.5 mr-1 rounded-control hover:opacity-80 transition-opacity"
+      >
         <Logo size={26} className="text-accent" />
         <span className="font-extrabold text-base tracking-wide text-accent">Prism</span>
-      </div>
+      </a>
 
       <div className="flex items-center gap-1.5">
         <label htmlFor="run-select" className="text-body text-muted">Run</label>
@@ -114,22 +129,34 @@ export default function Topbar() {
         </select>
       </div>
 
-      <div className="flex items-center gap-1.5" title="Diff the active run against another run">
-        <label htmlFor="compare-select" className="text-body text-muted">vs</label>
-        <select
-          id="compare-select"
-          className="px-2.5 py-1.5 text-body max-w-[200px] focus:outline-none focus:border-accent"
-          value={compareRun ?? ''}
-          onChange={(e) => setCompareRun(e.target.value ? Number(e.target.value) : null)}
-        >
-          <option value="">(no compare)</option>
-          {runs.map((r) => (
-            <option key={r.run} value={r.run} disabled={r.run === run}>
-              {r.ecosystem ? `${r.ecosystem} · ` : ''}run {r.run}
-            </option>
-          ))}
-        </select>
-      </div>
+      {/* Standalone "vs" label — pulled out of the Compare cluster so the
+          parent header's gap-3 puts an equal 12 px on BOTH sides. Inside
+          a flex cluster with the Compare select (the previous structure)
+          it was 12 px from the Run select but only 6 px from the Compare
+          select, visually leaning right. htmlFor still ties it to the
+          Compare picker for accessibility. */}
+      <label
+        htmlFor="compare-select"
+        title="Diff the active run against another run"
+        className="text-body text-muted"
+      >
+        vs
+      </label>
+
+      <select
+        id="compare-select"
+        title="Diff the active run against another run"
+        className="px-2.5 py-1.5 text-body max-w-[200px] focus:outline-none focus:border-accent"
+        value={compareRun ?? ''}
+        onChange={(e) => setCompareRun(e.target.value ? Number(e.target.value) : null)}
+      >
+        <option value="">(no compare)</option>
+        {runs.map((r) => (
+          <option key={r.run} value={r.run} disabled={r.run === run}>
+            {r.ecosystem ? `${r.ecosystem} · ` : ''}run {r.run}
+          </option>
+        ))}
+      </select>
 
       <Divider />
 
@@ -155,7 +182,7 @@ export default function Topbar() {
       <Divider />
 
       {/* search + actions cluster */}
-      <div className="relative flex items-center gap-1.5 flex-1 min-w-0 basis-[220px] max-w-[300px]">
+      <div className="flex items-center gap-1.5 flex-1 min-w-0 basis-[220px] max-w-[300px]">
         <input
           type="search"
           placeholder="Find a package…"
@@ -163,7 +190,7 @@ export default function Topbar() {
           autoComplete="off"
           spellCheck={false}
           value={query}
-          className="w-full min-w-0 px-2.5 py-1.5 pr-9 text-body placeholder:text-muted focus:outline-none focus:border-accent"
+          className="w-full min-w-0 px-2.5 py-1.5 text-body placeholder:text-muted focus:outline-none focus:border-accent"
           onChange={(e) => runSearch(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Escape') {
@@ -172,21 +199,40 @@ export default function Topbar() {
             }
           }}
         />
-        {/* Command-palette keybinding hint — sits inside the input frame,
-            visible only when the input is empty so it doesn't compete with
-            the user's typed query. */}
-        {!query && (
-          <kbd
-            aria-hidden
-            className="absolute right-2 top-1/2 -translate-y-1/2 px-1.5 py-0.5 text-[10px] font-mono leading-none rounded-badge border border-line-2 bg-panel text-muted pointer-events-none"
-          >
-            ⌘K
-          </kbd>
-        )}
         <span className="text-mini text-muted min-w-[28px]">
           {matches.size ? `${matches.size} hit${matches.size === 1 ? '' : 's'}` : ''}
         </span>
       </div>
+
+      {/* Load-bundle: opens the OS file picker and routes the chosen
+          .prismbundle through the shared hook (same code path the landing
+          dropzone uses). Sibling of Copy link so the two principal actions
+          live together. The <input> is visually hidden but kept in the DOM
+          so the button's onClick can `.click()` it. */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".prismbundle,application/octet-stream"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void loadFile(file);
+          // Reset so selecting the same file twice in a row still fires.
+          e.target.value = '';
+        }}
+      />
+      <button
+        type="button"
+        onClick={() => fileInputRef.current?.click()}
+        disabled={loading}
+        title={loadError ?? (loading ? 'Decoding…' : 'Load a different .prismbundle')}
+        aria-label={loading ? 'Decoding bundle' : 'Load a different bundle'}
+        className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-body font-semibold rounded-control border bg-panel-2 hover:bg-panel-3 disabled:opacity-60 disabled:cursor-wait ${
+          loadError ? 'border-bad text-bad hover:border-bad' : 'border-line-2 text-ink hover:border-accent'
+        }`}
+      >
+        <UploadIcon /> {loading ? 'Loading…' : 'Load bundle'}
+      </button>
 
       <button
         type="button"
@@ -204,35 +250,6 @@ export default function Topbar() {
             <LinkIcon /> Copy link
           </>
         )}
-      </button>
-
-      <button
-        type="button"
-        onClick={async () => {
-          // Skip if already running OR there is no run to refresh.
-          // We bypass loadRuns entirely: in the static+WASM model the runs
-          // list is fixed by the loaded bundle, so re-fetching it cannot
-          // change anything and only flashes a misleading 'Loading runs…'
-          // status. Calling selectRun directly with `preserveUi: true`
-          // does the only thing this button can meaningfully do — refresh
-          // the current run's graph + side-panel data from the WASM
-          // singleton, keeping the user's selection, search, panel tab,
-          // and TDA feature highlight in place.
-          if (refreshing || run == null) return;
-          setRefreshing(true);
-          try {
-            await selectRun(run, { preserveUi: true });
-          } finally {
-            setRefreshing(false);
-          }
-        }}
-        disabled={refreshing || run == null}
-        aria-busy={refreshing}
-        title={refreshing ? 'Refreshing…' : run == null ? 'No run to refresh' : 'Refresh view'}
-        aria-label={refreshing ? 'Refreshing view' : 'Refresh view'}
-        className="inline-flex items-center justify-center w-8 h-8 rounded-control border border-line-2 bg-panel-2 text-ink hover:border-accent hover:bg-panel-3 disabled:opacity-60 disabled:cursor-wait disabled:hover:border-line-2 disabled:hover:bg-panel-2"
-      >
-        <ReloadIcon className={refreshing ? 'animate-spin' : ''} />
       </button>
 
       <span

@@ -7,7 +7,7 @@ export const TABS = [
   { id: 'diff', label: 'Diff' },
   { id: 'risk', label: 'Risk' },
   { id: 'node', label: 'Node' },
-  { id: 'duplicates', label: 'Dups' },
+  { id: 'duplicates', label: 'Duplicates' },
   { id: 'cycles', label: 'Cycles' },
   { id: 'tda', label: 'TDA' },
 ] as const;

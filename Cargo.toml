@@ -13,6 +13,7 @@ members = [
     "crates/prism-plugin-cargo",
     "crates/prism-plugin-npm",
     "crates/prism-plugin-bun",
+    "crates/prism-plugin-pnpm",
     "crates/prism-plugin-uv",
     "crates/prism-api",
     "crates/prism-cli",

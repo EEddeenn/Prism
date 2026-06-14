@@ -15,6 +15,7 @@ use prism_plugin_api::ResolvedGraph;
 use prism_plugin_cargo::parse_lockfile_graph;
 use prism_plugin_cargo::parse_lockfile_packages;
 use prism_plugin_npm::{name_from_path as npm_name_from_path, parse_package_lock_value, NpmNames};
+use prism_plugin_pnpm::{parse_pnpm_graph, parse_pnpm_units};
 use prism_plugin_uv::{parse_uv_graph, parse_uv_packages};
 use prism_textfmt::{parse_json, Json};
 
@@ -46,6 +47,7 @@ pub(crate) fn parse_lockfile(eco: Ecosystem, bytes: &[u8]) -> Result<ParsedLockf
         Ecosystem::Cargo => parse_cargo(bytes),
         Ecosystem::Npm => parse_npm(bytes),
         Ecosystem::Bun => parse_bun(bytes),
+        Ecosystem::Pnpm => parse_pnpm(bytes),
         Ecosystem::Uv => parse_uv(bytes),
     }
 }
@@ -110,6 +112,37 @@ fn parse_bun(bytes: &[u8]) -> Result<ParsedLockfile> {
     let graph = parse_package_lock_value(&json)?;
     let idents = idents_from_npm_value(&json)?;
     debug_assert_eq!(idents.len(), graph.node_count());
+    Ok(ParsedLockfile { graph, idents })
+}
+
+/// Parse a `pnpm-lock.yaml` directly into the resolved graph + identity column.
+///
+/// pnpm's `snapshots:` section is already a flat resolved graph, so the plugin
+/// builds it verbatim (no `node_modules` hoisting). `parse_pnpm_units` yields the
+/// same node order `parse_pnpm_graph` assigns; scoped `@scope/name` units split
+/// into namespace + bare name the same way npm idents do, so purls stay `pkg:npm/...`.
+fn parse_pnpm(bytes: &[u8]) -> Result<ParsedLockfile> {
+    let text = std::str::from_utf8(bytes).map_err(|_| PrismError::Corrupt {
+        detail: "pnpm-lock.yaml is not utf-8".into(),
+    })?;
+    let units = parse_pnpm_units(text)?;
+    let graph = parse_pnpm_graph(text)?;
+    debug_assert_eq!(units.len(), graph.node_count());
+    let idents = units
+        .into_iter()
+        .map(|u| match NpmNames::split_scope(&u.name) {
+            Some((scope, name)) => NodeIdent {
+                name: name.to_string(),
+                namespace: Some(scope.to_string()),
+                version: u.version,
+            },
+            None => NodeIdent {
+                name: u.name,
+                namespace: None,
+                version: u.version,
+            },
+        })
+        .collect();
     Ok(ParsedLockfile { graph, idents })
 }
 
@@ -266,6 +299,51 @@ mod tests {
         assert!(parse_lockfile(Ecosystem::Npm, b"{ not json").is_err());
         assert!(parse_lockfile(Ecosystem::Cargo, &[0xff, 0xfe]).is_err());
         assert!(parse_lockfile(Ecosystem::Bun, &[0xff, 0xfe]).is_err());
+        assert!(parse_lockfile(Ecosystem::Pnpm, &[0xff, 0xfe]).is_err());
+    }
+
+    const PNPM_LOCK: &str = r#"lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    dependencies:
+      '@scope/left-pad':
+        specifier: 1.3.0
+        version: 1.3.0
+      rxjs:
+        specifier: ^7
+        version: 7.8.1
+
+snapshots:
+
+  '@scope/left-pad@1.3.0': {}
+
+  rxjs@7.8.1:
+    dependencies:
+      tslib: 2.6.0
+
+  tslib@2.6.0: {}
+"#;
+
+    #[test]
+    fn pnpm_idents_align_and_split_scope() {
+        let p = parse_lockfile(Ecosystem::Pnpm, PNPM_LOCK.as_bytes()).unwrap();
+        // root + @scope/left-pad + rxjs + tslib
+        assert_eq!(p.graph.node_count(), 4);
+        assert_eq!(p.idents.len(), p.graph.node_count());
+        // Synthetic root first.
+        assert_eq!(p.idents[0].name, "<root>");
+        assert!(p.idents[0].version.is_none());
+        // Scoped package split into namespace + bare name (purls stay pkg:npm/...).
+        let lp = p.idents.iter().find(|i| i.name == "left-pad").unwrap();
+        assert_eq!(lp.namespace.as_deref(), Some("scope"));
+        assert_eq!(lp.version.as_deref(), Some("1.3.0"));
+        // The transitive edge rxjs -> tslib resolved from the flat snapshot graph.
+        let tslib = p.idents.iter().find(|i| i.name == "tslib").unwrap();
+        assert!(tslib.namespace.is_none());
+        // root -> {@scope/left-pad, rxjs}, rxjs -> tslib = 3 edges.
+        assert_eq!(p.graph.edge_count(), 3);
     }
 
     const BUN_LOCK: &str = r#"{

@@ -615,12 +615,12 @@ fn parse_manifest(
                 .ok_or_else(|| PrismError::Other("npm has no manifest parser".into()))?;
             parser.parse_manifest(raw)?
         }
-        // Bun has no manifest format of its own — a Bun project's manifest is a
-        // `package.json`, which detects as `Ecosystem::Npm`. So this arm is never
-        // reached in practice; reject explicitly rather than guess.
-        Ecosystem::Bun => {
+        // Bun and pnpm have no manifest format of their own — their manifest is a
+        // `package.json`, which detects as `Ecosystem::Npm`. So these arms are
+        // never reached in practice; reject explicitly rather than guess.
+        Ecosystem::Bun | Ecosystem::Pnpm => {
             return Err(PrismError::Other(
-                "bun has no manifest format (use package.json, which ingests as npm)".into(),
+                "bun/pnpm have no manifest format (use package.json, which ingests as npm)".into(),
             ))
         }
         // uv is lockfile-only here (a bare `pyproject.toml` is ambiguous across

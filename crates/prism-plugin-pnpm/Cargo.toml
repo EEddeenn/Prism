@@ -1,0 +1,15 @@
+[package]
+name = "prism-plugin-pnpm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "pnpm ecosystem plugin: pnpm-lock.yaml parsing into a resolved graph (npm semantics)"
+
+[dependencies]
+prism-model = { path = "../prism-model" }
+prism-plugin-api = { path = "../prism-plugin-api" }
+prism-plugin-npm = { path = "../prism-plugin-npm" }
+
+[lints]
+workspace = true

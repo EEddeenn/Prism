@@ -154,7 +154,7 @@ impl Prism {
 /// Static analysis caveats inherent to each ecosystem's lockfile format.
 fn ecosystem_notes(eco: Ecosystem) -> &'static [(&'static str, &'static str)] {
     match eco {
-        Ecosystem::Npm | Ecosystem::Bun => &[
+        Ecosystem::Npm | Ecosystem::Bun | Ecosystem::Pnpm => &[
             (
                 "scope",
                 "npm lockfiles record dev/optional per package, not per edge — transitive dev/build scope footprints undercount",

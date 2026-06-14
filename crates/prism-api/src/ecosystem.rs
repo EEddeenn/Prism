@@ -30,14 +30,19 @@ pub enum Ecosystem {
     /// Bun (`bun.lock`). Bun installs npm packages, so it shares npm's store
     /// identity, purls, and semver semantics; only the lockfile format differs.
     Bun,
+    /// pnpm (`pnpm-lock.yaml`). Like Bun, pnpm installs npm packages and shares
+    /// npm's store identity, purls, and semver semantics; only the lockfile
+    /// format (and its already-flat resolved graph) differ.
+    Pnpm,
     /// uv / PyPI (`uv.lock`). Python packages with PEP 440/503/508 semantics; its
     /// own ecosystem id and `pkg:pypi/...` purls.
     Uv,
 }
 
-/// Map a stored [`EcosystemId`] back to an [`Ecosystem`]. Because Bun shares
-/// [`NPM_ECOSYSTEM_ID`], the npm id resolves to [`Ecosystem::Npm`] (npm and bun
-/// graphs are indistinguishable once ingested, and analyze identically).
+/// Map a stored [`EcosystemId`] back to an [`Ecosystem`]. Because Bun and pnpm
+/// share [`NPM_ECOSYSTEM_ID`], the npm id resolves to [`Ecosystem::Npm`] (npm,
+/// bun, and pnpm graphs are indistinguishable once ingested, and analyze
+/// identically).
 pub(crate) fn ecosystem_of(id: EcosystemId) -> Ecosystem {
     if id == CARGO_ECOSYSTEM_ID {
         Ecosystem::Cargo
@@ -57,7 +62,7 @@ impl Ecosystem {
     pub const fn id(self) -> EcosystemId {
         match self {
             Ecosystem::Cargo => CARGO_ECOSYSTEM_ID,
-            Ecosystem::Npm | Ecosystem::Bun => NPM_ECOSYSTEM_ID,
+            Ecosystem::Npm | Ecosystem::Bun | Ecosystem::Pnpm => NPM_ECOSYSTEM_ID,
             Ecosystem::Uv => PYPI_ECOSYSTEM_ID,
         }
     }
@@ -68,6 +73,7 @@ impl Ecosystem {
             Ecosystem::Cargo => "cargo",
             Ecosystem::Npm => "npm",
             Ecosystem::Bun => "bun",
+            Ecosystem::Pnpm => "pnpm",
             Ecosystem::Uv => "uv",
         }
     }
@@ -76,8 +82,8 @@ impl Ecosystem {
     pub const fn purl_scheme(self) -> &'static str {
         match self {
             Ecosystem::Cargo => "cargo",
-            // Bun installs npm packages.
-            Ecosystem::Npm | Ecosystem::Bun => "npm",
+            // Bun and pnpm install npm packages.
+            Ecosystem::Npm | Ecosystem::Bun | Ecosystem::Pnpm => "npm",
             Ecosystem::Uv => "pypi",
         }
     }
@@ -94,6 +100,7 @@ impl Ecosystem {
             "Cargo.toml" | "Cargo.lock" => Some(Ecosystem::Cargo),
             "package.json" | "package-lock.json" | "npm-shrinkwrap.json" => Some(Ecosystem::Npm),
             "bun.lock" => Some(Ecosystem::Bun),
+            "pnpm-lock.yaml" => Some(Ecosystem::Pnpm),
             "uv.lock" => Some(Ecosystem::Uv),
             _ => None,
         }
@@ -108,6 +115,7 @@ impl Ecosystem {
                     | "package-lock.json"
                     | "npm-shrinkwrap.json"
                     | "bun.lock"
+                    | "pnpm-lock.yaml"
                     | "uv.lock"
             )
         )

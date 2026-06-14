@@ -338,6 +338,41 @@ pub fn graph_dup_causes(out: &mut dyn Write, run: u64) -> Result<()> {
     Ok(())
 }
 
+/// `prism graph risk --run <id>` — structural risk profile.
+pub fn graph_risk(out: &mut dyn Write, run: u64) -> Result<()> {
+    let prism = open_here()?;
+    let r = prism.structural_risk(RunId::new(run))?;
+    writeln!(out, "structural risk for run {run}: {} / 100 ({})", r.overall, r.band)
+        .map_err(PrismError::Io)?;
+    for d in &r.dimensions {
+        writeln!(out, "  {:<18} {:>3}  {}", d.name, d.score, d.detail).map_err(PrismError::Io)?;
+    }
+    Ok(())
+}
+
+/// `prism graph fragmentation --run <id>` — connected-component breakdown.
+pub fn graph_fragmentation(out: &mut dyn Write, run: u64) -> Result<()> {
+    let prism = open_here()?;
+    let f = prism.fragmentation(RunId::new(run))?;
+    writeln!(out, "fragmentation for run {run}:").map_err(PrismError::Io)?;
+    writeln!(out, "  {}", f.note).map_err(PrismError::Io)?;
+    if !f.subsystem_islands.is_empty() {
+        writeln!(out, "  detached subsystems:").map_err(PrismError::Io)?;
+        for island in &f.subsystem_islands {
+            let tag = if island.detached_from_roots { "no root" } else { "has root" };
+            let sample: Vec<&str> = island.members.iter().map(|s| s.as_str()).collect();
+            writeln!(
+                out,
+                "    {} node(s) [{tag}]: {}",
+                island.size,
+                sample.join(", ")
+            )
+            .map_err(PrismError::Io)?;
+        }
+    }
+    Ok(())
+}
+
 /// `prism graph diff --base <id> --head <id>` — interpretive cross-run diff.
 pub fn graph_diff(out: &mut dyn Write, base: u64, head: u64) -> Result<()> {
     let prism = open_here()?;

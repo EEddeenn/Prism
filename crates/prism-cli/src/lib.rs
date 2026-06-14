@@ -88,6 +88,8 @@ where
         Command::GraphCycles { run } => commands::graph_cycles(out, *run),
         Command::GraphDupCauses { run } => commands::graph_dup_causes(out, *run),
         Command::GraphDiff { base, head } => commands::graph_diff(out, *base, *head),
+        Command::GraphRisk { run } => commands::graph_risk(out, *run),
+        Command::GraphFragmentation { run } => commands::graph_fragmentation(out, *run),
         Command::TdaRun { run, filtration } => commands::tda_run(out, *run, filtration),
         Command::TdaSupport { pair } => commands::tda_support(out, *pair),
         Command::Candidates {

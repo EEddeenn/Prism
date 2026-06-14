@@ -37,6 +37,10 @@ pub enum Command {
     GraphDupCauses { run: u64 },
     /// `prism graph diff --base <id> --head <id>` — interpretive cross-run diff.
     GraphDiff { base: u64, head: u64 },
+    /// `prism graph risk --run <id>` — structural risk profile.
+    GraphRisk { run: u64 },
+    /// `prism graph fragmentation --run <id>` — connected-component breakdown.
+    GraphFragmentation { run: u64 },
     /// `prism tda run --run <id> [--filtration depth]`.
     TdaRun { run: u64, filtration: String },
     /// `prism tda support --pair <id>`.
@@ -286,6 +290,18 @@ fn parse_graph<'a, I: Iterator<Item = &'a str>>(mut it: I) -> Result<Command, Pa
             let head = flags.take_u64("--head")?;
             flags.finish()?;
             Ok(Command::GraphDiff { base, head })
+        }
+        "risk" => {
+            let mut flags = Flags::parse(it)?;
+            let run = flags.take_u64("--run")?;
+            flags.finish()?;
+            Ok(Command::GraphRisk { run })
+        }
+        "fragmentation" => {
+            let mut flags = Flags::parse(it)?;
+            let run = flags.take_u64("--run")?;
+            flags.finish()?;
+            Ok(Command::GraphFragmentation { run })
         }
         other => Err(ParseError::UnknownCommand(format!("graph {other}"))),
     }

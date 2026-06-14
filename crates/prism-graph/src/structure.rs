@@ -276,6 +276,61 @@ fn intersect(mut a: usize, mut b: usize, idom: &[Option<u32>], post: &[u32]) -> 
 }
 
 // ------------------------------------------------------------------------- //
+// Weakly-connected components
+// ------------------------------------------------------------------------- //
+
+/// The weakly-connected components of `g` (treating edges as undirected), each a
+/// list of member node ids, returned largest-first with ties broken by smallest
+/// member id. This is the H₀ "how many detached islands" decomposition — npm
+/// peer/optional-only packages that resolve to no graph edge form their own
+/// singleton islands.
+pub fn weak_components(g: &GraphSnapshot) -> Result<Vec<Vec<GraphNodeId>>> {
+    let n = g.node_count();
+    // Union-find with union-by-size and path halving.
+    let mut parent: Vec<u32> = (0..n as u32).collect();
+    let mut size: Vec<u32> = vec![1; n];
+
+    fn find(parent: &mut [u32], mut x: u32) -> u32 {
+        while parent[x as usize] != x {
+            parent[x as usize] = parent[parent[x as usize] as usize]; // path halving
+            x = parent[x as usize];
+        }
+        x
+    }
+
+    for u in 0..n {
+        for &v in g.out_neighbors(GraphNodeId::new(u as u32))? {
+            let ra = find(&mut parent, u as u32);
+            let rb = find(&mut parent, v.get());
+            if ra != rb {
+                let (small, big) = if size[ra as usize] < size[rb as usize] {
+                    (ra, rb)
+                } else {
+                    (rb, ra)
+                };
+                parent[small as usize] = big;
+                size[big as usize] = size[big as usize].saturating_add(size[small as usize]);
+            }
+        }
+    }
+
+    // Bucket nodes by their root.
+    let mut buckets: std::collections::BTreeMap<u32, Vec<GraphNodeId>> =
+        std::collections::BTreeMap::new();
+    for u in 0..n as u32 {
+        let r = find(&mut parent, u);
+        buckets.entry(r).or_default().push(GraphNodeId::new(u));
+    }
+    let mut comps: Vec<Vec<GraphNodeId>> = buckets.into_values().collect();
+    comps.sort_by(|a, b| {
+        b.len()
+            .cmp(&a.len())
+            .then(a[0].get().cmp(&b[0].get()))
+    });
+    Ok(comps)
+}
+
+// ------------------------------------------------------------------------- //
 // Scope footprints
 // ------------------------------------------------------------------------- //
 
@@ -806,5 +861,21 @@ mod tests {
     fn explain_out_of_range_errors() {
         let g = build(2, &[0], &[rt(0, 1)]);
         assert!(explain(&g, nid(99), 4).is_err());
+    }
+
+    #[test]
+    fn weak_components_finds_islands() {
+        // Component {0,1,2}; detached island {3,4}; singleton {5}.
+        let g = build(6, &[0], &[rt(0, 1), rt(1, 2), rt(3, 4)]);
+        let comps = weak_components(&g).unwrap();
+        assert_eq!(comps.len(), 3);
+        // Largest first.
+        assert_eq!(comps[0].len(), 3);
+        let sizes: Vec<usize> = comps.iter().map(|c| c.len()).collect();
+        assert_eq!(sizes, vec![3, 2, 1]);
+        // Direction is ignored: 3->4 links 3 and 4 into one island.
+        let island: std::collections::HashSet<u32> =
+            comps[1].iter().map(|n| n.get()).collect();
+        assert_eq!(island, std::collections::HashSet::from([3, 4]));
     }
 }

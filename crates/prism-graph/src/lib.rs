@@ -40,8 +40,8 @@ pub use format::{read_pcsr, write_pcsr, PCSR_FORMAT_VERSION, PCSR_MAGIC};
 pub use scc::{condensation_topo_order, tarjan_scc, SccResult};
 pub use snapshot::GraphSnapshot;
 pub use structure::{
-    dominators, explain, roots, scope_footprint, scope_summary, Chokepoint, DomTree, Explanation,
-    Introducer, ScopeFootprint, PRODUCTION_KINDS,
+    dominators, explain, roots, scope_footprint, scope_summary, weak_components, Chokepoint,
+    DomTree, Explanation, Introducer, ScopeFootprint, PRODUCTION_KINDS,
 };
 pub use traversal::{
     forward_reachable, reverse_reachable, EdgeKindMask, Reachable, TraversalOptions,

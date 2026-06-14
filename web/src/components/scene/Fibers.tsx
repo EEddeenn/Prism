@@ -43,7 +43,15 @@ export default function Fibers({ fibers }: { fibers: Fiber[] }) {
         <lineBasicMaterial vertexColors transparent opacity={0.9} />
       </lineSegments>
       {labels.map((f, i) => (
-        <Html key={i} position={[f.x, f.top + 30, f.z]} center style={{ pointerEvents: 'none' }}>
+        <Html
+          key={i}
+          position={[f.x, f.top + 30, f.z]}
+          center
+          // Same z-index clamp as SceneLabels — keeps fiber labels above
+          // the WebGL canvas but below every HUD overlay at z-10.
+          zIndexRange={[8, 0]}
+          style={{ pointerEvents: 'none' }}
+        >
           <div className="px-1 text-[10px] font-mono text-node-dup whitespace-nowrap" style={{ textShadow: '0 0 4px #000' }}>
             {f.label} ·{f.count}
           </div>

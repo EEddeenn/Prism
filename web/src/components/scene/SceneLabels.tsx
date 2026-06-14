@@ -47,7 +47,19 @@ export default function SceneLabels({ layout }: { layout: Layout3D }) {
       {show.map((n) => {
         const p = layout.pos.get(n.id)!;
         return (
-          <Html key={n.id} position={[p.x, p.y + 9, p.z]} center style={{ pointerEvents: 'none' }}>
+          <Html
+            key={n.id}
+            position={[p.x, p.y + 9, p.z]}
+            center
+            // Clamp the label stack below the HUD overlays. drei defaults
+            // to `[16777271, 0]`, which lands a label's computed z-index
+            // way above the HUD's z-10 — labels then float OVER the
+            // "Pick a topology feature" hint, the FeatureCard, and the
+            // terrain legend. Capping at 8 keeps labels above the WebGL
+            // canvas but below every HUD card.
+            zIndexRange={[8, 0]}
+            style={{ pointerEvents: 'none' }}
+          >
             <div className="px-1 text-micro font-mono text-ink whitespace-nowrap" style={{ textShadow: '0 0 3px #000, 0 0 3px #000' }}>
               {shortLabel(n.purl)}
             </div>

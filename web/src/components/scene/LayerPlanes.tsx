@@ -42,7 +42,15 @@ export default function LayerPlanes({ planes }: { planes: LayerPlane[] }) {
                 depthWrite={false}
               />
             </mesh>
-            <Html position={[-R, pl.y, -R]} center style={{ pointerEvents: 'none' }}>
+            {/* Same z-index clamp as SceneLabels — without it drei's default
+                [16777271, 0] range floats the depth tag OVER the HUD
+                overlays (the TDA hint, FeatureCard, etc.). */}
+            <Html
+              position={[-R, pl.y, -R]}
+              center
+              zIndexRange={[8, 0]}
+              style={{ pointerEvents: 'none' }}
+            >
               <div
                 className="px-1.5 py-0.5 rounded bg-panel-2/80 border text-[10px] text-muted whitespace-nowrap font-mono"
                 style={{ borderColor: tint }}

@@ -65,6 +65,8 @@ pub enum Command {
     TdaSupport { pair: u64 },
     /// `prism tda compare --run <id>` — topology under multiple filtration lenses.
     TdaCompare { run: u64 },
+    /// `prism tda h2 --run <id>` — experimental H2 (void) homology.
+    TdaH2 { run: u64 },
     /// `prism candidates --requirement <id>` or
     /// `prism candidates --package <purl> --constraint <expr>`.
     Candidates {
@@ -432,6 +434,12 @@ fn parse_tda<'a, I: Iterator<Item = &'a str>>(mut it: I) -> Result<Command, Pars
             let run = flags.take_u64("--run")?;
             flags.finish()?;
             Ok(Command::TdaCompare { run })
+        }
+        "h2" => {
+            let mut flags = Flags::parse(it)?;
+            let run = flags.take_u64("--run")?;
+            flags.finish()?;
+            Ok(Command::TdaH2 { run })
         }
         other => Err(ParseError::UnknownCommand(format!("tda {other}"))),
     }

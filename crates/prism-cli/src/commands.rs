@@ -790,6 +790,30 @@ pub fn tda_run(out: &mut dyn Write, run: u64, filtration: &str) -> Result<()> {
     Ok(())
 }
 
+/// `prism tda h2 --run <id>` — experimental H2 (void) homology via the flag complex.
+pub fn tda_h2(out: &mut dyn Write, run: u64) -> Result<()> {
+    let prism = open_here()?;
+    let h = prism.tda_h2(RunId::new(run))?;
+    writeln!(
+        out,
+        "flag-complex homology for run {run}: H0={} H1={} H2={} ({} triangles)",
+        h.betti0, h.betti1, h.betti2, h.triangles
+    )
+    .map_err(PrismError::Io)?;
+    if h.betti2 == 0 {
+        writeln!(out, "  no H2 voids (the dependency surface has no hollow regions)")
+            .map_err(PrismError::Io)?;
+        return Ok(());
+    }
+    writeln!(out, "  {} void(s) — each a near-clique of mutually-dependent packages:", h.voids.len())
+        .map_err(PrismError::Io)?;
+    for v in &h.voids {
+        let names: Vec<&str> = v.iter().map(|n| n.purl.as_str()).collect();
+        writeln!(out, "    {{ {} }}", names.join(", ")).map_err(PrismError::Io)?;
+    }
+    Ok(())
+}
+
 /// `prism tda compare --run <id>` — topology under multiple filtration lenses.
 pub fn tda_compare(out: &mut dyn Write, run: u64) -> Result<()> {
     let prism = open_here()?;

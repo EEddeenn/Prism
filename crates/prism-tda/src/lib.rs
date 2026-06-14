@@ -25,11 +25,13 @@
 
 pub mod complex;
 pub mod filtration;
+pub mod flag;
 pub mod format;
 pub mod persistence;
 
 pub use complex::{Cell, Complex, ObjectType};
 pub use filtration::{depth_filtration, Direction, Filtration, FiltrationType};
+pub use flag::{flag_homology, FlagHomology};
 pub use format::{read_ptda, write_ptda, Ptda, PTDA_FORMAT_VERSION, PTDA_MAGIC};
 pub use persistence::{GeneratorEntry, PersistencePair, PersistenceResult};
 

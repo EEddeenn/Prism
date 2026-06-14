@@ -102,6 +102,7 @@ where
         Command::TdaRun { run, filtration } => commands::tda_run(out, *run, filtration),
         Command::TdaSupport { pair } => commands::tda_support(out, *pair),
         Command::TdaCompare { run } => commands::tda_compare(out, *run),
+        Command::TdaH2 { run } => commands::tda_h2(out, *run),
         Command::Candidates {
             requirement,
             package,

@@ -155,6 +155,34 @@ impl Prism {
         })
     }
 
+    /// Experimental H₂ homology of `run` via the truncated flag complex.
+    ///
+    /// Reports H₀/H₁/H₂ Betti numbers, the number of filled triangles, and the
+    /// vertex triple generating each H₂ void (resolved to package views). See
+    /// [`prism_tda::flag`] for the complex model and engineering interpretation.
+    pub fn tda_h2(&self, run: RunId) -> Result<H2View> {
+        let g = self.load_graph(run)?;
+        // The Betti numbers are filtration-invariant; depth gives a stable order.
+        let filt = depth_filtration(&g)?;
+        let h = prism_tda::flag_homology(&g, filt.values())?;
+        let mut voids = Vec::with_capacity(h.h2_generators.len());
+        for tri in &h.h2_generators {
+            let mut members = Vec::with_capacity(3);
+            for &node in tri {
+                members.push(self.node_view_for(&g, node)?);
+            }
+            voids.push(members);
+        }
+        Ok(H2View {
+            run,
+            betti0: h.betti0,
+            betti1: h.betti1,
+            betti2: h.betti2,
+            triangles: h.triangles,
+            voids,
+        })
+    }
+
     /// Compare a run's topology under several filtration **lenses**.
     ///
     /// The underlying 1-complex — and therefore the H₀/H₁ Betti numbers — is the
@@ -254,6 +282,23 @@ impl Prism {
             depth: g.node_depth(node)?,
         })
     }
+}
+
+/// Experimental higher-dimensional homology of a run (flag complex).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct H2View {
+    /// The run analyzed.
+    pub run: RunId,
+    /// H₀ — connected components.
+    pub betti0: u32,
+    /// H₁ — independent loops in the flag complex.
+    pub betti1: u32,
+    /// H₂ — voids (hollow closed dependency surfaces).
+    pub betti2: u32,
+    /// Number of filled triangles (3-cliques).
+    pub triangles: u32,
+    /// Each H₂ void's three generating packages.
+    pub voids: Vec<Vec<crate::views::GraphNodeView>>,
 }
 
 /// A run's topology summary under one filtration lens.

@@ -39,6 +39,7 @@ mod query;
 mod raw;
 mod resolve;
 mod resolve_store;
+mod run_diff;
 mod structure_views;
 mod tda;
 mod tda_views;
@@ -56,6 +57,7 @@ pub use duplicate_rootcause::{
 pub use ecosystem::{Ecosystem, CARGO_ECOSYSTEM_ID, NPM_ECOSYSTEM_ID};
 pub use ingest::{LockfileIngest, ManifestIngest};
 pub use resolve::SyntheticResolve;
+pub use run_diff::{CycleDiffEntry, HotspotShift, RunDiffView, ScopeShift};
 pub use structure_views::{
     kind_label, ChokepointView, CycleView, ExplanationView, IntroducerView, ScopeSummaryView,
 };

@@ -105,7 +105,7 @@ pub struct CycleView {
     pub advice: &'static str,
 }
 
-fn cycle_class_label(c: CycleClass) -> (&'static str, &'static str) {
+pub(crate) fn cycle_class_label(c: CycleClass) -> (&'static str, &'static str) {
     match c {
         CycleClass::RuntimeCoupling => (
             "runtime-coupling",

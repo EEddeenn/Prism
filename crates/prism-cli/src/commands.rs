@@ -338,6 +338,81 @@ pub fn graph_dup_causes(out: &mut dyn Write, run: u64) -> Result<()> {
     Ok(())
 }
 
+/// `prism graph diff --base <id> --head <id>` — interpretive cross-run diff.
+pub fn graph_diff(out: &mut dyn Write, base: u64, head: u64) -> Result<()> {
+    let prism = open_here()?;
+    let d = prism.run_diff(RunId::new(base), RunId::new(head))?;
+    writeln!(out, "diff run {base} → run {head}").map_err(PrismError::Io)?;
+    writeln!(
+        out,
+        "  nodes {:+}  edges {:+}  components {:+}  duplicate-families {:+}",
+        d.nodes_delta, d.edges_delta, d.scc_delta, d.duplicate_families_delta
+    )
+    .map_err(PrismError::Io)?;
+    writeln!(
+        out,
+        "  packages: +{} / -{}    versions: +{} / -{}",
+        d.added_packages.len(),
+        d.removed_packages.len(),
+        d.added_versions.len(),
+        d.removed_versions.len()
+    )
+    .map_err(PrismError::Io)?;
+
+    if !d.scope_shifts.is_empty() {
+        writeln!(out, "  scope shifts:").map_err(PrismError::Io)?;
+        for s in &d.scope_shifts {
+            writeln!(
+                out,
+                "    {:<10} footprint {:+}  exclusive {:+}",
+                s.kind, s.footprint_delta, s.exclusive_delta
+            )
+            .map_err(PrismError::Io)?;
+        }
+    }
+    diff_section(out, "new duplicate families", &d.new_duplicate_families)?;
+    diff_section(out, "resolved duplicate families", &d.resolved_duplicate_families)?;
+    if !d.new_cycles.is_empty() {
+        writeln!(out, "  new cycles ({}):", d.new_cycles.len()).map_err(PrismError::Io)?;
+        for c in &d.new_cycles {
+            writeln!(out, "    [{}] {}", c.class, c.members.join(" ⇄ ")).map_err(PrismError::Io)?;
+        }
+    }
+    if !d.resolved_cycles.is_empty() {
+        writeln!(out, "  resolved cycles ({}):", d.resolved_cycles.len()).map_err(PrismError::Io)?;
+        for c in &d.resolved_cycles {
+            writeln!(out, "    [{}] {}", c.class, c.members.join(" ⇄ ")).map_err(PrismError::Io)?;
+        }
+    }
+    if !d.new_hotspots.is_empty() {
+        writeln!(out, "  new/grown hotspots ({}):", d.new_hotspots.len()).map_err(PrismError::Io)?;
+        for h in &d.new_hotspots {
+            writeln!(
+                out,
+                "    {} dominates {} (was {})",
+                h.package_purl, h.head_dominated, h.base_dominated
+            )
+            .map_err(PrismError::Io)?;
+        }
+    }
+    Ok(())
+}
+
+/// Print a labelled list section, capped to keep output readable.
+fn diff_section(out: &mut dyn Write, label: &str, items: &[String]) -> Result<()> {
+    if items.is_empty() {
+        return Ok(());
+    }
+    writeln!(out, "  {label} ({}):", items.len()).map_err(PrismError::Io)?;
+    for item in items.iter().take(20) {
+        writeln!(out, "    {item}").map_err(PrismError::Io)?;
+    }
+    if items.len() > 20 {
+        writeln!(out, "    … and {} more", items.len() - 20).map_err(PrismError::Io)?;
+    }
+    Ok(())
+}
+
 /// The version tail of a purl for compact display (`…@1.2.3` → `1.2.3`).
 fn version_tail(purl: &str) -> &str {
     purl.rsplit_once('@').map(|(_, v)| v).unwrap_or(purl)

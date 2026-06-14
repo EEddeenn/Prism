@@ -87,6 +87,7 @@ where
         Command::GraphWhy { run, node } => commands::graph_why(out, *run, *node),
         Command::GraphCycles { run } => commands::graph_cycles(out, *run),
         Command::GraphDupCauses { run } => commands::graph_dup_causes(out, *run),
+        Command::GraphDiff { base, head } => commands::graph_diff(out, *base, *head),
         Command::TdaRun { run, filtration } => commands::tda_run(out, *run, filtration),
         Command::TdaSupport { pair } => commands::tda_support(out, *pair),
         Command::Candidates {

@@ -97,6 +97,7 @@ where
         Command::GraphOverlay { run, file } => commands::graph_overlay(out, *run, file),
         Command::GraphDistance { base, head } => commands::graph_distance(out, *base, *head),
         Command::GraphBudget { head, base, file } => commands::graph_budget(out, *head, *base, file),
+        Command::GraphShared { run, limit } => commands::graph_shared(out, *run, *limit),
         Command::Regions => commands::regions(out),
         Command::TdaRun { run, filtration } => commands::tda_run(out, *run, filtration),
         Command::TdaSupport { pair } => commands::tda_support(out, *pair),

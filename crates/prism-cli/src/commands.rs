@@ -338,6 +338,33 @@ pub fn graph_dup_causes(out: &mut dyn Write, run: u64) -> Result<()> {
     Ok(())
 }
 
+/// `prism graph shared --run <id> [--limit <n>]` — higher-order overlap.
+pub fn graph_shared(out: &mut dyn Write, run: u64, limit: u32) -> Result<()> {
+    let prism = open_here()?;
+    let o = prism.higher_order_overlap(RunId::new(run), limit as usize)?;
+    writeln!(
+        out,
+        "higher-order overlap across {} subsystem(s) in run {run}:",
+        o.subsystems
+    )
+    .map_err(PrismError::Io)?;
+    if o.shared_surfaces.is_empty() {
+        writeln!(out, "  (no packages shared across subsystems)").map_err(PrismError::Io)?;
+        return Ok(());
+    }
+    writeln!(out, "  most-shared packages (spread = subsystems sharing it):").map_err(PrismError::Io)?;
+    for s in &o.shared_surfaces {
+        writeln!(out, "    spread {:>3}  {}", s.spread, s.purl).map_err(PrismError::Io)?;
+    }
+    if !o.top_pairs.is_empty() {
+        writeln!(out, "  subsystem pairs with the largest shared surface:").map_err(PrismError::Io)?;
+        for p in o.top_pairs.iter().take(8) {
+            writeln!(out, "    {} ∩ {} = {} pkgs", p.a, p.b, p.shared).map_err(PrismError::Io)?;
+        }
+    }
+    Ok(())
+}
+
 /// `prism graph distance --base <id> --head <id>` — topology shape distance.
 pub fn graph_distance(out: &mut dyn Write, base: u64, head: u64) -> Result<()> {
     let prism = open_here()?;

@@ -55,6 +55,8 @@ pub enum Command {
     GraphDistance { base: u64, head: u64 },
     /// `prism graph budget --head <id> [--base <id>] --file <path>` — CI gate.
     GraphBudget { head: u64, base: Option<u64>, file: String },
+    /// `prism graph shared --run <id> [--limit <n>]` — higher-order overlap.
+    GraphShared { run: u64, limit: u32 },
     /// `prism regions` — every run as a comparable dependency region.
     Regions,
     /// `prism tda run --run <id> [--filtration depth]`.
@@ -385,6 +387,19 @@ fn parse_graph<'a, I: Iterator<Item = &'a str>>(mut it: I) -> Result<Command, Pa
                 .ok_or_else(|| ParseError::MissingArg { what: "--file".into() })?;
             flags.finish()?;
             Ok(Command::GraphBudget { head, base, file })
+        }
+        "shared" => {
+            let mut flags = Flags::parse(it)?;
+            let run = flags.take_u64("--run")?;
+            let limit = match flags.take_opt("--limit") {
+                Some(s) => s.parse::<u32>().map_err(|_| ParseError::BadValue {
+                    flag: "--limit".into(),
+                    value: s,
+                })?,
+                None => 15,
+            };
+            flags.finish()?;
+            Ok(Command::GraphShared { run, limit })
         }
         other => Err(ParseError::UnknownCommand(format!("graph {other}"))),
     }

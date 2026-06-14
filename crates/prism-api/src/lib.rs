@@ -40,6 +40,7 @@ mod ingest;
 mod parse;
 mod query;
 mod raw;
+mod overlap_views;
 mod overlay_views;
 mod resolve;
 mod resolve_store;
@@ -67,6 +68,7 @@ pub use duplicate_rootcause::{
 pub use ecosystem::{Ecosystem, CARGO_ECOSYSTEM_ID, NPM_ECOSYSTEM_ID};
 pub use fidelity_notes::{FidelityNote, FidelityReport};
 pub use ingest::{LockfileIngest, ManifestIngest};
+pub use overlap_views::{OverlapPair, OverlapView, SharedSurface};
 pub use overlay_views::{OverlayFinding, OverlayReportView};
 pub use resolve::SyntheticResolve;
 pub use reuse_views::{DiamondNode, DiamondReuseView, MinimalEdge, MinimalView};

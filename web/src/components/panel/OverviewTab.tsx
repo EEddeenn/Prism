@@ -3,36 +3,21 @@
 import { useGraphStore } from '@/store/useGraphStore';
 import type { CompareData } from '@/store/useGraphStore';
 import type { Barcode, GraphStats, RunMeta } from '@/lib/types';
-
-function Chip({ label, value, tone }: { label?: string; value: string; tone?: 'eco' | 'ok' | 'warn' }) {
-  const toneCls =
-    tone === 'ok'
-      ? 'text-ok border-[#1d4a32]'
-      : tone === 'warn'
-        ? 'text-warn border-[#4a3a1e] bg-[#20180c]'
-        : tone === 'eco'
-          ? 'text-accent border-[#2b4a6f]'
-          : 'text-ink border-line-2';
-  return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-[3px] rounded-full text-[11.5px] bg-panel-2 border ${toneCls}`}>
-      {label && <b className="font-bold">{label}</b>}
-      {value}
-    </span>
-  );
-}
+import { Badge, DivergingBar, PanelState, SectionHeader, type Tone } from '@/components/ui';
 
 /** Fidelity tier + caveats for one run, rendered as a single chip row. */
 function FidelityChips({ meta }: { meta: RunMeta | null }) {
-  if (!meta) return <span className="text-muted text-[11.5px]">—</span>;
+  if (!meta) return <span className="text-muted text-mini">—</span>;
   return (
     <div className="flex flex-wrap gap-1.5">
-      <Chip
-        label="fidelity"
-        value={meta.fidelity_tier}
-        tone={meta.fidelity_tier === 'lockfile-exact' ? 'ok' : 'warn'}
-      />
+      <Badge tone={meta.fidelity_tier === 'lockfile-exact' ? 'ok' : 'warn'}>
+        <b className="font-semibold">fidelity</b>
+        {meta.fidelity_tier}
+      </Badge>
       {meta.fidelity_caveats.map((c) => (
-        <Chip key={c} value={c} tone="warn" />
+        <Badge key={c} tone="warn">
+          {c}
+        </Badge>
       ))}
     </div>
   );
@@ -73,56 +58,19 @@ function numericRows(
 /** Signed delta badge (B − A) with a direction tint (more = worse for risk metrics). */
 function DeltaBadge({ delta, worseUp }: { delta: number; worseUp: boolean }) {
   if (delta === 0) {
-    return (
-      <span className="text-[10.5px] tabular-nums rounded-xl px-1.5 py-px border border-line-2 bg-panel-3 text-muted">
-        ±0
-      </span>
-    );
+    return <Badge tone="muted">±0</Badge>;
   }
   const sign = delta > 0 ? '+' : '−';
   const mag = Math.abs(delta);
   // For risk metrics an increase is bad; for neutral metrics any change stays muted-accent.
   const bad = worseUp && delta > 0;
   const good = worseUp && delta < 0;
-  const cls = bad
-    ? 'text-bad border-[#5a2424] bg-[#2a1414]'
-    : good
-      ? 'text-ok border-[#1d4a32]'
-      : 'text-accent border-[#2b4a6f] bg-panel-3';
+  const tone: Tone = bad ? 'bad' : good ? 'ok' : 'accent';
   return (
-    <span className={`text-[10.5px] tabular-nums rounded-xl px-1.5 py-px border ${cls}`}>
+    <Badge tone={tone}>
       {sign}
       {mag}
-    </span>
-  );
-}
-
-/**
- * Tiny diverging bar: A grows left from center, B grows right, each encoding its
- * value relative to max(A,B). Tinted by which side is worse.
- */
-function DivergingBar({ a, b, worseUp }: { a: number; b: number; worseUp: boolean }) {
-  const max = Math.max(a, b, 1e-9);
-  const aPct = (a / max) * 100;
-  const bPct = (b / max) * 100;
-  const bWorse = worseUp ? b > a : false;
-  const aWorse = worseUp ? a > b : false;
-  return (
-    <div className="flex items-center h-1.5 mt-1" title={`A ${a} | B ${b}`}>
-      <div className="flex-1 flex justify-end overflow-hidden bg-panel-3 rounded-l">
-        <div
-          className={`h-full rounded-l ${aWorse ? 'bg-warn' : 'bg-line-2'}`}
-          style={{ width: `${aPct}%` }}
-        />
-      </div>
-      <div className="w-px h-full bg-line-2" />
-      <div className="flex-1 overflow-hidden bg-panel-3 rounded-r">
-        <div
-          className={`h-full rounded-r ${bWorse ? 'bg-warn' : 'bg-accent'}`}
-          style={{ width: `${bPct}%` }}
-        />
-      </div>
-    </div>
+    </Badge>
   );
 }
 
@@ -149,15 +97,15 @@ function CompareView({
       {/* A | B column headers */}
       <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 items-baseline mb-2">
         <div />
-        <div className="text-right text-[11px] uppercase tracking-wide text-line-2 font-semibold">
+        <div className="text-right text-label uppercase tracking-wide text-muted font-semibold">
           A {aRun != null ? `· run ${aRun}` : ''}
         </div>
-        <div className="text-right text-[11px] uppercase tracking-wide text-accent font-semibold">
+        <div className="text-right text-label uppercase tracking-wide text-accent font-semibold">
           B {bRun != null ? `· run ${bRun}` : ''}
         </div>
       </div>
 
-      <h3 className="mt-2 mb-1.5 text-[11px] uppercase tracking-wide text-muted">Graph · A | B</h3>
+      <SectionHeader>Graph · A | B</SectionHeader>
       <div className="space-y-2">
         {rows.map((r) => {
           const worseUp = MORE_IS_WORSE.has(r.key);
@@ -165,7 +113,7 @@ function CompareView({
           const delta = hasBoth ? (r.b as number) - (r.a as number) : null;
           return (
             <div key={r.key}>
-              <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 items-center">
+              <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 items-center text-body">
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="text-muted truncate">{r.label}</span>
                   {delta != null && <DeltaBadge delta={delta} worseUp={worseUp} />}
@@ -177,25 +125,27 @@ function CompareView({
                   {r.b != null ? r.b : '—'}
                 </div>
               </div>
-              {hasBoth && <DivergingBar a={r.a as number} b={r.b as number} worseUp={worseUp} />}
+              {hasBoth && (
+                <DivergingBar
+                  a={r.a as number}
+                  b={r.b as number}
+                  leftTone={worseUp && (r.a as number) > (r.b as number) ? 'warn' : 'muted'}
+                  rightTone={worseUp && (r.b as number) > (r.a as number) ? 'warn' : 'accent'}
+                  ariaLabel={`${r.label}: A ${r.a}, B ${r.b}`}
+                />
+              )}
             </div>
           );
         })}
 
         {/* has_cycle: yes/no per run, not a numeric delta. */}
-        <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 items-center">
+        <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 items-center text-body">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-muted truncate">has cycle</span>
             {aCycle != null && bCycle != null && aCycle !== bCycle && (
-              <span
-                className={`text-[10.5px] rounded-xl px-1.5 py-px border ${
-                  bCycle && !aCycle
-                    ? 'text-bad border-[#5a2424] bg-[#2a1414]'
-                    : 'text-ok border-[#1d4a32]'
-                }`}
-              >
+              <Badge tone={bCycle && !aCycle ? 'bad' : 'ok'}>
                 {bCycle && !aCycle ? 'gained' : 'resolved'}
-              </span>
+              </Badge>
             )}
           </div>
           <div className={`text-right font-semibold ${aCycle ? 'text-warn' : 'text-ink'}`}>
@@ -208,11 +158,11 @@ function CompareView({
       </div>
 
       {/* Fidelity for BOTH runs as two chip rows — a downgrade in B is obvious. */}
-      <h3 className="mt-4 mb-1.5 text-[11px] uppercase tracking-wide text-muted">Fidelity · A | B</h3>
+      <SectionHeader>Fidelity · A | B</SectionHeader>
       <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 items-start">
-        <span className="text-line-2 font-semibold text-[11px] uppercase tracking-wide pt-1">A</span>
+        <span className="text-muted font-semibold text-label uppercase tracking-wide pt-1">A</span>
         <FidelityChips meta={meta} />
-        <span className="text-accent font-semibold text-[11px] uppercase tracking-wide pt-1">B</span>
+        <span className="text-accent font-semibold text-label uppercase tracking-wide pt-1">B</span>
         <FidelityChips meta={compare.runMeta} />
       </div>
     </div>
@@ -229,30 +179,43 @@ export default function OverviewTab() {
 
   return (
     <div>
-      <div className="flex flex-wrap gap-1.5 mb-2">
-        {meta && (
-          <>
-            <Chip label="ecosystem" value={meta.ecosystem} tone="eco" />
-            <Chip
-              label="fidelity"
-              value={meta.fidelity_tier}
-              tone={meta.fidelity_tier === 'lockfile-exact' ? 'ok' : 'warn'}
-            />
-            {meta.resolver && <Chip label="resolver" value={meta.resolver} />}
-            {meta.fidelity_caveats.map((c) => (
-              <Chip key={c} value={c} tone="warn" />
-            ))}
-          </>
-        )}
-      </div>
+      {meta && (
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          <Badge tone="accent">
+            <b className="font-semibold">ecosystem</b>
+            {meta.ecosystem}
+          </Badge>
+          {meta.resolver && (
+            <Badge>
+              <b className="font-semibold">resolver</b>
+              {meta.resolver}
+            </Badge>
+          )}
+          {/* Fidelity tier + caveats only outside compare mode — CompareView
+              shows them per-run (A | B) so a downgrade in B stays obvious. */}
+          {!compareMode && (
+            <>
+              <Badge tone={meta.fidelity_tier === 'lockfile-exact' ? 'ok' : 'warn'}>
+                <b className="font-semibold">fidelity</b>
+                {meta.fidelity_tier}
+              </Badge>
+              {meta.fidelity_caveats.map((c) => (
+                <Badge key={c} tone="warn">
+                  {c}
+                </Badge>
+              ))}
+            </>
+          )}
+        </div>
+      )}
 
       {compareMode ? (
         <CompareView meta={meta} stats={stats} barcode={barcode} compare={compareData} />
       ) : (
         <>
-          <h3 className="mt-4 mb-1.5 text-[11px] uppercase tracking-wide text-muted">Graph</h3>
+          <SectionHeader>Graph</SectionHeader>
           {stats ? (
-            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-body">
               {(
                 [
                   ['nodes', String(stats.nodes), false],
@@ -270,12 +233,12 @@ export default function OverviewTab() {
               ))}
             </dl>
           ) : (
-            <p className="text-muted text-sm">Pick a run.</p>
+            <PanelState kind="prompt">Pick a run to see its graph stats.</PanelState>
           )}
         </>
       )}
 
-      <h3 className="mt-4 mb-1.5 text-[11px] uppercase tracking-wide text-muted">How to read it</h3>
+      <SectionHeader>How to read it</SectionHeader>
       <ul className="list-disc pl-4 text-muted text-xs space-y-1">
         <li>Click a node to trace what it <b className="text-ink">depends on</b> and what <b className="text-ink">depends on it</b>.</li>
         <li><b className="text-ink">2D</b> is a layered graph; <b className="text-ink">3D</b> is a spatial topology.</li>

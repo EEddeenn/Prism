@@ -3,14 +3,16 @@
 import { useMemo, useState } from 'react';
 import { useGraphStore } from '@/store/useGraphStore';
 import FidelityBanner from '@/components/FidelityBanner';
+import { Badge, MetricPill, RowButton, SectionHeader, PanelState } from '@/components/ui';
+import { CHART_COLORS, PALETTE } from '@/lib/palette';
 import type { TdaPair } from '@/lib/types';
 
 const fmt = (x: number | null) => (x == null ? '?' : String(Math.round(x * 10) / 10));
 
-// H0 = connected components (accent / blue) · H1 = loops (accent-2 / orange).
+// H0 = connected components (chart dim0) · H1 = loops (chart dim1 / amber).
 const DIM = {
-  0: { stroke: '#5aa9ff', label: 'H0' }, // accent
-  1: { stroke: '#ffb454', label: 'H1' }, // accent-2
+  0: { stroke: CHART_COLORS.dim0, label: 'H0' },
+  1: { stroke: CHART_COLORS.dim1, label: 'H1' },
 } as const;
 const dimColor = (dim: number) => (dim === 1 ? DIM[1].stroke : DIM[0].stroke);
 
@@ -56,15 +58,15 @@ function PersistenceDiagram({
 
   return (
     <div className="relative">
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full block" role="img" aria-label="Persistence diagram">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full block" aria-hidden>
         {/* plot frame */}
-        <rect x={m.l} y={m.t} width={innerW} height={innerH} fill="#1d212e" stroke="#2a2f3c" />
+        <rect x={m.l} y={m.t} width={innerW} height={innerH} fill={CHART_COLORS.frame} stroke={CHART_COLORS.grid} />
 
         {/* hairline integer grid */}
         {ticks.map((d) => (
           <g key={d}>
-            <line x1={sx(d)} y1={m.t} x2={sx(d)} y2={m.t + innerH} stroke="#252a3a" strokeWidth={0.5} />
-            <line x1={m.l} y1={sy(d)} x2={m.l + innerW} y2={sy(d)} stroke="#252a3a" strokeWidth={0.5} />
+            <line x1={sx(d)} y1={m.t} x2={sx(d)} y2={m.t + innerH} stroke={CHART_COLORS.rail} strokeWidth={0.5} />
+            <line x1={m.l} y1={sy(d)} x2={m.l + innerW} y2={sy(d)} stroke={CHART_COLORS.rail} strokeWidth={0.5} />
             <text x={sx(d)} y={m.t + innerH + 11} textAnchor="middle" className="fill-muted" fontSize={7}>
               {d}
             </text>
@@ -75,10 +77,10 @@ function PersistenceDiagram({
         ))}
 
         {/* y = x diagonal — nothing dies before it is born */}
-        <line x1={sx(0)} y1={sy(0)} x2={sx(maxDepth)} y2={sy(maxDepth)} stroke="#353c4d" strokeWidth={0.75} strokeDasharray="2 2" />
+        <line x1={sx(0)} y1={sy(0)} x2={sx(maxDepth)} y2={sy(maxDepth)} stroke={CHART_COLORS.diagonal} strokeWidth={0.75} strokeDasharray="2 2" />
 
         {/* dashed ∞ rail for essentials */}
-        <line x1={m.l} y1={railY} x2={m.l + innerW} y2={railY} stroke="#353c4d" strokeWidth={0.75} strokeDasharray="3 2" />
+        <line x1={m.l} y1={railY} x2={m.l + innerW} y2={railY} stroke={CHART_COLORS.diagonal} strokeWidth={0.75} strokeDasharray="3 2" />
         <text x={m.l + innerW} y={railY - 3} textAnchor="end" className="fill-muted" fontSize={8}>
           ∞
         </text>
@@ -109,7 +111,7 @@ function PersistenceDiagram({
                 r={r}
                 fill={c}
                 fillOpacity={p.essential ? 0.95 : 0.8}
-                stroke={isActive ? '#e7e9f0' : isHover ? c : 'none'}
+                stroke={isActive ? PALETTE.ink : isHover ? c : 'none'}
                 strokeWidth={isActive ? 1.4 : 1}
                 className="cursor-pointer"
                 onMouseEnter={() => setHover(p.pair)}
@@ -121,7 +123,7 @@ function PersistenceDiagram({
       </svg>
 
       {hoverPair && (
-        <div className="absolute top-0 right-0 px-2 py-1 rounded-md bg-panel-3 border border-line-2 text-[10px] font-mono pointer-events-none whitespace-nowrap">
+        <div className="absolute top-0 right-0 px-2 py-1 rounded-md bg-panel-3 border border-line-2 text-micro font-mono pointer-events-none whitespace-nowrap">
           <span className="font-bold" style={{ color: dimColor(hoverPair.dim) }}>
             {DIM[hoverPair.dim === 1 ? 1 : 0].label}
           </span>{' '}
@@ -173,11 +175,11 @@ function Barcode({
   for (let d = 0; d <= maxDepth; d += step) ticks.push(d);
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full block" role="img" aria-label="Barcode">
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full block" aria-hidden>
       {/* faint vertical depth gridlines + labels */}
       {ticks.map((d) => (
         <g key={d}>
-          <line x1={sx(d)} y1={m.t} x2={sx(d)} y2={H - m.b} stroke="#252a3a" strokeWidth={0.5} />
+          <line x1={sx(d)} y1={m.t} x2={sx(d)} y2={H - m.b} stroke={CHART_COLORS.rail} strokeWidth={0.5} />
           <text x={sx(d)} y={H - 5} textAnchor="middle" className="fill-muted" fontSize={7}>
             {d}
           </text>
@@ -209,7 +211,7 @@ function Barcode({
               rx={1}
               fill={c}
               fillOpacity={isActive ? 1 : 0.85}
-              stroke={isActive ? '#e7e9f0' : 'none'}
+              stroke={isActive ? PALETTE.ink : 'none'}
               strokeWidth={isActive ? 1 : 0}
             />
             {p.essential && (
@@ -227,15 +229,6 @@ function Barcode({
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="mb-3">
-      <div className="text-[11px] uppercase tracking-wide text-muted mb-1">{title}</div>
-      {children}
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Searchable / sorted feature list (preserved below the visuals).
 // ---------------------------------------------------------------------------
@@ -243,23 +236,26 @@ function FeatureRow({ p }: { p: TdaPair }) {
   const feature = useGraphStore((s) => s.feature);
   const selectFeature = useGraphStore((s) => s.selectFeature);
   const active = feature?.pair === p.pair;
+  const desc = p.essential
+    ? `born d${fmt(p.birth)} · never dies`
+    : `d${fmt(p.birth)} → d${fmt(p.death)} · life ${fmt(p.persistence)}`;
   return (
-    <div
-      onClick={() => selectFeature(p.pair, p.dim)}
-      className={`flex items-center gap-2 px-2.5 py-1.5 my-1 rounded-lg bg-panel-2 cursor-pointer border ${
-        active ? 'border-node-center bg-panel-3' : 'border-transparent hover:border-accent hover:bg-panel-3'
-      }`}
+    <RowButton
+      onSelect={() => selectFeature(p.pair, p.dim)}
+      active={active}
+      ariaLabel={`H${p.dim} feature ${p.pair}, ${desc}, ${p.essential ? 'essential' : 'finite'}`}
+      className="my-1"
     >
-      <span className="shrink-0 font-mono font-bold text-[11px] min-w-[22px]" style={{ color: dimColor(p.dim) }}>
+      <span className="shrink-0 font-mono font-bold text-mini min-w-[22px]" style={{ color: dimColor(p.dim) }}>
         H{p.dim}
       </span>
-      <span className="flex-1 text-[11px] tabular-nums">
-        {p.essential ? `born d${fmt(p.birth)} · never dies` : `d${fmt(p.birth)} → d${fmt(p.death)} · life ${fmt(p.persistence)}`}
-      </span>
-      <span className={`shrink-0 text-[10px] rounded-xl px-2 border ${p.essential ? 'text-node-center border-[#4a3a1e]' : 'text-muted border-line-2'}`}>
-        {p.essential ? 'essential' : 'finite'}
-      </span>
-    </div>
+      <span className="flex-1 text-mini tabular-nums">{desc}</span>
+      {p.essential ? (
+        <Badge tone="warn">essential</Badge>
+      ) : (
+        <Badge tone="muted">finite</Badge>
+      )}
+    </RowButton>
   );
 }
 
@@ -271,12 +267,14 @@ function Group({ title, list }: { title: string; list: TdaPair[] }) {
   const CAP = 40;
   return (
     <div>
-      <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1">{title} ({list.length})</div>
+      <SectionHeader as="h4" count={list.length}>
+        {title}
+      </SectionHeader>
       {sorted.slice(0, CAP).map((p) => (
         <FeatureRow key={p.pair} p={p} />
       ))}
       {sorted.length > CAP && (
-        <p className="text-muted text-[11px] mt-1.5">… and {sorted.length - CAP} more (showing the {CAP} longest-lived).</p>
+        <p className="text-muted text-mini mt-1.5">… and {sorted.length - CAP} more (showing the {CAP} longest-lived).</p>
       )}
     </div>
   );
@@ -289,6 +287,8 @@ export default function TdaTab() {
   const stats = useGraphStore((s) => s.stats);
   const feature = useGraphStore((s) => s.feature);
   const selectFeature = useGraphStore((s) => s.selectFeature);
+  const statusText = useGraphStore((s) => s.statusText);
+  const statusError = useGraphStore((s) => s.statusError);
 
   const [q, setQ] = useState('');
 
@@ -318,14 +318,39 @@ export default function TdaTab() {
     });
   }, [pairs, q]);
 
-  if (!barcode) {
+  // No run picked yet → prompt; a run is selected but its homology is still
+  // streaming in → loading. Distinguish both from a run that genuinely has no
+  // persistent homology (the !barcode empty branch below).
+  if (run == null) {
     return (
       <div>
         <FidelityBanner />
-        <p className="text-muted text-sm">No persistent homology for this run yet.</p>
-        <p className="text-muted text-sm mt-1.5">
-          Compute it with <code className="bg-panel-2 px-1.5 rounded">prism tda run --run {run ?? '<run>'}</code>.
-        </p>
+        <PanelState kind="prompt">Pick a run to compute its persistent homology.</PanelState>
+      </div>
+    );
+  }
+
+  if (!barcode) {
+    const loading = !statusError && /load/i.test(statusText);
+    if (loading) {
+      return (
+        <div>
+          <FidelityBanner />
+          <PanelState kind="loading">Computing persistent homology…</PanelState>
+        </div>
+      );
+    }
+    return (
+      <div>
+        <FidelityBanner />
+        <PanelState
+          kind="empty"
+          cta={
+            <code className="bg-panel-2 px-1.5 rounded">prism tda run --run {run}</code>
+          }
+        >
+          No persistent homology for this run yet.
+        </PanelState>
       </div>
     );
   }
@@ -338,63 +363,74 @@ export default function TdaTab() {
       <FidelityBanner />
 
       {/* H0/H1 component/cycle summary counts */}
-      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 mb-2">
-        <dt className="text-muted">H₀ components</dt>
-        <dd className="text-right tabular-nums font-semibold">{barcode.component_count}</dd>
-        <dt className="text-muted">H₁ cycles</dt>
-        <dd className="text-right tabular-nums font-semibold">{barcode.cycle_count}</dd>
-      </dl>
+      <div className="flex flex-wrap items-center gap-1.5 mb-2">
+        <MetricPill
+          label="H₀ components"
+          value={barcode.component_count}
+          tone="accent"
+          title="Connected components (H₀)"
+        />
+        <MetricPill
+          label="H₁ cycles"
+          value={barcode.cycle_count}
+          tone="warn"
+          title="Independent loops (H₁)"
+        />
+      </div>
 
       {pairs.length > 0 ? (
         <>
-          <Section title="Persistence diagram">
-            <div className="rounded-lg border border-line bg-panel p-1.5">
-              <PersistenceDiagram pairs={pairs} maxDepth={maxDepth} activePair={activePair} onPick={(p) => selectFeature(p.pair, p.dim)} />
-            </div>
-            <p className="text-muted text-[10.5px] mt-1">
-              Each dot is a feature at (birth, death); distance above the diagonal is persistence.
-              Dots on the <span className="font-mono">∞</span> rail never die.
-            </p>
-          </Section>
+          <SectionHeader>Persistence diagram</SectionHeader>
+          <div className="rounded-lg border border-line bg-panel p-1.5">
+            <PersistenceDiagram pairs={pairs} maxDepth={maxDepth} activePair={activePair} onPick={(p) => selectFeature(p.pair, p.dim)} />
+          </div>
+          <p className="text-muted text-mini mt-1">
+            Each dot is a feature at (birth, death); distance above the diagonal is persistence.
+            Dots on the <span className="font-mono">∞</span> rail never die.
+          </p>
 
-          <Section title="Barcode">
-            <div className="rounded-lg border border-line bg-panel p-1.5">
-              <Barcode pairs={pairs} maxDepth={maxDepth} activePair={activePair} onPick={(p) => selectFeature(p.pair, p.dim)} />
-            </div>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[10.5px] text-muted">
-              <span className="flex items-center gap-1">
-                <span className="w-2.5 h-1.5 rounded-sm" style={{ background: DIM[0].stroke }} /> H0 components
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="w-2.5 h-1.5 rounded-sm" style={{ background: DIM[1].stroke }} /> H1 loops
-              </span>
-              <span>→ never dies</span>
-              <span>dim = noise (life ≤ 1)</span>
-            </div>
-          </Section>
+          <SectionHeader>Barcode</SectionHeader>
+          <div className="rounded-lg border border-line bg-panel p-1.5">
+            <Barcode pairs={pairs} maxDepth={maxDepth} activePair={activePair} onPick={(p) => selectFeature(p.pair, p.dim)} />
+          </div>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-mini text-muted">
+            <span className="flex items-center gap-1">
+              <span className="w-2.5 h-1.5 rounded-sm" style={{ background: DIM[0].stroke }} /> H0 components
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-2.5 h-1.5 rounded-sm" style={{ background: DIM[1].stroke }} /> H1 loops
+            </span>
+            <span>→ never dies</span>
+            <span>dim = noise (life ≤ 1)</span>
+          </div>
         </>
       ) : (
-        <p className="text-muted text-[11px] mb-3">No individual feature pairs returned for this run.</p>
+        <PanelState kind="empty">No individual feature pairs returned for this run.</PanelState>
       )}
 
       {pairs.length > 0 && (
         <>
-          <div className="flex items-center justify-between mb-1.5 mt-1">
-            <span className="text-[11px] uppercase tracking-wide text-muted">Features</span>
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="search H0 / H1 / d3 / essential…"
-              className="w-[180px] text-[11px] px-2 py-1 rounded-md bg-panel-2 border border-line-2 text-ink placeholder:text-muted focus:outline-none focus:border-accent"
-            />
-          </div>
-          <p className="text-muted text-[11px] mb-1">Click a feature to light up the packages that carry it (opens 3D · TDA).</p>
+          <SectionHeader
+            className="mt-4"
+            right={
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="search H0 / H1 / d3 / essential…"
+                aria-label="Search features"
+                className="w-[180px] text-mini px-2 py-1 rounded-md bg-panel-2 border border-line-2 text-ink placeholder:text-muted focus:outline-none focus:border-accent"
+              />
+            }
+          >
+            Features
+          </SectionHeader>
+          <p className="text-muted text-mini mb-1">Click a feature to light up the packages that carry it (opens 3D · TDA).</p>
 
           {q.trim() ? (
             filtered.length ? (
               <Group title="Matches" list={filtered} />
             ) : (
-              <p className="text-muted text-[11px] mt-1.5">No features match “{q.trim()}”.</p>
+              <PanelState kind="empty">No features match “{q.trim()}”.</PanelState>
             )
           ) : (
             <>

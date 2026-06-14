@@ -3,17 +3,43 @@
 import { useMemo } from 'react';
 import { useGraphStore } from '@/store/useGraphStore';
 import { diffRuns, type FamilyDiff, type DiffStatus } from '@/lib/diff';
+import { shortLabel } from '@/lib/palette';
+import {
+  MetricPill,
+  SectionHeader,
+  RowButton,
+  Sparkline,
+  PanelState,
+} from '@/components/ui';
 
 const ROW_CAP = 50;
 
-// Per-section accent: added reads as ok/green, removed as bad/red, changed as warn/amber.
-const SECTION: Record<DiffStatus, { title: string; tone: string; border: string; bar: string }> = {
-  added: { title: 'Added', tone: 'text-ok', border: 'border-l-ok', bar: 'bg-ok' },
-  removed: { title: 'Removed', tone: 'text-bad', border: 'border-l-bad', bar: 'bg-bad' },
-  changed: { title: 'Changed', tone: 'text-warn', border: 'border-l-warn', bar: 'bg-warn' },
+// Per-section accent: added reads as ok/green, removed as bad/red, changed as
+// warn/amber. `text` is a literal class (Tailwind can't see template strings).
+const SECTION: Record<DiffStatus, { title: string; text: string }> = {
+  added: { title: 'Added', text: 'text-ok' },
+  removed: { title: 'Removed', text: 'text-bad' },
+  changed: { title: 'Changed', text: 'text-warn' },
 };
 
-/** One family row: monospace name, version delta, blast tag. Click highlights its A-run ids. */
+/** Direction glyph for a changed family: a single arrow, with an aria-label so the
+ *  meaning isn't conveyed by color/title alone. */
+function Direction({ direction }: { direction: number }) {
+  const cfg =
+    direction > 0
+      ? { glyph: '↑', cls: 'text-ok', label: 'version increased' }
+      : direction < 0
+        ? { glyph: '↓', cls: 'text-warn', label: 'version decreased' }
+        : { glyph: '↔', cls: 'text-muted', label: 'version set changed' };
+  return (
+    <span className={`mx-1 ${cfg.cls}`} role="img" aria-label={cfg.label} title={cfg.label}>
+      {cfg.glyph}
+    </span>
+  );
+}
+
+/** One family row: monospace name, version delta, blast tag. Click highlights its
+ *  A-run ids; families that exist only in the compare run render disabled. */
 function DiffRow({ row, onPick }: { row: FamilyDiff; onPick: (r: FamilyDiff) => void }) {
   const onlyInB = row.status === 'added' || row.ids.length === 0;
   const clickable = !onlyInB;
@@ -22,45 +48,43 @@ function DiffRow({ row, onPick }: { row: FamilyDiff; onPick: (r: FamilyDiff) => 
   // show just the side that exists.
   const delta =
     row.status === 'changed' ? (
-      <span className="font-mono text-[11px] text-muted truncate">
+      <span className="font-mono text-mini text-muted truncate">
         <span className="text-ink">{row.aVersions.join(', ')}</span>
-        {row.direction > 0 ? (
-          <span className="text-ok mx-1" title="version increased">{'▲ →'}</span>
-        ) : row.direction < 0 ? (
-          <span className="text-warn mx-1" title="version decreased">{'▼ →'}</span>
-        ) : (
-          <span className="text-muted mx-1" title="version set changed">{'↔ →'}</span>
-        )}
+        <Direction direction={row.direction} />
         <span className="text-ink">{row.bVersions.join(', ')}</span>
       </span>
     ) : row.status === 'added' ? (
-      <span className="font-mono text-[11px] text-ok truncate">{row.bVersions.join(', ')}</span>
+      <span className="font-mono text-mini text-ok truncate">{row.bVersions.join(', ')}</span>
     ) : (
-      <span className="font-mono text-[11px] text-bad truncate">{row.aVersions.join(', ')}</span>
+      <span className="font-mono text-mini text-bad truncate">{row.aVersions.join(', ')}</span>
     );
 
   return (
-    <div
-      onClick={clickable ? () => onPick(row) : undefined}
-      title={clickable ? 'Highlight these nodes in the active run' : 'This family exists only in the compare run'}
-      className={`flex items-center gap-2 px-2.5 py-1.5 border-t border-line ${
-        clickable ? 'cursor-pointer hover:bg-panel-3' : 'cursor-default'
-      }`}
+    <RowButton
+      onSelect={() => onPick(row)}
+      disabled={!clickable}
+      ariaLabel={`${shortLabel(row.name)}, blast ${row.blast}`}
+      title={
+        clickable
+          ? 'Highlight these nodes in the active run'
+          : 'This family exists only in the compare run'
+      }
     >
       <div className="min-w-0 flex-1">
-        <div className="font-mono text-xs truncate text-ink">{row.name}</div>
+        <div className="font-mono text-body truncate text-ink" title={row.name}>{shortLabel(row.name)}</div>
         <div className="mt-0.5 flex items-center gap-1.5">
           {delta}
-          {onlyInB && <span className="text-[10px] text-muted shrink-0">(only in B)</span>}
+          {onlyInB && <span className="text-micro text-muted shrink-0">(only in B)</span>}
         </div>
       </div>
-      <span
-        title="max transitive dependents (blast radius)"
-        className="shrink-0 text-[10.5px] tabular-nums text-muted rounded-xl px-2 py-px border border-line-2 bg-panel-3"
-      >
-        blast {row.blast}
+      <span className="shrink-0">
+        <MetricPill
+          label="blast"
+          value={row.blast}
+          title="max transitive dependents (blast radius)"
+        />
       </span>
-    </div>
+    </RowButton>
   );
 }
 
@@ -78,24 +102,26 @@ function Section({
   const more = rows.length - shown.length;
 
   return (
-    <div className={`mb-3 rounded-lg overflow-hidden bg-panel-2 border border-line border-l-2 ${cfg.border}`}>
-      <div className="flex items-center gap-2 px-2.5 py-2">
-        <span className={`text-[11px] uppercase tracking-wide font-semibold ${cfg.tone}`}>{cfg.title}</span>
-        <span className="ml-auto text-[11px] tabular-nums text-muted">{rows.length}</span>
-      </div>
+    <section className="mb-3">
+      <SectionHeader count={rows.length}>
+        <span className={cfg.text}>{cfg.title}</span>
+      </SectionHeader>
       {rows.length === 0 ? (
-        <div className="px-2.5 pb-2.5 pt-1 text-muted text-xs border-t border-line">None.</div>
+        // Empty is a neutral outcome — don't announce "Removed: none" as an alert.
+        <p className="text-muted text-mini">No {cfg.title.toLowerCase()} families.</p>
       ) : (
-        <>
+        <div className="flex flex-col gap-0.5">
           {shown.map((r) => (
             <DiffRow key={r.key} row={r} onPick={onPick} />
           ))}
           {more > 0 && (
-            <div className="px-2.5 py-1.5 border-t border-line text-[11px] text-muted">… {more} more</div>
+            <p className="px-2 py-1 text-mini text-muted tabular-nums">
+              … {more} more (capped at {ROW_CAP}; refine the diff to see the rest)
+            </p>
           )}
-        </>
+        </div>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -113,9 +139,9 @@ export default function DiffTab() {
 
   if (!compareData || !diff) {
     return (
-      <p className="text-muted text-sm">
+      <PanelState kind="prompt">
         Pick a &lsquo;vs&rsquo; run in the top bar to diff two resolutions.
-      </p>
+      </PanelState>
     );
   }
 
@@ -125,7 +151,6 @@ export default function DiffTab() {
 
   // changes-by-depth sparkline, normalized to the busiest depth.
   const depthRows = [...diff.byDepth.entries()].sort((a, b) => a[0] - b[0]);
-  const maxDepthCount = Math.max(1, ...depthRows.map(([, c]) => c));
 
   const onPick = (r: FamilyDiff) => {
     if (r.ids.length) highlightSet(r.ids, r.name);
@@ -152,17 +177,21 @@ export default function DiffTab() {
       {/* Changes by depth */}
       {depthRows.length > 0 && (
         <div className="mb-3 rounded-lg bg-panel-2 border border-line px-2.5 py-2">
-          <div className="text-[11px] uppercase tracking-wide text-muted mb-1.5">Changes by depth</div>
-          <div className="flex items-end gap-1 h-12">
+          <SectionHeader className="mt-0">Changes by depth</SectionHeader>
+          <Sparkline
+            data={depthRows.map(([, count]) => count)}
+            ariaLabel={depthRows
+              .map(([depth, count]) => `depth ${depth}: ${count} change${count === 1 ? '' : 's'}`)
+              .join('; ')}
+          />
+          <div className="flex gap-px mt-0.5">
             {depthRows.map(([depth, count]) => (
-              <div key={depth} className="flex-1 min-w-0 flex flex-col items-center gap-0.5" title={`depth ${depth}: ${count} change${count === 1 ? '' : 's'}`}>
-                <div className="w-full flex items-end h-9">
-                  <div
-                    className="w-full rounded-sm bg-accent"
-                    style={{ height: `${Math.max(6, (count / maxDepthCount) * 100)}%` }}
-                  />
-                </div>
-                <div className="text-[9px] text-muted tabular-nums leading-none">{depth}</div>
+              <div
+                key={depth}
+                className="flex-1 min-w-0 text-center text-micro text-muted tabular-nums leading-none"
+                title={`depth ${depth}: ${count} change${count === 1 ? '' : 's'}`}
+              >
+                {depth}
               </div>
             ))}
           </div>

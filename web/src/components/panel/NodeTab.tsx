@@ -2,10 +2,11 @@
 
 import { useGraphStore } from '@/store/useGraphStore';
 import { shortLabel } from '@/lib/palette';
-import { kindName, kindColor, flagNames } from '@/lib/edges';
+import { kindName, flagNames } from '@/lib/edges';
 import type { GraphNode } from '@/lib/types';
 import type { GraphIndex } from '@/lib/graph';
 import CandidateStrip from '@/components/CandidateStrip';
+import { SectionHeader, RowButton, Row, Badge, PanelState, type Tone } from '@/components/ui';
 
 /** BFS upward from `sel` over `inn` to the nearest depth-0 root, then
  *  reconstruct the shortest path root -> ... -> sel. Returns node ids
@@ -48,7 +49,7 @@ function Crumbs({ index, sel }: { index: GraphIndex; sel: number }) {
 
   if (index.rootIds.has(sel)) {
     return (
-      <div className="mb-2 text-[11px] text-muted">
+      <div className="mb-2 text-mini text-muted">
         This node <span className="text-accent-2">is a root</span>.
       </div>
     );
@@ -56,42 +57,51 @@ function Crumbs({ index, sel }: { index: GraphIndex; sel: number }) {
 
   const path = pathToRoot(index, sel);
   if (!path || path.length < 2) {
-    return (
-      <div className="mb-2 text-[11px] text-muted">No path to a root (orphan).</div>
-    );
+    return <div className="mb-2 text-mini text-muted">No path to a root (orphan).</div>;
   }
 
   return (
-    <div className="mb-2 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-[11px]">
-      {path.map((id, i) => {
-        const n = index.byId.get(id);
-        const label = n ? shortLabel(n.purl) : `#${id}`;
-        const isLast = i === path.length - 1;
-        return (
-          <span key={id} className="flex items-center gap-x-1">
-            {i > 0 && <span className="text-line-2 select-none">›</span>}
-            <span
-              title={n?.purl}
-              onClick={() => selectNode(id)}
-              className={
-                'font-mono cursor-pointer ' +
-                (isLast ? 'text-accent-2' : 'text-muted hover:text-accent')
-              }
-            >
-              {label}
-            </span>
-          </span>
-        );
-      })}
-    </div>
+    <nav aria-label="path to root" className="mb-2">
+      <ol className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-mini list-none m-0 p-0">
+        {path.map((id, i) => {
+          const n = index.byId.get(id);
+          const label = n ? shortLabel(n.purl) : `#${id}`;
+          const isLast = i === path.length - 1;
+          return (
+            <li key={id} className="flex items-center gap-x-1">
+              {i > 0 && (
+                <span aria-hidden className="text-muted select-none">
+                  ›
+                </span>
+              )}
+              <button
+                type="button"
+                title={n?.purl}
+                aria-label={`Select ${label}`}
+                aria-current={isLast ? 'true' : undefined}
+                onClick={() => selectNode(id)}
+                className={
+                  'font-mono rounded-md px-0.5 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ' +
+                  (isLast ? 'text-accent-2' : 'text-muted hover:text-accent')
+                }
+              >
+                {label}
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
   );
 }
 
-const FLAG_CHIP: Record<string, string> = {
-  'peer-unmet': 'text-bad bg-[#2a1414] border-[#5a2424]',
-  overridden: 'text-warn bg-[#20180c] border-[#4a3a1e]',
-  'optional-omitted': 'text-muted bg-panel-2 border-line',
-  'back-edge': 'text-muted bg-panel-2 border-line',
+/** Smell flags → Badge tone (peer-unmet is a hard failure, overridden a warning,
+ *  the rest informational). */
+const FLAG_TONE: Record<string, Tone> = {
+  'peer-unmet': 'bad',
+  overridden: 'warn',
+  'optional-omitted': 'muted',
+  'back-edge': 'muted',
 };
 
 /** Incoming dependents, each annotated with its edge kind tag + smell chips,
@@ -112,43 +122,40 @@ function Provenance({ index, sel }: { index: GraphIndex; sel: number }) {
 
   return (
     <div>
-      <h3 className="mt-4 mb-1.5 text-[11px] uppercase tracking-wide text-muted">
-        Provenance <span className="font-normal">({items.length})</span>
-      </h3>
+      <SectionHeader count={items.length}>Provenance</SectionHeader>
       {!items.length ? (
         <p className="text-muted text-xs">Nothing depends on this node.</p>
       ) : (
-        <ul className="list-none m-0 p-0">
+        <ul className="list-none m-0 p-0 flex flex-col gap-[3px]">
           {items.map(({ node, meta }) => {
             const flags = meta ? flagNames(meta.flags) : [];
+            const label = shortLabel(node.purl);
             return (
-              <li
-                key={node.id}
-                title={node.purl}
-                onClick={() => selectNode(node.id)}
-                className="flex flex-wrap items-center gap-1.5 px-2 py-1.5 my-[3px] rounded-md bg-panel-2 cursor-pointer border border-transparent hover:border-accent hover:bg-panel-3"
-              >
-                <span className="font-mono text-[11.5px] truncate">{shortLabel(node.purl)}</span>
-                {meta && (
-                  <span
-                    className="shrink-0 rounded px-1.5 py-px text-[10px] font-mono border"
-                    style={{ color: kindColor(meta.kind), borderColor: kindColor(meta.kind) }}
-                  >
-                    {kindName(meta.kind)}
-                  </span>
-                )}
-                {flags.map((f) => (
-                  <span
-                    key={f}
-                    className={
-                      'shrink-0 rounded-xl px-1.5 py-px text-[10px] border ' +
-                      (FLAG_CHIP[f] ?? FLAG_CHIP['optional-omitted'])
-                    }
-                  >
-                    {f}
-                  </span>
-                ))}
-                <span className="ml-auto text-[10.5px] text-muted shrink-0">d{node.depth}</span>
+              <li key={node.id}>
+                <RowButton
+                  onSelect={() => selectNode(node.id)}
+                  ariaLabel={`Select ${label}`}
+                  title={node.purl}
+                  className="flex-wrap gap-1.5"
+                >
+                  <span className="font-mono text-mini truncate">{label}</span>
+                  {meta && (
+                    <Badge
+                      mono
+                      tone="accent"
+                      title={`kind: ${kindName(meta.kind)}`}
+                      className="shrink-0"
+                    >
+                      {kindName(meta.kind)}
+                    </Badge>
+                  )}
+                  {flags.map((f) => (
+                    <Badge key={f} tone={FLAG_TONE[f] ?? 'muted'} className="shrink-0">
+                      {f}
+                    </Badge>
+                  ))}
+                  <span className="ml-auto text-micro text-muted shrink-0">d{node.depth}</span>
+                </RowButton>
               </li>
             );
           })}
@@ -171,26 +178,30 @@ function PeerList({ title, ids }: { title: string; ids: number[] }) {
 
   return (
     <div>
-      <h3 className="mt-4 mb-1.5 text-[11px] uppercase tracking-wide text-muted">
-        {title} <span className="font-normal">({items.length})</span>
-      </h3>
+      <SectionHeader count={items.length}>{title}</SectionHeader>
       {!items.length ? (
         <p className="text-muted text-xs">
-          {title === 'Dependencies' ? 'A leaf — depends on nothing.' : 'A root — nothing depends on it.'}
+          {title === 'Dependencies'
+            ? 'A leaf — depends on nothing.'
+            : 'A root — nothing depends on it.'}
         </p>
       ) : (
-        <ul className="list-none m-0 p-0">
-          {items.map((n) => (
-            <li
-              key={n.id}
-              title={n.purl}
-              onClick={() => selectNode(n.id)}
-              className="flex items-center gap-2 px-2 py-1.5 my-[3px] rounded-md bg-panel-2 cursor-pointer border border-transparent hover:border-accent hover:bg-panel-3"
-            >
-              <span className="font-mono text-[11.5px] truncate">{shortLabel(n.purl)}</span>
-              <span className="ml-auto text-[10.5px] text-muted shrink-0">d{n.depth}</span>
-            </li>
-          ))}
+        <ul className="list-none m-0 p-0 flex flex-col gap-[3px]">
+          {items.map((n) => {
+            const label = shortLabel(n.purl);
+            return (
+              <li key={n.id}>
+                <RowButton
+                  onSelect={() => selectNode(n.id)}
+                  ariaLabel={`Select ${label}`}
+                  title={n.purl}
+                >
+                  <span className="font-mono text-mini truncate">{label}</span>
+                  <span className="ml-auto text-micro text-muted shrink-0">d{n.depth}</span>
+                </RowButton>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
@@ -204,17 +215,18 @@ export default function NodeTab() {
   const requestFocus = useGraphStore((s) => s.requestFocus);
 
   if (sel == null || !index) {
-    return <p className="text-muted text-sm">Click a node in the graph.</p>;
+    return <PanelState kind="prompt">Click a node in the graph.</PanelState>;
   }
   const node = index.byId.get(sel);
-  if (!node) return <p className="text-muted text-sm">Node not found.</p>;
+  if (!node) return <PanelState kind="empty">Node not found.</PanelState>;
 
-  const rows: [string, string][] = [
-    ['node id', String(node.id)],
-    ['version id', String(node.version_id)],
-    ['package id', node.package_id != null ? String(node.package_id) : '—'],
-    ['depth', String(node.depth)],
-    ['duplicated', dup.has(node.version_id) ? 'yes' : 'no'],
+  const duplicated = dup.has(node.version_id);
+  const rows: { label: string; value: string; tone?: string }[] = [
+    { label: 'node id', value: String(node.id) },
+    { label: 'version id', value: String(node.version_id) },
+    { label: 'package id', value: node.package_id != null ? String(node.package_id) : '—' },
+    { label: 'depth', value: String(node.depth) },
+    { label: 'duplicated', value: duplicated ? 'yes' : 'no', tone: duplicated ? 'text-warn' : undefined },
   ];
 
   return (
@@ -222,23 +234,21 @@ export default function NodeTab() {
       <Crumbs index={index} sel={sel} />
 
       <div className="flex items-start gap-2 mb-2">
-        <div className="font-mono text-[12.5px] text-accent-2 break-all flex-1">{node.purl}</div>
+        <div className="font-mono text-head text-accent-2 break-all flex-1">{node.purl}</div>
         <button
+          type="button"
           onClick={() => requestFocus(sel)}
-          className="shrink-0 rounded-md px-2 py-1 text-[11px] bg-panel-2 border border-line text-muted hover:border-accent hover:text-accent"
+          className="shrink-0 rounded-md px-2 py-1 text-mini bg-panel-2 border border-line text-muted hover:border-accent hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
         >
           Recenter
         </button>
       </div>
 
-      {rows.map(([k, v]) => (
-        <div key={k} className="flex justify-between gap-2.5 my-[3px]">
-          <span className="text-muted">{k}</span>
-          <span className="tabular-nums">{v}</span>
-        </div>
+      {rows.map(({ label, value, tone }) => (
+        <Row key={label} label={label} value={value} valueTone={tone} />
       ))}
 
-      <h3 className="mt-4 mb-1.5 text-[11px] uppercase tracking-wide text-muted">Version headroom</h3>
+      <SectionHeader>Version headroom</SectionHeader>
       <CandidateStrip nodePurl={node.purl} />
 
       <PeerList title="Dependencies" ids={index.out.get(node.id) ?? []} />

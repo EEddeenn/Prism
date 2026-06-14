@@ -70,9 +70,22 @@ button,
 input[type='search'] {
   @apply bg-panel-2 text-ink border border-line-2 rounded-md;
 }
+
+/* Keyboard focus is shown with a distinct ring (NOT the border), so focus and
+ * selection are never conflated. Mouse clicks don't trigger :focus-visible, so
+ * the ring only appears for keyboard users. Any element opting into keyboard
+ * interaction (role/tabindex rows) gets the same treatment via .focusable. */
+select:focus-visible,
+button:focus-visible,
+input:focus-visible,
+[role='tab']:focus-visible,
+.focusable:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px #0e1016, 0 0 0 3px #5aa9ff;
+}
+/* Suppress the default outline for mouse interactions on these controls. */
 select:focus,
 button:focus,
 input:focus {
   outline: none;
-  @apply border-accent;
 }

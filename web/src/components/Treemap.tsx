@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGraphStore } from '@/store/useGraphStore';
 import type { NodeMetrics } from '@/lib/graph';
 import { PALETTE, rampHex, shortLabel } from '@/lib/palette';
+import { Badge, PanelState, SectionHeader, SegmentedControl, type SegOption } from '@/components/ui';
 
 // The signals you can weight tile area by. Each maps to a field on NodeMetrics;
 // `revReach` (blast radius / transitive dependents) is the default.
@@ -24,6 +25,12 @@ const SIGNALS: { id: AreaSignal; label: string; title: string }[] = [
   { id: 'outDeg', label: 'fan-out', title: 'Direct dependencies' },
   { id: 'dupes', label: 'dupes', title: 'Family version pressure (famSize − 1)' },
 ];
+
+const SIGNAL_OPTIONS: SegOption<AreaSignal>[] = SIGNALS.map((s) => ({
+  value: s.id,
+  label: s.label,
+  title: s.title,
+}));
 
 function signalOf(m: NodeMetrics, sig: AreaSignal): number {
   switch (sig) {
@@ -191,34 +198,30 @@ export default function Treemap() {
     <div className="absolute inset-0 bg-bg overflow-hidden">
       {/* in-component signal toggle (mirrors the Controls3D button-group idiom) */}
       <div className="absolute left-3.5 top-3.5 z-10 flex flex-col gap-2 p-2.5 rounded-xl border border-line bg-panel/90 shadow-panel backdrop-blur-sm">
-        <span className="text-[10.5px] uppercase tracking-[1px] text-muted">Tile area</span>
-        <div className="flex">
-          {SIGNALS.map((s, i) => (
-            <button
-              key={s.id}
-              type="button"
-              title={s.title}
-              onClick={() => setSignal(s.id)}
-              className={`flex-1 px-2 py-1.5 text-[11.5px] font-semibold border border-line-2 ${
-                i === 0 ? 'rounded-l-lg' : i === SIGNALS.length - 1 ? 'rounded-r-lg border-l-0' : 'border-l-0'
-              } ${signal === s.id ? 'bg-panel-3 text-ink border-accent' : 'bg-panel-2 text-muted'}`}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
-        <p className="text-[10.5px] leading-snug text-muted max-w-[280px]">
+        <SectionHeader className="mt-0 mb-0">Tile area</SectionHeader>
+        <SegmentedControl
+          options={SIGNAL_OPTIONS}
+          value={signal}
+          onChange={setSignal}
+          ariaLabel="Tile area signal"
+          size="sm"
+          className="w-full [&>button]:flex-1"
+        />
+        <p className="text-micro leading-snug text-muted max-w-[280px]">
           {nodes.length} tiles · area ∝ {SIGNALS.find((s) => s.id === signal)!.title.toLowerCase()} · colour = depth
         </p>
       </div>
 
       {/* approximate-data badge: reach signals fell back to degree proxies */}
       {approximate && signalsThatNeedReach && (
-        <div
-          className="absolute right-3.5 top-3.5 z-10 px-2.5 py-1.5 rounded-lg border border-warn/60 bg-panel/90 shadow-panel backdrop-blur-sm text-[11px] font-semibold text-warn font-mono"
-          title="Graph too large for exact transitive reach; values are degree proxies."
-        >
-          ≈ approximate
+        <div className="absolute right-3.5 top-3.5 z-10">
+          <Badge
+            tone="warn"
+            mono
+            title="Graph too large for exact transitive reach; values are degree proxies."
+          >
+            ≈ approximate
+          </Badge>
         </div>
       )}
 
@@ -261,7 +264,7 @@ export default function Treemap() {
             >
               {showLabel && (
                 <span
-                  className="px-1 pt-0.5 text-[10px] leading-tight font-mono truncate w-full pointer-events-none"
+                  className="px-1 pt-0.5 text-micro leading-tight font-mono truncate w-full pointer-events-none"
                   style={{ color: 'rgba(8,10,14,0.92)' }}
                 >
                   {shortLabel(n.purl)}
@@ -274,7 +277,7 @@ export default function Treemap() {
 
       {nodes.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <p className="text-muted text-sm">No graph nodes to map.</p>
+          <PanelState kind="empty">No graph nodes to map.</PanelState>
         </div>
       )}
     </div>

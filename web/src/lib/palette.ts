@@ -69,10 +69,25 @@ export function dimHex(hex: string, t: number): string {
   return mixHex(hex, PALETTE.bg, t);
 }
 
-/** A compact display label for a purl ("pkg:cargo/serde@1.0.0" → "serde@1.0.0"). */
+/** A compact display label for a purl ("pkg:cargo/serde@1.0.0" → "serde@1.0.0").
+ * Scoped npm names are stored percent-encoded ("@scope%2Fname"); decode the
+ * `%2F` back to a slash so they read naturally ("@scope/name"). */
 export function shortLabel(purl: string): string {
   if (!purl) return '?';
-  let s = purl.replace(/^pkg:[^/]+\//, '');
+  let s = purl.replace(/^pkg:[^/]+\//, '').replace(/%2[Ff]/g, '/');
   if (s.length > 30) s = s.slice(0, 29) + '…';
   return s;
 }
+
+/** Colours for inline SVG / canvas chrome (TDA diagram, candidate strip), kept
+ * here as the single source so panels never re-type theme hexes in markup. */
+export const CHART_COLORS = {
+  frame: '#1d212e', // panel-2
+  grid: '#2a2f3c', // line
+  rail: '#252a3a', // panel-3
+  diagonal: '#353c4d', // line-2
+  highlight: '#5aa9ff', // accent
+  accent2: '#ffb454', // accent-2
+  dim0: '#5aa9ff', // H0 — keep the original accent blue (was historically blue)
+  dim1: '#ffb454', // H1 — accent-2 amber
+} as const;

@@ -3,7 +3,9 @@
 import { useMemo } from 'react';
 import { useGraphStore } from '@/store/useGraphStore';
 import { verCmp, verKey } from '@/lib/version';
+import { shortLabel } from '@/lib/palette';
 import FidelityBanner from '@/components/FidelityBanner';
+import { Badge, MetricPill, Callout, StatBar, RowButton, PanelState, type Tone, type MeterTone } from '@/components/ui';
 import type { DuplicateCluster } from '@/lib/types';
 
 type Drift = 'major' | 'minor' | 'patch';
@@ -21,12 +23,10 @@ function classifyDrift(versions: { purl: string }[]): Drift {
   return 'patch';
 }
 
-// Drift badge tone: major reads as bad, minor as warn, patch as muted.
-const DRIFT_STYLE: Record<Drift, string> = {
-  major: 'text-bad border-[#5a2424] bg-[#2a1414]',
-  minor: 'text-warn border-[#4a3a1e] bg-[#20180c]',
-  patch: 'text-muted border-line-2 bg-panel-3',
-};
+// Drift tone: major reads as bad, minor as warn, patch as muted.
+const DRIFT_TONE: Record<Drift, Tone> = { major: 'bad', minor: 'warn', patch: 'muted' };
+// Severity meter tone mirrors drift, but patch falls back to accent for visibility.
+const DRIFT_BAR_TONE: Record<Drift, MeterTone> = { major: 'bad', minor: 'warn', patch: 'accent' };
 
 interface Ranked {
   cluster: DuplicateCluster;
@@ -37,6 +37,7 @@ interface Ranked {
 }
 
 export default function DuplicatesTab() {
+  const run = useGraphStore((s) => s.run);
   const clusters = useGraphStore((s) => s.duplicates);
   const nodes = useGraphStore((s) => s.nodes);
   const index = useGraphStore((s) => s.index);
@@ -74,7 +75,13 @@ export default function DuplicatesTab() {
     return (
       <div>
         <FidelityBanner />
-        <p className="text-muted text-sm">No package family appears at more than one version. 🎉</p>
+        {run == null ? (
+          <PanelState kind="prompt">Pick a run to surface duplicate package families.</PanelState>
+        ) : (
+          <PanelState kind="empty" icon={<span aria-hidden>🎉</span>}>
+            No package family appears at more than one version.
+          </PanelState>
+        )}
       </div>
     );
   }
@@ -85,74 +92,65 @@ export default function DuplicatesTab() {
     <div>
       <FidelityBanner />
       {index?.approximate && (
-        <div className="px-2.5 py-2 rounded-lg text-[12px] mb-2.5 bg-[#20180c] border border-[#4a3a1e] text-warn">
+        <Callout tone="warn" className="mb-2.5">
           Blast radius is approximate on this run (graph exceeds the transitive cap) — severity uses degree proxies.
-        </div>
+        </Callout>
       )}
       <p className="text-muted text-sm mb-2">
         {clusters.length} famil{clusters.length === 1 ? 'y' : 'ies'} present at multiple versions, ranked by severity.
       </p>
-      {ranked.map(({ cluster: c, ids, drift, blast, score }) => {
-        const pct = Math.round((score / maxScore) * 100);
-        return (
-          <div key={c.package_id} className="border border-line rounded-lg mb-2.5 bg-panel-2 overflow-hidden">
-            <div
-              onClick={() => highlightSet(ids, c.package_purl)}
-              className="flex items-center gap-2 px-2.5 py-2 cursor-pointer hover:bg-panel-3"
-            >
-              <span className="font-mono text-xs truncate">{c.package_purl.replace(/^pkg:[^/]+\//, '')}</span>
-              <span
-                title={`${drift} version drift`}
-                className={`ml-auto shrink-0 text-[10px] uppercase tracking-wide rounded-xl px-2 py-px border ${DRIFT_STYLE[drift]}`}
-              >
-                {drift}
-              </span>
-              <span className="shrink-0 text-[11px] text-warn bg-[#20180c] border border-[#4a3a1e] rounded-xl px-2 py-px">
-                {c.version_count} versions
-              </span>
-            </div>
+      {ranked.map(({ cluster: c, ids, drift, blast, score }) => (
+        <div key={c.package_id} className="border border-line rounded-lg mb-2.5 bg-panel-2 overflow-hidden">
+          <RowButton
+            onSelect={() => highlightSet(ids, c.package_purl)}
+            ariaLabel={`Highlight ${shortLabel(c.package_purl)} (${c.version_count} versions)`}
+            className="rounded-none border-x-0 border-t-0 border-b-line bg-panel-2 px-2.5 py-2"
+          >
+            <span className="font-mono text-body truncate">{shortLabel(c.package_purl)}</span>
+            <Badge tone={DRIFT_TONE[drift]} title={`${drift} version drift`} className="ml-auto uppercase tracking-wide">
+              {drift}
+            </Badge>
+            <MetricPill label="versions" value={c.version_count} tone="warn" />
+          </RowButton>
 
-            {/* Severity bar, normalized to the most severe cluster. */}
-            <div className="px-2.5">
-              <div className="h-1.5 bg-panel-3 rounded overflow-hidden">
-                <div
-                  className={`h-full rounded ${drift === 'major' ? 'bg-bad' : drift === 'minor' ? 'bg-warn' : 'bg-accent'}`}
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1.5 px-2.5 pt-1.5 text-[10.5px] text-muted">
-              <span
-                title="how many nodes in the graph carry one of these versions"
-                className="rounded-xl px-2 py-px border border-line-2 bg-panel-3 tabular-nums"
-              >
-                occurrences: {c.occurrence_count}
-              </span>
-              <span
-                title="shallowest → deepest placement in the dependency tree"
-                className="font-mono rounded-xl px-2 py-px border border-line-2 bg-panel-3"
-              >
-                d{c.min_depth}..{c.max_depth}
-              </span>
-              <span
-                title="max transitive dependents (blast radius) across these versions"
-                className="rounded-xl px-2 py-px border border-line-2 bg-panel-3 tabular-nums"
-              >
-                blast {blast}
-              </span>
-            </div>
-
-            <div className="px-2.5 pb-2.5 pt-1">
-              {c.versions.map((v) => (
-                <div key={v.version_id} className="font-mono text-[11px] text-muted py-0.5">
-                  {v.purl.split('@')[1] ?? v.purl}
-                </div>
-              ))}
-            </div>
+          {/* Severity bar, normalized to the most severe cluster. */}
+          <div className="px-2.5">
+            <StatBar
+              value={score}
+              max={maxScore}
+              tone={DRIFT_BAR_TONE[drift]}
+              ariaLabel={`Severity for ${shortLabel(c.package_purl)}`}
+            />
           </div>
-        );
-      })}
+
+          <div className="flex flex-wrap items-center gap-1.5 px-2.5 pt-1.5">
+            <MetricPill
+              label="occurrences"
+              value={c.occurrence_count}
+              title="how many nodes in the graph carry one of these versions"
+            />
+            <Badge
+              mono
+              title="shallowest → deepest placement in the dependency tree"
+            >
+              d{c.min_depth}..{c.max_depth}
+            </Badge>
+            <MetricPill
+              label="blast"
+              value={blast}
+              title="max transitive dependents (blast radius) across these versions"
+            />
+          </div>
+
+          <div className="px-2.5 pb-2.5 pt-1.5">
+            {c.versions.map((v) => (
+              <div key={v.version_id} className="font-mono text-mini text-muted py-0.5">
+                {v.purl.split('@')[1] ?? v.purl}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { useGraphStore } from '@/store/useGraphStore';
 import FidelityBanner from '@/components/FidelityBanner';
 import { shortLabel } from '@/lib/palette';
 import { signalValue } from '@/lib/layout3d';
+import { Callout, PanelState, RowButton, StatBar } from '@/components/ui';
 
 /** A numeric column of the leaderboard. `key` indexes a Row's value bag. */
 type ColKey = 'revReach' | 'fwdReach' | 'inDeg' | 'outDeg' | 'famSize' | 'depth' | 'score';
@@ -40,6 +41,9 @@ interface Row {
 
 const CAP = 40;
 const fmtScore = (x: number) => (x >= 100 ? String(Math.round(x)) : String(Math.round(x * 10) / 10));
+
+/** Shared grid template: a flexible pkg column followed by seven numeric columns. */
+const GRID = 'grid items-center gap-1.5 grid-cols-[minmax(0,1fr)_repeat(7,minmax(2.5rem,1fr))]';
 
 export default function RiskTab() {
   const nodes = useGraphStore((s) => s.nodes);
@@ -89,13 +93,13 @@ export default function RiskTab() {
   }, [rows, sortKey]);
 
   if (!index) {
-    return <p className="text-muted text-sm">Pick a run.</p>;
+    return <PanelState kind="prompt">Pick a run to rank packages by blast radius.</PanelState>;
   }
   if (!rows.length) {
     return (
       <div>
         <FidelityBanner />
-        <p className="text-muted text-sm">No nodes to rank.</p>
+        <PanelState kind="empty">No nodes to rank.</PanelState>
       </div>
     );
   }
@@ -110,83 +114,91 @@ export default function RiskTab() {
       </p>
 
       {index.approximate && (
-        <div className="px-2.5 py-1.5 rounded-lg mb-2 text-[11px] bg-[#20180c] border border-[#4a3a1e] text-warn">
+        <Callout tone="warn" className="mb-2">
           approximate (degree proxy on large graphs)
-        </div>
+        </Callout>
       )}
 
       <div className="border border-line rounded-lg overflow-hidden bg-panel-2">
-        <table className="w-full border-collapse font-mono text-[11px]">
-          <thead>
-            <tr className="bg-panel-3 text-muted">
-              <th className="text-left font-semibold px-2 py-1.5 sticky left-0 bg-panel-3">pkg</th>
-              {COLS.map((c) => {
-                const active = c.key === sortKey;
-                return (
-                  <th
-                    key={c.key}
-                    title={c.title}
-                    onClick={() => setSortKey(c.key)}
-                    className={`text-right font-semibold px-1.5 py-1.5 cursor-pointer select-none whitespace-nowrap hover:text-ink ${
-                      active ? 'text-accent' : ''
-                    }`}
-                  >
-                    {c.label}
-                    <span className="ml-0.5 inline-block w-1.5 text-accent">{active ? '▾' : ''}</span>
-                  </th>
-                );
-              })}
-            </tr>
-          </thead>
-          <tbody>
-            {ranked.map((r, i) => {
-              const selected = r.id === sel;
-              return (
-                <tr
-                  key={r.id}
-                  title={r.purl}
-                  onClick={() => {
-                    void selectNode(r.id);
-                    requestFocus(r.id);
-                  }}
-                  className={`cursor-pointer border-t border-line ${
-                    selected ? 'bg-panel-3' : 'hover:bg-panel-3'
+        {/* Column headers — a real header row whose sort controls are <button>s. */}
+        <div role="row" className={`${GRID} bg-panel-3 text-muted font-mono text-label font-semibold px-2 py-1.5`}>
+          <div role="columnheader" className="text-left">pkg</div>
+          {COLS.map((c) => {
+            const active = c.key === sortKey;
+            return (
+              <div
+                key={c.key}
+                role="columnheader"
+                aria-sort={active ? 'descending' : 'none'}
+                className="text-right"
+              >
+                <button
+                  type="button"
+                  title={c.title}
+                  onClick={() => setSortKey(c.key)}
+                  aria-pressed={active}
+                  className={`inline-flex items-center justify-end gap-0.5 whitespace-nowrap select-none cursor-pointer hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded-sm ${
+                    active ? 'text-accent font-bold' : 'font-semibold'
                   }`}
                 >
-                  <td className={`px-2 py-1 max-w-[120px] truncate sticky left-0 ${selected ? 'bg-panel-3' : 'bg-panel-2'}`}>
-                    <span className="text-muted mr-1 tabular-nums">{i + 1}.</span>
-                    <span className={selected ? 'text-accent-2' : 'text-ink'}>{r.label}</span>
-                  </td>
-                  {COLS.map((c) => {
-                    const v = r[c.key];
-                    const max = maxes[c.key] || 1;
-                    const pct = Math.max(0, Math.min(100, (v / max) * 100));
-                    const active = c.key === sortKey;
-                    return (
-                      <td key={c.key} className="px-1.5 py-1 align-middle">
-                        <div className="flex flex-col items-end gap-0.5">
-                          <span className={`tabular-nums leading-none ${active ? 'text-accent' : 'text-ink'}`}>
-                            {c.key === 'score' ? fmtScore(v) : v}
-                          </span>
-                          <span className="block w-full h-[2px] rounded-full bg-line-2 overflow-hidden">
-                            <span
-                              className={`block h-full rounded-full ${active ? 'bg-accent' : 'bg-muted'}`}
-                              style={{ width: `${pct}%` }}
-                            />
-                          </span>
-                        </div>
-                      </td>
-                    );
-                  })}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                  {c.label}
+                  <span aria-hidden className="inline-block w-1.5 text-accent">{active ? '▾' : ''}</span>
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Data rows — each is a keyboard-actionable drill-in button. */}
+        {ranked.map((r, i) => {
+          const selected = r.id === sel;
+          return (
+            <RowButton
+              key={r.id}
+              active={selected}
+              ariaLabel={`${r.label}: blast ${r.revReach}, reach ${r.fwdReach}, risk ${fmtScore(r.score)}`}
+              title={r.purl}
+              onSelect={() => {
+                void selectNode(r.id);
+                requestFocus(r.id);
+              }}
+              className={`${GRID} !rounded-none !border-x-0 !border-t border-line font-mono text-label`}
+            >
+              <span className="min-w-0 flex items-center">
+                <span className="text-muted mr-1 tabular-nums">{i + 1}.</span>
+                <span className={`truncate ${selected ? 'text-accent-2' : 'text-ink'}`}>{r.label}</span>
+              </span>
+              {COLS.map((c) => {
+                const v = r[c.key];
+                const active = c.key === sortKey;
+                return (
+                  <span key={c.key} className="flex flex-col items-end gap-0.5">
+                    <span
+                      className={`tabular-nums leading-none ${
+                        active ? 'text-accent font-bold' : 'text-ink'
+                      }`}
+                    >
+                      {c.key === 'score' ? fmtScore(v) : v}
+                    </span>
+                    <span aria-hidden className="block w-full">
+                      <StatBar
+                        value={v}
+                        max={maxes[c.key] || 1}
+                        tone={active ? 'accent' : 'muted'}
+                        height="sm"
+                        className="w-full !h-[2px]"
+                      />
+                    </span>
+                  </span>
+                );
+              })}
+            </RowButton>
+          );
+        })}
       </div>
 
       {rows.length > CAP && (
-        <p className="text-muted text-[11px] mt-2">
+        <p className="text-muted text-label mt-2">
           Showing the top {CAP} of {rows.length} by {COLS.find((c) => c.key === sortKey)?.label}.
         </p>
       )}

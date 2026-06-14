@@ -7,6 +7,14 @@ import { kindName, isBackEdge } from '@/lib/edges';
 import type { SccComp } from '@/lib/types';
 import type { GraphIndex } from '@/lib/graph';
 import FidelityBanner from '@/components/FidelityBanner';
+import {
+  Badge,
+  Callout,
+  MetricPill,
+  PanelState,
+  RowButton,
+  SectionHeader,
+} from '@/components/ui';
 
 type InternalEdge = {
   source: number;
@@ -19,6 +27,8 @@ type InternalEdge = {
 
 type Ranked = {
   scc: SccComp;
+  /** Stable id for keying — the smallest member id (order-independent). */
+  key: number;
   severity: number;
   maxRevReach: number;
   runtimeFraction: number;
@@ -61,7 +71,8 @@ function rank(scc: SccComp, index: GraphIndex): Ranked {
   );
   const severity = scc.members.length * maxRevReach * runtimeFraction;
   const breakEdges = internal.filter((e) => e.back);
-  return { scc, severity, maxRevReach, runtimeFraction, internal, runtimeCount, breakEdges };
+  const key = scc.members.reduce((mn, m) => Math.min(mn, m.id), Infinity);
+  return { scc, key, severity, maxRevReach, runtimeFraction, internal, runtimeCount, breakEdges };
 }
 
 export default function CyclesTab() {
@@ -84,7 +95,7 @@ export default function CyclesTab() {
     return (
       <div>
         <FidelityBanner />
-        <p className="text-muted text-sm">Pick a run.</p>
+        <PanelState kind="prompt">Pick a run to inspect dependency cycles.</PanelState>
       </div>
     );
   }
@@ -93,9 +104,9 @@ export default function CyclesTab() {
     return (
       <div>
         <FidelityBanner />
-        <div className="px-2.5 py-2 rounded-lg text-[12.5px] bg-[#0f2419] border border-[#1d4a32] text-ok">
-          Acyclic ✓ — {sccs.length} strongly-connected components, each a single node.
-        </div>
+        <Callout tone="ok">
+          Acyclic — {sccs.length} strongly-connected components, each a single node.
+        </Callout>
       </div>
     );
   }
@@ -105,53 +116,64 @@ export default function CyclesTab() {
       <FidelityBanner />
 
       {index?.approximate && (
-        <div className="px-2.5 py-2 rounded-lg text-[11.5px] mb-2 bg-[#20180c] border border-[#4a3a1e] text-warn">
-          Blast radius is approximate — the graph exceeds the transitive-reach cap, so
-          revReach fell back to a degree proxy. Severity ranking is indicative.
-        </div>
+        <Callout tone="warn" className="mb-2">
+          Blast radius is approximate — the graph exceeds the transitive-reach cap, so revReach
+          fell back to a degree proxy. Severity ranking is indicative.
+        </Callout>
       )}
 
-      <div className="px-2.5 py-2 rounded-lg text-[12.5px] mb-2.5 bg-[#2a1414] border border-[#5a2424] text-bad">
+      <Callout tone="bad" className="mb-2.5">
         {ranked.length} dependency cycle{ranked.length === 1 ? '' : 's'} found —{' '}
-        <span className="font-semibold text-bad">{runtimeCycles}</span> reach production
-        (runtime edges), <span className="font-semibold text-muted">{devOnlyCycles}</span> dev-only.
-      </div>
+        <span className="font-semibold text-bad">{runtimeCycles}</span> reach production (runtime
+        edges), <span className="font-semibold text-muted">{devOnlyCycles}</span> dev-only.
+      </Callout>
 
-      <p className="text-muted text-[11px] mb-2">
+      <p className="text-muted text-mini mb-2">
         Ranked by severity = members × blast radius × runtime fraction. Break a cycle at its
         loop-closing (back) edge.
       </p>
 
       {ranked.map((r, i) => {
         const c = r.scc;
-        const runtimePct = Math.round(r.runtimeFraction * 100);
         const otherCount = r.internal.length - r.runtimeCount;
+        const runtimePct = Math.round(r.runtimeFraction * 100);
         return (
           <div
-            key={i}
+            key={r.key}
             className={`border rounded-lg mb-2.5 bg-panel-2 overflow-hidden ${
-              r.runtimeCount > 0 ? 'border-[#5a2424]' : 'border-line'
+              r.runtimeCount > 0 ? 'border-bad-bd' : 'border-line'
             }`}
           >
             {/* header: counts + blast radius */}
             <div className="flex items-center gap-2 px-2.5 py-2 border-b border-line">
-              <span className="font-mono font-bold text-[11px] text-bad min-w-[20px]">#{i + 1}</span>
-              <span className="text-[11.5px]">
+              <span className="font-mono font-bold text-mini text-bad min-w-[20px]">#{i + 1}</span>
+              <span className="text-mini">
                 <span className="font-semibold tabular-nums">{c.members.length}</span> members
               </span>
-              <span
-                className="ml-auto shrink-0 text-[11px] text-warn bg-[#20180c] border border-[#4a3a1e] rounded-xl px-2 py-px"
-                title="aggregate blast radius — max transitive dependents (revReach) across the cycle"
-              >
-                blast {r.maxRevReach}
+              <span className="ml-auto shrink-0">
+                <MetricPill
+                  label="blast"
+                  value={r.maxRevReach}
+                  tone="warn"
+                  title="aggregate blast radius — max transitive dependents (revReach) across the cycle"
+                />
               </span>
             </div>
 
             {/* kind-mix mini-bar: runtime vs other internal edges */}
             <div className="px-2.5 pt-2">
               <div className="flex items-center gap-2">
-                <div className="w-[78px] shrink-0 text-muted text-[11px]">edge mix</div>
-                <div className="flex-1 h-3 bg-panel rounded overflow-hidden flex">
+                <div className="w-[78px] shrink-0 text-muted text-mini">edge mix</div>
+                {/* Stacked proportion bar: each segment's WIDTH is its share of
+                    the cycle's internal edges (runtime accent vs other line-2). */}
+                <div
+                  className="flex-1 flex h-3 rounded overflow-hidden bg-panel-3"
+                  role="progressbar"
+                  aria-valuenow={r.runtimeCount}
+                  aria-valuemin={0}
+                  aria-valuemax={r.internal.length}
+                  aria-label={`${r.runtimeCount} runtime of ${r.internal.length} internal edges`}
+                >
                   {r.runtimeCount > 0 && (
                     <div
                       className="h-full bg-accent"
@@ -167,8 +189,15 @@ export default function CyclesTab() {
                     />
                   )}
                 </div>
-                <div className="w-[88px] shrink-0 text-right text-[10.5px] text-muted tabular-nums">
-                  {r.runtimeCount} rt · {otherCount} other
+                <div className="w-[110px] shrink-0 flex items-center justify-end gap-2 text-micro text-muted tabular-nums">
+                  <span className="flex items-center gap-1">
+                    <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full bg-accent" />
+                    {r.runtimeCount} rt
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full bg-line-2" />
+                    {otherCount} other
+                  </span>
                 </div>
               </div>
             </div>
@@ -177,34 +206,39 @@ export default function CyclesTab() {
             <div className="px-2.5 pt-2 pb-1">
               {r.breakEdges.length > 0 ? (
                 <>
-                  <div className="text-[10px] uppercase tracking-wide text-muted mb-1">
+                  <SectionHeader as="h4" className="text-micro">
                     break here — loop-closing edge{r.breakEdges.length === 1 ? '' : 's'}
-                  </div>
+                  </SectionHeader>
                   {r.breakEdges.map((e) => {
                     const src = index?.byId.get(e.source);
                     const tgt = index?.byId.get(e.target);
                     return (
-                      <div
+                      <RowButton
                         key={`${e.source}>${e.target}`}
-                        onClick={() => selectNode(e.source)}
+                        onSelect={() => selectNode(e.source)}
                         title={`break ${src?.purl ?? e.source} → ${tgt?.purl ?? e.target} (${kindName(e.kind)})`}
-                        className="flex items-center gap-1.5 font-mono text-[11px] py-0.5 px-1.5 -mx-1.5 rounded cursor-pointer hover:bg-panel-3"
+                        ariaLabel={`break edge from ${src?.purl ?? e.source} to ${tgt?.purl ?? e.target}, ${kindName(e.kind)}`}
+                        className="font-mono text-mini"
                       >
                         <span className="text-bad shrink-0">✂</span>
-                        <span className="text-ink truncate">{src ? shortLabel(src.purl) : e.source}</span>
+                        <span className="text-ink truncate">
+                          {src ? shortLabel(src.purl) : e.source}
+                        </span>
                         <span className="text-muted shrink-0">→</span>
-                        <span className="text-muted truncate">{tgt ? shortLabel(tgt.purl) : e.target}</span>
+                        <span className="text-muted truncate">
+                          {tgt ? shortLabel(tgt.purl) : e.target}
+                        </span>
                         {e.runtime && (
-                          <span className="ml-auto shrink-0 text-[9.5px] text-accent border border-line-2 rounded-xl px-1.5">
+                          <Badge tone="accent" className="ml-auto shrink-0">
                             runtime
-                          </span>
+                          </Badge>
                         )}
-                      </div>
+                      </RowButton>
                     );
                   })}
                 </>
               ) : (
-                <div className="text-[10.5px] text-muted">
+                <div className="text-mini text-muted">
                   No back-edge flagged in this SCC — break the weakest internal link.
                 </div>
               )}
@@ -212,16 +246,19 @@ export default function CyclesTab() {
 
             {/* members (kept: click → selectNode) */}
             <div className="px-2.5 pb-2 pt-1.5 border-t border-line mt-1">
-              <div className="text-[10px] uppercase tracking-wide text-muted mb-1">members</div>
+              <SectionHeader as="h4" className="text-micro">
+                members
+              </SectionHeader>
               {c.members.map((m) => (
-                <div
+                <RowButton
                   key={m.id}
+                  onSelect={() => selectNode(m.id)}
                   title={m.purl}
-                  onClick={() => selectNode(m.id)}
-                  className="font-mono text-[11px] text-muted py-px cursor-pointer hover:text-accent"
+                  ariaLabel={`select ${m.purl}`}
+                  className="font-mono text-mini text-muted"
                 >
-                  {shortLabel(m.purl)}
-                </div>
+                  <span className="truncate">{shortLabel(m.purl)}</span>
+                </RowButton>
               ))}
             </div>
           </div>

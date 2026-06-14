@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { PanelState } from '@/components/ui';
 import { api } from '@/lib/api';
-import { PALETTE, shortLabel } from '@/lib/palette';
+import { CHART_COLORS, shortLabel } from '@/lib/palette';
 import type { CandidatesResp } from '@/lib/types';
 
 /** Version "headroom" number-line for one package, shown inside the Node tab.
@@ -43,11 +44,19 @@ export default function CandidateStrip({ nodePurl }: { nodePurl: string }) {
   }, [basePurl]);
 
   if (loading) {
-    return <div className="mt-2 text-[10.5px] text-muted">version room…</div>;
+    return (
+      <div className="mt-2">
+        <PanelState kind="loading">version room…</PanelState>
+      </div>
+    );
   }
-  // Fail quietly: a muted dash, nothing alarming.
+  // Fail quietly: a muted hint, nothing alarming.
   if (error || !data) {
-    return <div className="mt-2 text-[10.5px] text-muted">—</div>;
+    return (
+      <div className="mt-2">
+        <PanelState kind="empty">—</PanelState>
+      </div>
+    );
   }
 
   const { total_versions, candidates, ranges, exclusions, constraint } = data;
@@ -68,8 +77,11 @@ export default function CandidateStrip({ nodePurl }: { nodePurl: string }) {
   // Compact line when there's nothing to move between.
   if (total_versions <= 1) {
     return (
-      <div className="mt-2 text-[10.5px] text-muted">
-        only version{constraint && <span className="font-mono text-muted"> · {constraint}</span>}
+      <div className="mt-2">
+        <PanelState kind="empty">
+          only version
+          {constraint && <span className="font-mono text-muted"> · {constraint}</span>}
+        </PanelState>
       </div>
     );
   }
@@ -89,15 +101,22 @@ export default function CandidateStrip({ nodePurl }: { nodePurl: string }) {
       ? `version ${currentOrdinal + 1} of ${total_versions}`
       : `${total_versions} versions`;
 
+  // Hatch fill for excluded (off-limits) cells, sourced from the chart palette.
+  const hatch = `repeating-linear-gradient(45deg, ${CHART_COLORS.frame} 0 2px, ${CHART_COLORS.grid} 2px 4px)`;
+
   return (
-    <div className="mt-2">
-      <div className="flex items-baseline gap-1.5 text-[10.5px]">
+    <div
+      className="mt-2"
+      role="group"
+      aria-label={`Version room: ${caption}${constraint ? `, constraint ${constraint}` : ''}`}
+    >
+      <div className="flex items-baseline gap-1.5 text-micro">
         <span className="text-muted">{caption}</span>
         {constraint && <span className="ml-auto font-mono text-muted truncate">{constraint}</span>}
       </div>
 
       {/* Oldest → newest, left → right. */}
-      <div className="mt-1 flex gap-px overflow-hidden rounded bg-panel-3 p-px">
+      <div className="mt-1 flex gap-px overflow-hidden rounded-md bg-panel-3 p-px">
         {Array.from({ length: total_versions }, (_, o) => {
           const ver = purlByOrdinal.get(o);
           const reason = excludedReason.get(o);
@@ -112,22 +131,17 @@ export default function CandidateStrip({ nodePurl }: { nodePurl: string }) {
 
           // Fill: excluded → hatched + muted (off-limits), satisfying → accent,
           // otherwise a flat panel cell. The current version gets a bright ring.
-          const background = reason
-            ? 'repeating-linear-gradient(45deg, #1d212e 0 2px, #2a2f3c 2px 4px)'
-            : satisfies
-              ? PALETTE.accent
-              : '#252a3a';
+          const fill = reason ? '' : satisfies ? 'bg-accent' : 'bg-panel-3';
+          const ring = isCurrent ? 'ring-2 ring-inset ring-node-center' : '';
 
           return (
             <div
               key={o}
               title={title}
-              className="h-3 flex-1 min-w-[3px]"
-              style={{
-                background,
-                opacity: reason ? 0.6 : 1,
-                boxShadow: isCurrent ? `inset 0 0 0 2px ${PALETTE.center}` : undefined,
-              }}
+              className={`h-3 flex-1 min-w-[3px] ${fill} ${ring}`}
+              style={
+                reason ? { background: hatch, opacity: 0.6 } : undefined
+              }
             />
           );
         })}
@@ -135,9 +149,7 @@ export default function CandidateStrip({ nodePurl }: { nodePurl: string }) {
 
       {/* Current version label, anchored under the strip. */}
       {currentOrdinal >= 0 && (
-        <div className="mt-0.5 font-mono text-[10px]" style={{ color: PALETTE.center }}>
-          {shortLabel(current)}
-        </div>
+        <div className="mt-0.5 font-mono text-micro text-node-center">{shortLabel(current)}</div>
       )}
     </div>
   );

@@ -3,10 +3,25 @@
 import { useState } from 'react';
 import { useGraphStore } from '@/store/useGraphStore';
 import { EDGE_FILTER_LABELS } from '@/lib/edges';
+import { SegmentedControl, type SegOption } from '@/components/ui';
 import type { EdgeFilter, View } from '@/lib/types';
 
 const VIEW_LABELS: Record<View, string> = { '2d': '2D', '3d': '3D', map: 'Map' };
 const EDGE_FILTERS: EdgeFilter[] = ['all', 'runtime', 'nondev', 'flagged'];
+
+const VIEW_OPTIONS: SegOption<View>[] = (['2d', '3d', 'map'] as const).map((v) => ({
+  value: v,
+  label: VIEW_LABELS[v],
+}));
+const EDGE_OPTIONS: SegOption<EdgeFilter>[] = EDGE_FILTERS.map((f) => ({
+  value: f,
+  label: EDGE_FILTER_LABELS[f],
+}));
+
+/** A thin vertical rule separating Topbar clusters. */
+function Divider() {
+  return <span aria-hidden className="self-stretch w-px bg-line mx-1" />;
+}
 
 export default function Topbar() {
   const runs = useGraphStore((s) => s.runs);
@@ -38,16 +53,17 @@ export default function Topbar() {
 
   return (
     <header className="flex flex-wrap items-center gap-3 px-4 py-2 border-b border-line bg-gradient-to-b from-[#181c28] to-panel">
+      {/* nav cluster: brand + run pickers */}
       <span className="font-extrabold text-base tracking-wide text-accent">Prism</span>
-      <span className="text-[11px] uppercase tracking-[1px] text-muted -ml-1.5 mr-1">
+      <span className="text-mini uppercase tracking-[1px] text-muted -ml-1.5 mr-1">
         dependency topology
       </span>
 
       <div className="flex items-center gap-1.5">
-        <label htmlFor="run-select" className="text-xs text-muted">Run</label>
+        <label htmlFor="run-select" className="text-body text-muted">Run</label>
         <select
           id="run-select"
-          className="px-2.5 py-1.5 text-sm max-w-[240px]"
+          className="px-2.5 py-1.5 text-body max-w-[240px]"
           value={run ?? ''}
           onChange={(e) => e.target.value && selectRun(Number(e.target.value))}
         >
@@ -62,10 +78,10 @@ export default function Topbar() {
       </div>
 
       <div className="flex items-center gap-1.5" title="Diff the active run against another run">
-        <label htmlFor="compare-select" className="text-xs text-muted">vs</label>
+        <label htmlFor="compare-select" className="text-body text-muted">vs</label>
         <select
           id="compare-select"
-          className="px-2.5 py-1.5 text-sm max-w-[180px]"
+          className="px-2.5 py-1.5 text-body max-w-[180px]"
           value={compareRun ?? ''}
           onChange={(e) => setCompareRun(e.target.value ? Number(e.target.value) : null)}
         >
@@ -78,41 +94,30 @@ export default function Topbar() {
         </select>
       </div>
 
-      <div className="flex" role="group" aria-label="View mode">
-        {(['2d', '3d', 'map'] as const).map((v, i, arr) => (
-          <button
-            key={v}
-            type="button"
-            onClick={() => setView(v)}
-            className={`px-3 py-1.5 text-xs font-bold border border-line-2 ${
-              i === 0 ? 'rounded-l-md border-r-0' : i === arr.length - 1 ? 'rounded-r-md' : 'border-r-0'
-            } ${
-              view === v ? 'bg-accent text-[#06203f] border-accent' : 'bg-panel-2 text-muted'
-            }`}
-          >
-            {VIEW_LABELS[v]}
-          </button>
-        ))}
-      </div>
+      <Divider />
+
+      {/* view + edge config cluster */}
+      <SegmentedControl
+        options={VIEW_OPTIONS}
+        value={view}
+        onChange={setView}
+        ariaLabel="View mode"
+      />
 
       <div className="flex items-center gap-1.5" title="Edge lens: filter/colour edges by dependency kind">
-        <span className="text-xs text-muted">Edges</span>
-        <div className="flex" role="group" aria-label="Edge filter">
-          {EDGE_FILTERS.map((f, i, arr) => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => setEdgeFilter(f)}
-              className={`px-2 py-1.5 text-[11px] border border-line-2 ${
-                i === 0 ? 'rounded-l-md border-r-0' : i === arr.length - 1 ? 'rounded-r-md' : 'border-r-0'
-              } ${edgeFilter === f ? 'bg-panel-3 text-ink border-accent' : 'bg-panel-2 text-muted'}`}
-            >
-              {EDGE_FILTER_LABELS[f]}
-            </button>
-          ))}
-        </div>
+        <span className="text-body text-muted">Edges</span>
+        <SegmentedControl
+          options={EDGE_OPTIONS}
+          value={edgeFilter}
+          onChange={setEdgeFilter}
+          ariaLabel="Edge filter"
+          size="sm"
+        />
       </div>
 
+      <Divider />
+
+      {/* search + actions cluster */}
       <div className="flex items-center gap-1.5 flex-1 min-w-0 basis-[200px] max-w-[280px]">
         <input
           type="search"
@@ -121,7 +126,7 @@ export default function Topbar() {
           autoComplete="off"
           spellCheck={false}
           value={query}
-          className="w-full min-w-0 px-2.5 py-1.5 text-sm placeholder:text-muted"
+          className="w-full min-w-0 px-2.5 py-1.5 text-body placeholder:text-muted"
           onChange={(e) => runSearch(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Escape') {
@@ -130,23 +135,31 @@ export default function Topbar() {
             }
           }}
         />
-        <span className="text-[11px] text-muted min-w-[28px]">
+        <span className="text-mini text-muted min-w-[28px]">
           {matches.size ? `${matches.size} hit${matches.size === 1 ? '' : 's'}` : ''}
         </span>
       </div>
 
-      <button type="button" onClick={copyLink} title="Copy a deep link to this exact view"
-        className="px-2.5 py-1.5 text-sm hover:border-accent">
+      <button
+        type="button"
+        onClick={copyLink}
+        title="Copy a deep link to this exact view"
+        className="px-2.5 py-1.5 text-body font-semibold rounded-md border border-line-2 bg-panel-2 text-ink hover:border-accent hover:bg-panel-3"
+      >
         {copied ? 'Copied ✓' : 'Copy link'}
       </button>
 
-      <button type="button" onClick={() => loadRuns()} className="px-2.5 py-1.5 text-sm hover:border-accent">
+      <button
+        type="button"
+        onClick={() => loadRuns()}
+        className="px-2.5 py-1.5 text-body font-semibold rounded-md border border-line-2 bg-panel-2 text-ink hover:border-accent hover:bg-panel-3"
+      >
         Reload
       </button>
 
       <span
-        className={`ml-auto text-xs truncate max-w-[36%] ${statusError ? 'text-bad' : 'text-muted'}`}
-        role="status"
+        className={`ml-auto text-body truncate max-w-[36%] ${statusError ? 'text-bad' : 'text-muted'}`}
+        role={statusError ? 'alert' : 'status'}
       >
         {statusText}
       </span>

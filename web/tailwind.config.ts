@@ -13,13 +13,27 @@ const config: Config = {
         ink: '#e7e9f0',
         muted: '#8b93a7',
         line: { DEFAULT: '#2a2f3c', 2: '#353c4d' },
-        accent: { DEFAULT: '#5aa9ff', 2: '#ffb454' },
+        accent: { DEFAULT: '#5aa9ff', 2: '#ffb454', bd: '#2b4a6f' },
+        // Text on an accent fill (e.g. the active tab badge), for contrast.
+        onAccent: '#06203f',
         node: { DEFAULT: '#3b82f6', root: '#a78bfa', center: '#ffb454', fwd: '#34d399', impact: '#f87171', dup: '#f472b6' },
         edge: '#3a4150',
-        ok: '#34d399',
-        warn: '#ffb454',
-        bad: '#f87171',
+        // Semantic tones carry their soft surface (`bg`) and border (`bd`) so
+        // callouts/badges stop hand-rolling hex pairs. `text-ok`/`bg-ok-bg`/etc.
+        ok: { DEFAULT: '#34d399', bg: '#0f2419', bd: '#1d4a32' },
+        warn: { DEFAULT: '#ffb454', bg: '#20180c', bd: '#4a3a1e' },
+        bad: { DEFAULT: '#f87171', bg: '#2a1414', bd: '#5a2424' },
         gen: '#ffd166',
+      },
+      // One named type scale for the side rail; arbitrary text-[Npx] is retired.
+      // (Prose keeps text-xs/text-sm.)
+      fontSize: {
+        micro: ['10px', '14px'],
+        mini: ['11px', '15px'],
+        label: ['11px', '14px'],
+        body: ['12px', '17px'],
+        head: ['13px', '18px'],
+        display: ['20px', '24px'], // hero figures (e.g. the risk score)
       },
       fontFamily: {
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],

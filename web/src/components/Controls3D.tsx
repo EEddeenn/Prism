@@ -1,5 +1,6 @@
 'use client';
 
+import { SegmentedControl, type SegOption } from '@/components/ui';
 import type { Mode3D, TerrainSignal } from '@/lib/types';
 
 const MODES: { id: Mode3D; label: string; title: string }[] = [
@@ -8,6 +9,12 @@ const MODES: { id: Mode3D; label: string; title: string }[] = [
   { id: 'terrain', label: 'Terrain', title: 'Graph as an analytical heightfield' },
   { id: 'tda', label: 'TDA', title: "Highlight a persistence feature's generators" },
 ];
+
+const MODE_OPTIONS: SegOption<Mode3D>[] = MODES.map((m) => ({
+  value: m.id,
+  label: m.label,
+  title: m.title,
+}));
 
 const SIGNALS: { id: TerrainSignal; label: string }[] = [
   { id: 'centrality', label: 'centrality — transitive dependents' },
@@ -41,30 +48,23 @@ interface Props {
 export default function Controls3D({ mode, setMode, signal, setSignal, spin, toggleSpin, onReset }: Props) {
   return (
     <div className="absolute left-3.5 top-3.5 z-10 flex flex-col gap-2 p-2.5 max-w-[330px] rounded-xl border border-line bg-panel/90 shadow-panel backdrop-blur-sm">
-      <div className="flex">
-        {MODES.map((m, i) => (
-          <button
-            key={m.id}
-            type="button"
-            title={m.title}
-            onClick={() => setMode(m.id)}
-            className={`flex-1 px-2 py-1.5 text-[11.5px] font-semibold border border-line-2 ${
-              i === 0 ? 'rounded-l-lg' : i === MODES.length - 1 ? 'rounded-r-lg border-l-0' : 'border-l-0'
-            } ${mode === m.id ? 'bg-panel-3 text-ink border-accent' : 'bg-panel-2 text-muted'}`}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
+      <SegmentedControl
+        options={MODE_OPTIONS}
+        value={mode}
+        onChange={setMode}
+        ariaLabel="3D mode"
+        size="sm"
+        className="w-full [&>button]:flex-1"
+      />
 
       {mode === 'terrain' && (
         <div className="flex items-center gap-2">
-          <label htmlFor="signal" className="text-[11.5px] text-muted shrink-0">Height</label>
+          <label htmlFor="signal" className="text-mini text-muted shrink-0">Height</label>
           <select
             id="signal"
             value={signal}
             onChange={(e) => setSignal(e.target.value as TerrainSignal)}
-            className="flex-1 px-2 py-1 text-[11.5px]"
+            className="flex-1 px-2 py-1 text-mini"
           >
             {SIGNALS.map((s) => (
               <option key={s.id} value={s.id}>{s.label}</option>
@@ -73,8 +73,8 @@ export default function Controls3D({ mode, setMode, signal, setSignal, spin, tog
         </div>
       )}
 
-      <p className="text-[10.5px] leading-snug text-ink/80">{MODE_HELP[mode]}</p>
-      <p className="text-[10.5px] leading-snug text-muted">
+      <p className="text-micro leading-snug text-ink/80">{MODE_HELP[mode]}</p>
+      <p className="text-micro leading-snug text-muted">
         Drag to orbit · scroll to zoom · shift-drag to pan · hover to identify · click a node
       </p>
 
@@ -82,11 +82,18 @@ export default function Controls3D({ mode, setMode, signal, setSignal, spin, tog
         <button
           type="button"
           onClick={toggleSpin}
-          className={`flex-1 px-2 py-1.5 text-[11.5px] ${spin ? 'bg-accent text-[#06203f] border-accent' : ''}`}
+          aria-pressed={spin}
+          className={`flex-1 px-2 py-1.5 text-mini rounded-md border ${
+            spin ? 'bg-accent text-onAccent border-accent font-semibold' : 'border-line-2 text-muted hover:border-accent'
+          }`}
         >
           Spin
         </button>
-        <button type="button" onClick={onReset} className="flex-1 px-2 py-1.5 text-[11.5px] hover:border-accent">
+        <button
+          type="button"
+          onClick={onReset}
+          className="flex-1 px-2 py-1.5 text-mini rounded-md border border-line-2 text-muted hover:border-accent"
+        >
           Reset view
         </button>
       </div>

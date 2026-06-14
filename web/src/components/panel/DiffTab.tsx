@@ -163,7 +163,7 @@ const TONE_TEXT: Record<MeterTone, string> = {
 function DistanceRow({ d }: { d: MetricDelta }) {
   const tone = deltaTone(d.change_pct);
   return (
-    <div className="rounded-lg bg-panel-2 border border-line px-2.5 py-2">
+    <div className="rounded-card bg-panel-2 border border-line px-2.5 py-2">
       <div className="flex items-baseline justify-between gap-2">
         <span className="font-mono text-mini text-ink truncate" title={d.metric}>
           {d.metric}
@@ -225,7 +225,7 @@ function TopologyDistanceSection({ base, head }: { base: number; head: number })
         <PanelState kind="loading">Measuring topology distance…</PanelState>
       ) : !dist ? null : (
         <div className="flex flex-col gap-2">
-          <div className="rounded-lg bg-panel-2 border border-line px-2.5 py-2">
+          <div className="rounded-card bg-panel-2 border border-line px-2.5 py-2">
             <div className="text-head font-semibold tabular-nums text-ink">
               topology distance: {Math.round(dist.distance_pct)}%
             </div>
@@ -301,7 +301,7 @@ export default function DiffTab() {
 
       {/* Changes by depth */}
       {depthRows.length > 0 && (
-        <div className="mb-3 rounded-lg bg-panel-2 border border-line px-2.5 py-2">
+        <div className="mb-3 rounded-card bg-panel-2 border border-line px-2.5 py-2">
           <SectionHeader className="mt-0">Changes by depth</SectionHeader>
           <Sparkline
             data={depthRows.map(([, count]) => count)}

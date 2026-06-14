@@ -196,9 +196,9 @@ export default function WasmBundleLoader({ children }: { children: ReactNode }) 
           )}
           <p className="text-muted text-xs text-center">
             Or produce one with{' '}
-            <code className="bg-panel-2 px-1.5 rounded">prism analyze</code>
+            <code className="bg-panel-2 px-1.5 rounded-badge">prism analyze</code>
             {' / '}
-            <code className="bg-panel-2 px-1.5 rounded">prism export bundle</code>.
+            <code className="bg-panel-2 px-1.5 rounded-badge">prism export bundle</code>.
           </p>
         </div>
       </main>

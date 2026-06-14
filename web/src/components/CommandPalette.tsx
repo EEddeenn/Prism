@@ -261,7 +261,7 @@ export default function CommandPalette() {
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
-        className="mt-[12vh] w-[min(640px,92vw)] max-h-[70vh] flex flex-col rounded-xl border border-line-2 bg-panel shadow-panel overflow-hidden"
+        className="mt-[12vh] w-[min(640px,92vw)] max-h-[70vh] flex flex-col rounded-card border border-line-2 bg-panel shadow-panel overflow-hidden"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <input
@@ -316,7 +316,7 @@ export default function CommandPalette() {
                       e.preventDefault();
                       runItem(i);
                     }}
-                    className={`flex items-center gap-2 mx-1 px-3 py-1.5 rounded-md cursor-pointer ${
+                    className={`flex items-center gap-2 mx-1 px-3 py-1.5 rounded-control cursor-pointer ${
                       isActive ? 'bg-panel-3 text-ink' : 'text-ink/90 hover:bg-panel-2'
                     }`}
                   >
@@ -329,12 +329,12 @@ export default function CommandPalette() {
                     <span className="ml-auto flex items-center gap-1.5 shrink-0">
                       {it.dot && (
                         <span
-                          className="inline-block w-1.5 h-1.5 rounded-full bg-node-dup"
+                          className="inline-block w-1.5 h-1.5 rounded-pill bg-node-dup"
                           title="duplicate version"
                         />
                       )}
                       {it.badge && (
-                        <span className="text-[10px] text-muted bg-panel-2 border border-line rounded px-1.5 py-px">
+                        <span className="text-[10px] text-muted bg-panel-2 border border-line rounded-badge px-1.5 py-px">
                           {it.badge}
                         </span>
                       )}

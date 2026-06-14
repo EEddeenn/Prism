@@ -31,7 +31,7 @@ export function Callout({
   return (
     <div
       role={role ?? (tone === 'bad' ? 'alert' : 'status')}
-      className={`flex items-start gap-1.5 rounded-lg border px-2.5 py-1.5 text-mini ${t.cls} ${className}`}
+      className={`flex items-start gap-1.5 rounded-card border px-2.5 py-1.5 text-mini ${t.cls} ${className}`}
     >
       <span aria-hidden className="shrink-0 leading-tight pt-px">
         {t.glyph}

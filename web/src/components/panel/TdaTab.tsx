@@ -127,7 +127,7 @@ function PersistenceDiagram({
       </svg>
 
       {hoverPair && (
-        <div className="absolute top-0 right-0 px-2 py-1 rounded-md bg-panel-3 border border-line-2 text-micro font-mono pointer-events-none whitespace-nowrap">
+        <div className="absolute top-0 right-0 px-2 py-1 rounded-control bg-panel-3 border border-line-2 text-micro font-mono pointer-events-none whitespace-nowrap">
           <span className="font-bold" style={{ color: dimColor(hoverPair.dim) }}>
             {DIM[hoverPair.dim === 1 ? 1 : 0].label}
           </span>{' '}
@@ -526,7 +526,7 @@ export default function TdaTab() {
         <PanelState
           kind="empty"
           cta={
-            <code className="bg-panel-2 px-1.5 rounded">prism tda run --run {run}</code>
+            <code className="bg-panel-2 px-1.5 rounded-badge">prism tda run --run {run}</code>
           }
         >
           No persistent homology for this run yet.
@@ -561,7 +561,7 @@ export default function TdaTab() {
       {pairs.length > 0 ? (
         <>
           <SectionHeader>Persistence diagram</SectionHeader>
-          <div className="rounded-lg border border-line bg-panel p-1.5">
+          <div className="rounded-card border border-line bg-panel p-1.5">
             <PersistenceDiagram pairs={pairs} maxDepth={maxDepth} activePair={activePair} onPick={(p) => selectFeature(p.pair, p.dim)} />
           </div>
           <p className="text-muted text-mini mt-1">
@@ -570,15 +570,15 @@ export default function TdaTab() {
           </p>
 
           <SectionHeader>Barcode</SectionHeader>
-          <div className="rounded-lg border border-line bg-panel p-1.5">
+          <div className="rounded-card border border-line bg-panel p-1.5">
             <Barcode pairs={pairs} maxDepth={maxDepth} activePair={activePair} onPick={(p) => selectFeature(p.pair, p.dim)} />
           </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-mini text-muted">
             <span className="flex items-center gap-1">
-              <span className="w-2.5 h-1.5 rounded-sm" style={{ background: DIM[0].stroke }} /> H0 components
+              <span className="w-2.5 h-1.5 rounded-badge" style={{ background: DIM[0].stroke }} /> H0 components
             </span>
             <span className="flex items-center gap-1">
-              <span className="w-2.5 h-1.5 rounded-sm" style={{ background: DIM[1].stroke }} /> H1 loops
+              <span className="w-2.5 h-1.5 rounded-badge" style={{ background: DIM[1].stroke }} /> H1 loops
             </span>
             <span>→ never dies</span>
             <span>dim = noise (life ≤ 1)</span>
@@ -598,7 +598,7 @@ export default function TdaTab() {
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="search H0 / H1 / d3 / essential…"
                 aria-label="Search features"
-                className="w-[180px] text-mini px-2 py-1 rounded-md bg-panel-2 border border-line-2 text-ink placeholder:text-muted focus:outline-none focus:border-accent"
+                className="w-[180px] text-mini px-2 py-1 rounded-control bg-panel-2 border border-line-2 text-ink placeholder:text-muted focus:outline-none focus:border-accent"
               />
             }
           >

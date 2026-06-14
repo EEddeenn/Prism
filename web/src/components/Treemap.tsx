@@ -142,7 +142,7 @@ function LegendChip({ color, label }: { color: string; label: string }) {
   return (
     <span className="flex items-center gap-1.5 text-micro text-muted whitespace-nowrap">
       <span
-        className="h-2.5 w-2.5 rounded-[3px] border"
+        className="h-2.5 w-2.5 rounded-tile border"
         style={{ borderColor: color, boxShadow: `inset 0 0 0 1.5px ${color}` }}
         aria-hidden
       />
@@ -230,7 +230,7 @@ export default function Treemap() {
   return (
     <div className="absolute inset-0 bg-bg overflow-hidden">
       {/* in-component signal toggle (mirrors the Controls3D button-group idiom) */}
-      <div className="absolute left-3.5 top-3.5 z-10 flex flex-col gap-2 p-2.5 rounded-xl border border-line bg-panel/90 shadow-panel backdrop-blur-sm">
+      <div className="absolute left-3.5 top-3.5 z-10 flex flex-col gap-2 p-2.5 rounded-card border border-line bg-panel/90 shadow-panel backdrop-blur-sm">
         <SectionHeader className="mt-0 mb-0">Tile area</SectionHeader>
         <SegmentedControl
           options={SIGNAL_OPTIONS}
@@ -376,11 +376,11 @@ export default function Treemap() {
       {/* In-component legend (page.tsx legend is hidden in the map view). Depth
           ramp on top; neighbourhood role chips shown only when relevant. */}
       {nodes.length > 0 && (
-        <div className="absolute left-3.5 bottom-3.5 z-10 flex flex-col gap-2 p-2.5 rounded-xl border border-line bg-panel/90 shadow-panel backdrop-blur-sm">
+        <div className="absolute left-3.5 bottom-3.5 z-10 flex flex-col gap-2 p-2.5 rounded-card border border-line bg-panel/90 shadow-panel backdrop-blur-sm">
           <div className="flex items-center gap-2">
             <span className="text-micro text-muted">shallow</span>
             <span
-              className="h-2.5 w-24 rounded-full"
+              className="h-2.5 w-24 rounded-pill"
               style={{
                 background: `linear-gradient(to right, ${rampHex(0)}, ${rampHex(0.25)}, ${rampHex(0.5)}, ${rampHex(0.75)}, ${rampHex(1)})`,
               }}

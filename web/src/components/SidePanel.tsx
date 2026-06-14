@@ -112,7 +112,7 @@ export default function SidePanel() {
           title="Hide inspector panel"
           aria-label="Hide inspector panel"
           aria-expanded
-          className="shrink-0 w-6 h-6 flex items-center justify-center rounded text-muted hover:text-ink hover:bg-panel-3 transition-colors"
+          className="shrink-0 w-6 h-6 flex items-center justify-center rounded-control text-muted hover:text-ink hover:bg-panel-3 transition-colors"
         >
           <Chevron open />
         </button>

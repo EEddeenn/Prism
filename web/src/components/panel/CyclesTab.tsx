@@ -140,7 +140,7 @@ export default function CyclesTab() {
         return (
           <div
             key={r.key}
-            className={`border rounded-lg mb-2.5 bg-panel-2 overflow-hidden ${
+            className={`border rounded-card mb-2.5 bg-panel-2 overflow-hidden ${
               r.runtimeCount > 0 ? 'border-bad-bd' : 'border-line'
             }`}
           >
@@ -167,7 +167,7 @@ export default function CyclesTab() {
                 {/* Stacked proportion bar: each segment's WIDTH is its share of
                     the cycle's internal edges (runtime accent vs other line-2). */}
                 <div
-                  className="flex-1 flex h-3 rounded overflow-hidden bg-panel-3"
+                  className="flex-1 flex h-3 rounded-badge overflow-hidden bg-panel-3"
                   role="progressbar"
                   aria-valuenow={r.runtimeCount}
                   aria-valuemin={0}
@@ -191,11 +191,11 @@ export default function CyclesTab() {
                 </div>
                 <div className="w-[110px] shrink-0 flex items-center justify-end gap-2 text-micro text-muted tabular-nums">
                   <span className="flex items-center gap-1">
-                    <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full bg-accent" />
+                    <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-pill bg-accent" />
                     {r.runtimeCount} rt
                   </span>
                   <span className="flex items-center gap-1">
-                    <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full bg-line-2" />
+                    <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-pill bg-line-2" />
                     {otherCount} other
                   </span>
                 </div>

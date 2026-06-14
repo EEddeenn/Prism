@@ -178,7 +178,7 @@ export default function Topbar() {
         {!query && (
           <kbd
             aria-hidden
-            className="absolute right-2 top-1/2 -translate-y-1/2 px-1.5 py-0.5 text-[10px] font-mono leading-none rounded border border-line-2 bg-panel text-muted pointer-events-none"
+            className="absolute right-2 top-1/2 -translate-y-1/2 px-1.5 py-0.5 text-[10px] font-mono leading-none rounded-badge border border-line-2 bg-panel text-muted pointer-events-none"
           >
             ⌘K
           </kbd>
@@ -193,7 +193,7 @@ export default function Topbar() {
         onClick={copyLink}
         title="Copy a deep link to this exact view"
         aria-label="Copy a deep link to this exact view"
-        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-body font-semibold rounded-md border border-line-2 bg-panel-2 text-ink hover:border-accent hover:bg-panel-3"
+        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-body font-semibold rounded-control border border-line-2 bg-panel-2 text-ink hover:border-accent hover:bg-panel-3"
       >
         {copied ? (
           <>
@@ -230,7 +230,7 @@ export default function Topbar() {
         aria-busy={refreshing}
         title={refreshing ? 'Refreshing…' : run == null ? 'No run to refresh' : 'Refresh view'}
         aria-label={refreshing ? 'Refreshing view' : 'Refresh view'}
-        className="inline-flex items-center justify-center w-8 h-8 rounded-md border border-line-2 bg-panel-2 text-ink hover:border-accent hover:bg-panel-3 disabled:opacity-60 disabled:cursor-wait disabled:hover:border-line-2 disabled:hover:bg-panel-2"
+        className="inline-flex items-center justify-center w-8 h-8 rounded-control border border-line-2 bg-panel-2 text-ink hover:border-accent hover:bg-panel-3 disabled:opacity-60 disabled:cursor-wait disabled:hover:border-line-2 disabled:hover:bg-panel-2"
       >
         <ReloadIcon className={refreshing ? 'animate-spin' : ''} />
       </button>

@@ -87,7 +87,7 @@ export default function Controls3D({ mode, setMode, signal, setSignal, spin, tog
         onClick={() => setCollapsed(false)}
         title="Show 3D controls"
         aria-label="Show 3D controls"
-        className="absolute left-3.5 top-3.5 z-10 w-9 h-9 inline-flex items-center justify-center rounded-xl border border-line bg-panel/90 shadow-panel backdrop-blur-sm text-muted hover:text-ink hover:border-accent transition-colors"
+        className="absolute left-3.5 top-3.5 z-10 w-9 h-9 inline-flex items-center justify-center rounded-card border border-line bg-panel/90 shadow-panel backdrop-blur-sm text-muted hover:text-ink hover:border-accent transition-colors"
       >
         <SlidersIcon />
       </button>
@@ -95,7 +95,7 @@ export default function Controls3D({ mode, setMode, signal, setSignal, spin, tog
   }
 
   return (
-    <div className="absolute left-3.5 top-3.5 z-10 flex flex-col gap-2 p-2.5 max-w-[330px] rounded-xl border border-line bg-panel/90 shadow-panel backdrop-blur-sm">
+    <div className="absolute left-3.5 top-3.5 z-10 flex flex-col gap-2 p-2.5 max-w-[330px] rounded-card border border-line bg-panel/90 shadow-panel backdrop-blur-sm">
       {/* Header strip: title + close button. Establishes the box's identity
           and surfaces the hide affordance unambiguously. */}
       <div className="flex items-center justify-between gap-2 -mb-0.5">
@@ -105,7 +105,7 @@ export default function Controls3D({ mode, setMode, signal, setSignal, spin, tog
           onClick={() => setCollapsed(true)}
           title="Hide 3D controls"
           aria-label="Hide 3D controls"
-          className="w-5 h-5 inline-flex items-center justify-center rounded text-muted hover:text-bad hover:bg-panel-2 transition-colors"
+          className="w-5 h-5 inline-flex items-center justify-center rounded-control text-muted hover:text-bad hover:bg-panel-2 transition-colors"
         >
           <CloseIcon />
         </button>
@@ -146,7 +146,7 @@ export default function Controls3D({ mode, setMode, signal, setSignal, spin, tog
           type="button"
           onClick={toggleSpin}
           aria-pressed={spin}
-          className={`flex-1 px-2 py-1.5 text-mini rounded-md border ${
+          className={`flex-1 px-2 py-1.5 text-mini rounded-control border ${
             spin ? 'bg-accent text-onAccent border-accent font-semibold' : 'border-line-2 text-muted hover:border-accent'
           }`}
         >
@@ -155,7 +155,7 @@ export default function Controls3D({ mode, setMode, signal, setSignal, spin, tog
         <button
           type="button"
           onClick={onReset}
-          className="flex-1 px-2 py-1.5 text-mini rounded-md border border-line-2 text-muted hover:border-accent"
+          className="flex-1 px-2 py-1.5 text-mini rounded-control border border-line-2 text-muted hover:border-accent"
         >
           Reset view
         </button>

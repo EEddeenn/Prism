@@ -489,19 +489,19 @@ export default function Graph2D() {
       <div className="absolute right-3.5 top-3.5 z-10 flex flex-col gap-1">
         <button type="button" aria-label="Zoom in" title="Zoom in"
           onClick={() => zoomCenter(1.3)}
-          className="w-7 h-7 grid place-items-center rounded-md border border-line-2 bg-panel/90 text-muted hover:border-accent hover:text-ink text-head">+</button>
+          className="w-7 h-7 grid place-items-center rounded-control border border-line-2 bg-panel/90 text-muted hover:border-accent hover:text-ink text-head">+</button>
         <button type="button" aria-label="Zoom out" title="Zoom out"
           onClick={() => zoomCenter(1 / 1.3)}
-          className="w-7 h-7 grid place-items-center rounded-md border border-line-2 bg-panel/90 text-muted hover:border-accent hover:text-ink text-head">−</button>
+          className="w-7 h-7 grid place-items-center rounded-control border border-line-2 bg-panel/90 text-muted hover:border-accent hover:text-ink text-head">−</button>
         <button type="button" aria-label="Fit graph to view" title="Fit"
           onClick={fit}
-          className="w-7 h-7 grid place-items-center rounded-md border border-line-2 bg-panel/90 text-muted hover:border-accent hover:text-ink text-body">⊡</button>
+          className="w-7 h-7 grid place-items-center rounded-control border border-line-2 bg-panel/90 text-muted hover:border-accent hover:text-ink text-body">⊡</button>
       </div>
 
       {/* Overview minimap (bottom-right): static dots + a live viewport rectangle.
           Click / drag to recenter the main view on that world point. */}
       {nodes.length > 0 && (
-        <div className="absolute right-3.5 bottom-3.5 z-10 rounded-md border border-line overflow-hidden bg-panel/85">
+        <div className="absolute right-3.5 bottom-3.5 z-10 rounded-control border border-line overflow-hidden bg-panel/85">
           <svg
             ref={miniSvgRef}
             width={MINI_W}

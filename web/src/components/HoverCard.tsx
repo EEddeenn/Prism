@@ -28,7 +28,7 @@ export default function HoverCard() {
 
   return (
     <div className="absolute top-3.5 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
-      <div className="px-3 py-1.5 rounded-full border border-line bg-panel/90 backdrop-blur-sm shadow-panel flex items-center gap-2 text-mini font-mono whitespace-nowrap">
+      <div className="px-3 py-1.5 rounded-card border border-line bg-panel/90 backdrop-blur-sm shadow-panel flex items-center gap-2 text-mini font-mono whitespace-nowrap">
         <span className={isHover ? 'text-accent' : 'text-node-center'}>{isHover ? 'hover' : 'selected'}</span>
         <span className="text-ink">{shortLabel(n.purl)}</span>
         {m && (

@@ -71,11 +71,14 @@ body {
 .g2d .has-sel .nodes-neutral { opacity: 0.2; }
 .g2d .searching .nodes-neutral { opacity: 0.22; }
 
-/* Form controls inherit the dark theme. */
+/* Form controls inherit the dark theme. Radius routes through the
+ * `rounded-control` design token (see tailwind.config.ts) so every
+ * interactive surface — selects, buttons, search inputs — shares one
+ * canonical radius with the per-component utility classes. */
 select,
 button,
 input[type='search'] {
-  @apply bg-panel-2 text-ink border border-line-2 rounded-md;
+  @apply bg-panel-2 text-ink border border-line-2 rounded-control;
 }
 
 /* Keyboard focus is shown with a distinct ring (NOT the border), so focus and

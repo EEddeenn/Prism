@@ -39,11 +39,11 @@ function TerrainLegend() {
   const midValue = sqrtHeight ? max * 0.25 : max * 0.5;
 
   return (
-    <div className="absolute top-3.5 right-3.5 z-10 p-2.5 rounded-xl border border-line bg-panel/90 backdrop-blur-sm shadow-panel text-mini">
+    <div className="absolute top-3.5 right-3.5 z-10 p-2.5 rounded-card border border-line bg-panel/90 backdrop-blur-sm shadow-panel text-mini">
       <div className="font-semibold text-ink mb-0.5">{meta.name}</div>
       <div className="text-muted text-micro mb-1.5">height · {meta.unit}{sqrtHeight ? ' · √ scale' : ''}</div>
       <div className="flex items-stretch gap-2">
-        <div className="w-3 rounded" style={{ background: gradient, minHeight: 84 }} aria-hidden />
+        <div className="w-3 rounded-badge" style={{ background: gradient, minHeight: 84 }} aria-hidden />
         <div className="flex flex-col justify-between text-muted tabular-nums">
           <span style={{ color: stops[0] }}>{fmt(max)}</span>
           <span>{fmt(midValue)}</span>
@@ -64,7 +64,7 @@ function TdaHint() {
   const setActiveTab = useGraphStore((s) => s.setActiveTab);
   return (
     <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
-      <div className="px-4 py-3 rounded-xl border border-line bg-panel/85 backdrop-blur-sm shadow-panel text-center max-w-[320px] pointer-events-auto">
+      <div className="px-4 py-3 rounded-card border border-line bg-panel/85 backdrop-blur-sm shadow-panel text-center max-w-[320px] pointer-events-auto">
         <div className="text-ink text-sm font-semibold mb-1">Pick a topology feature</div>
         <p className="text-muted text-mini leading-snug">
           {barcode
@@ -97,7 +97,7 @@ function FeatureCard() {
   const label = isVoid ? 'H₂ void' : `H${feature.dim} generator`;
 
   return (
-    <div className="absolute top-3.5 left-3.5 z-10 p-2.5 rounded-xl border border-line bg-panel/90 backdrop-blur-sm shadow-panel text-mini">
+    <div className="absolute top-3.5 left-3.5 z-10 p-2.5 rounded-card border border-line bg-panel/90 backdrop-blur-sm shadow-panel text-mini">
       <div className="font-semibold mb-0.5" style={{ color: accent }}>{label}</div>
       <div className="text-muted tabular-nums">
         {feature.nodeIds.size} package(s) · {feature.edgeKeys.size} arc(s) lit

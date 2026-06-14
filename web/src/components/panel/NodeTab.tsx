@@ -83,7 +83,7 @@ function Crumbs({ index, sel }: { index: GraphIndex; sel: number }) {
                 aria-current={isLast ? 'true' : undefined}
                 onClick={() => selectNode(id)}
                 className={
-                  'font-mono rounded-md px-0.5 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ' +
+                  'font-mono rounded-control px-0.5 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ' +
                   (isLast ? 'text-accent-2' : 'text-muted hover:text-accent')
                 }
               >
@@ -286,7 +286,7 @@ function WhyHere({ run, sel }: { run: number; sel: number }) {
                 title={why.nearest_owner.purl}
                 aria-label={`Select ${shortLabel(why.nearest_owner.purl)}`}
                 onClick={() => selectNode(why.nearest_owner!.id)}
-                className="font-mono rounded-md px-0.5 text-accent-2 cursor-pointer hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                className="font-mono rounded-control px-0.5 text-accent-2 cursor-pointer hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
               >
                 {shortLabel(why.nearest_owner.purl)}
               </button>{' '}
@@ -334,7 +334,7 @@ function WhyHere({ run, sel }: { run: number; sel: number }) {
               <div className="text-micro text-muted mb-1">shortest paths from a root</div>
               <ul className="list-none m-0 p-0 flex flex-col gap-1">
                 {why.paths.slice(0, 3).map((path, pi) => (
-                  <li key={pi} className="px-2.5 py-1.5 rounded-md bg-panel-2">
+                  <li key={pi} className="px-2.5 py-1.5 rounded-control bg-panel-2">
                     <ol className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-micro list-none m-0 p-0">
                       {path.map((n, ni) => {
                         const label = shortLabel(n.purl);
@@ -351,7 +351,7 @@ function WhyHere({ run, sel }: { run: number; sel: number }) {
                               aria-current={isLast ? 'true' : undefined}
                               onClick={() => selectNode(n.id)}
                               className={
-                                'font-mono rounded-md px-0.5 max-w-[180px] truncate cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ' +
+                                'font-mono rounded-control px-0.5 max-w-[180px] truncate cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ' +
                                 (isLast ? 'text-accent-2' : 'text-muted hover:text-accent')
                               }
                             >
@@ -403,7 +403,7 @@ export default function NodeTab() {
         <button
           type="button"
           onClick={() => requestFocus(sel)}
-          className="shrink-0 rounded-md px-2 py-1 text-mini bg-panel-2 border border-line text-muted hover:border-accent hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+          className="shrink-0 rounded-control px-2 py-1 text-mini bg-panel-2 border border-line text-muted hover:border-accent hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
         >
           Recenter
         </button>

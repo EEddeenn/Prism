@@ -41,6 +41,17 @@ const config: Config = {
       boxShadow: {
         panel: '0 6px 22px rgba(0, 0, 0, 0.45)',
       },
+      // Role-named radii — the class name describes what the surface DOES,
+      // not how big the radius is. Prefer these over rounded-md / rounded-lg /
+      // rounded-xl in all new code. The default Tailwind scale is left intact
+      // so any straggler size-named class keeps working during migration.
+      borderRadius: {
+        tile: '3px',      // treemap swatches, sparkline columns, tiny data dots
+        badge: '4px',     // inline code, kbd hints, meter bars, skeletons, layer labels
+        control: '6px',   // buttons, inputs, segmented halves, list rows, icon buttons
+        card: '12px',     // panels, modals, HUDs, callouts, dropzone, content cards
+        pill: '9999px',   // true pills (HoverCard caps, dots, Badge, MetricPill)
+      },
     },
   },
   plugins: [],

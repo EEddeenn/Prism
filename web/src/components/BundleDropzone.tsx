@@ -110,7 +110,7 @@ export default function BundleDropzone() {
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       className={[
-        'flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed px-8 py-7 transition-colors',
+        'flex flex-col items-center justify-center gap-2 rounded-card border border-dashed px-8 py-7 transition-colors',
         'bg-panel border-line',
         dragOver ? 'border-accent bg-panel-2' : '',
       ].join(' ')}
@@ -132,12 +132,12 @@ export default function BundleDropzone() {
         <path d="M9 15l3 3 3-3" />
       </svg>
       <p className="text-ink text-sm">
-        Drop a <code className="bg-panel-2 px-1.5 rounded">.prismbundle</code> file here
+        Drop a <code className="bg-panel-2 px-1.5 rounded-badge">.prismbundle</code> file here
       </p>
       <p className="text-muted text-xs">or</p>
       <label
         className={[
-          'inline-flex items-center cursor-pointer rounded-md border border-line px-3 py-1.5 text-xs',
+          'inline-flex items-center cursor-pointer rounded-control border border-line px-3 py-1.5 text-xs',
           'bg-panel-2 text-ink hover:border-ink transition-colors',
           busy ? 'opacity-60 cursor-wait' : '',
         ].join(' ')}

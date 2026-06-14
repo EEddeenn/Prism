@@ -257,7 +257,7 @@ export default function StructureTab() {
               {shared.top_pairs.length > 0 && (
                 <ul className="flex flex-col gap-1 mt-1.5">
                   {shared.top_pairs.map((p, i) => (
-                    <li key={i} className="text-micro text-muted px-2.5 py-1 rounded-md bg-panel-2 truncate">
+                    <li key={i} className="text-micro text-muted px-2.5 py-1 rounded-control bg-panel-2 truncate">
                       <span className="text-ink">{shortLabel(p.a)}</span> ∩ <span className="text-ink">{shortLabel(p.b)}</span>:{' '}
                       <span className="tabular-nums">{p.shared}</span>
                     </li>
@@ -298,7 +298,7 @@ export default function StructureTab() {
         ) : (
           <ul className="flex flex-col gap-1.5">
             {cycles.slice(0, 8).map((c, i) => (
-              <li key={i} className="px-2.5 py-1.5 rounded-md bg-panel-2">
+              <li key={i} className="px-2.5 py-1.5 rounded-control bg-panel-2">
                 <div className="flex items-center gap-2 text-mini">
                   <Badge tone={CYCLE_TONE[c.class] ?? 'muted'}>{c.class}</Badge>
                   <span className="text-muted">{c.members.length} members</span>
@@ -385,7 +385,7 @@ export default function StructureTab() {
           {frag.subsystem_islands.length > 0 && (
             <ul className="flex flex-col gap-1 mt-1.5">
               {frag.subsystem_islands.slice(0, 5).map((isl, i) => (
-                <li key={i} className="text-micro text-muted px-2.5 py-1 rounded-md bg-panel-2">
+                <li key={i} className="text-micro text-muted px-2.5 py-1 rounded-control bg-panel-2">
                   <span className="font-semibold text-ink tabular-nums">{isl.size}</span> pkgs
                   {isl.detached_from_roots ? ' · detached' : ''} — {isl.members.slice(0, 3).map(shortLabel).join(', ')}
                 </li>

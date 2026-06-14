@@ -35,7 +35,7 @@ export function Badge({
     <span
       title={title}
       aria-label={ariaLabel}
-      className={`inline-flex items-center gap-1 rounded-full border px-2 py-px text-micro tabular-nums whitespace-nowrap ${
+      className={`inline-flex items-center gap-1 rounded-pill border px-2 py-px text-micro tabular-nums whitespace-nowrap ${
         mono ? 'font-mono' : ''
       } ${TONE[tone]} ${className}`}
     >

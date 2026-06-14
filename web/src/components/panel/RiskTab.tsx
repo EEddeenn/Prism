@@ -119,7 +119,7 @@ export default function RiskTab() {
         </Callout>
       )}
 
-      <div className="border border-line rounded-lg overflow-hidden bg-panel-2">
+      <div className="border border-line rounded-card overflow-hidden bg-panel-2">
         {/* Column headers — a real header row whose sort controls are <button>s. */}
         <div role="row" className={`${GRID} bg-panel-3 text-muted font-mono text-label font-semibold px-2 py-1.5`}>
           <div role="columnheader" className="text-left">pkg</div>
@@ -137,7 +137,7 @@ export default function RiskTab() {
                   title={c.title}
                   onClick={() => setSortKey(c.key)}
                   aria-pressed={active}
-                  className={`inline-flex items-center justify-end gap-0.5 whitespace-nowrap select-none cursor-pointer hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded-sm ${
+                  className={`inline-flex items-center justify-end gap-0.5 whitespace-nowrap select-none cursor-pointer hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded-badge ${
                     active ? 'text-accent font-bold' : 'font-semibold'
                   }`}
                 >

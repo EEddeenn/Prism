@@ -153,7 +153,7 @@ export default function DuplicatesTab() {
         {clusters.length} famil{clusters.length === 1 ? 'y' : 'ies'} present at multiple versions, ranked by severity.
       </p>
       {ranked.map(({ cluster: c, ids, drift, blast, score }) => (
-        <div key={c.package_id} className="border border-line rounded-lg mb-2.5 bg-panel-2 overflow-hidden">
+        <div key={c.package_id} className="border border-line rounded-card mb-2.5 bg-panel-2 overflow-hidden">
           <RowButton
             onSelect={() => highlightSet(ids, c.package_purl)}
             ariaLabel={`Highlight ${shortLabel(c.package_purl)} (${c.version_count} versions)`}

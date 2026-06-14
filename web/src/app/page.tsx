@@ -94,17 +94,17 @@ function Explorer() {
           {view === 'map' && <Treemap />}
 
           {view !== 'map' && (
-            <div className="absolute left-3.5 bottom-3.5 z-10 flex flex-wrap items-center gap-x-3 gap-y-1 px-2.5 py-2 max-w-[64%] rounded-lg border border-line bg-panel/85 backdrop-blur-sm text-mini text-muted">
+            <div className="absolute left-3.5 bottom-3.5 z-10 flex flex-wrap items-center gap-x-3 gap-y-1 px-2.5 py-2 max-w-[64%] rounded-card border border-line bg-panel/85 backdrop-blur-sm text-mini text-muted">
               {showImportance && (
                 <span className="inline-flex items-center gap-1.5" title="Node size and resting colour both encode blast radius (transitive dependents).">
-                  <i className="h-2 w-8 rounded-full inline-block" style={{ background: importanceGradient }} />
+                  <i className="h-2 w-8 rounded-pill inline-block" style={{ background: importanceGradient }} />
                   size · colour = blast radius
                 </span>
               )}
               {legend.map(({ label, color, ring, ringColor }) => (
                 <span key={label} className="inline-flex items-center gap-1.5">
                   <i
-                    className="w-2.5 h-2.5 rounded-full inline-block"
+                    className="w-2.5 h-2.5 rounded-pill inline-block"
                     style={ring ? { background: color, boxShadow: `0 0 0 2px ${ringColor ?? PALETTE.dup}` } : { background: color }}
                   />
                   {label}
@@ -119,8 +119,8 @@ function Explorer() {
               <BundleDropzone />
               <p className="text-muted text-xs">
                 Or build a new bundle with{' '}
-                <code className="bg-panel-2 px-1.5 rounded">prism analyze</code> /{' '}
-                <code className="bg-panel-2 px-1.5 rounded">prism export bundle</code> and drop it here.
+                <code className="bg-panel-2 px-1.5 rounded-badge">prism analyze</code> /{' '}
+                <code className="bg-panel-2 px-1.5 rounded-badge">prism export bundle</code> and drop it here.
               </p>
             </div>
           )}

@@ -20,9 +20,9 @@ export function PanelState({
   if (kind === 'loading') {
     return (
       <div className="flex flex-col gap-2 animate-pulse" aria-busy="true" aria-live="polite">
-        <div className="h-2.5 w-1/2 rounded bg-panel-3" />
-        <div className="h-2.5 w-3/4 rounded bg-panel-2" />
-        <div className="h-2.5 w-2/3 rounded bg-panel-2" />
+        <div className="h-2.5 w-1/2 rounded-badge bg-panel-3" />
+        <div className="h-2.5 w-3/4 rounded-badge bg-panel-2" />
+        <div className="h-2.5 w-2/3 rounded-badge bg-panel-2" />
         <span className="sr-only">Loading…</span>
       </div>
     );

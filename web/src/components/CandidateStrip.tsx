@@ -116,7 +116,7 @@ export default function CandidateStrip({ nodePurl }: { nodePurl: string }) {
       </div>
 
       {/* Oldest → newest, left → right. */}
-      <div className="mt-1 flex gap-px overflow-hidden rounded-md bg-panel-3 p-px">
+      <div className="mt-1 flex gap-px overflow-hidden rounded-control bg-panel-3 p-px">
         {Array.from({ length: total_versions }, (_, o) => {
           const ver = purlByOrdinal.get(o);
           const reason = excludedReason.get(o);

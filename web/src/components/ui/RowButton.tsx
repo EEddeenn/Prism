@@ -31,7 +31,7 @@ export function RowButton({
       aria-current={active ? 'true' : undefined}
       disabled={disabled}
       onClick={disabled ? undefined : onSelect}
-      className={`relative w-full flex items-center gap-2 text-left rounded-md border px-2 py-1.5 bg-panel-2 transition-colors ${
+      className={`relative w-full flex items-center gap-2 text-left rounded-control border px-2 py-1.5 bg-panel-2 transition-colors ${
         active ? 'border-accent bg-panel-3' : 'border-transparent'
       } ${
         disabled
@@ -40,7 +40,7 @@ export function RowButton({
       } ${className}`}
     >
       {active && (
-        <span aria-hidden className="absolute left-0 inset-y-1 w-0.5 rounded-full bg-accent" />
+        <span aria-hidden className="absolute left-0 inset-y-1 w-0.5 rounded-pill bg-accent" />
       )}
       {children}
     </button>

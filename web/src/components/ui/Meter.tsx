@@ -38,9 +38,9 @@ export function StatBar({
       aria-valuemin={0}
       aria-valuemax={Math.round(max)}
       aria-label={ariaLabel}
-      className={`${HEIGHT[height]} bg-panel-3 rounded overflow-hidden ${className}`}
+      className={`${HEIGHT[height]} bg-panel-3 rounded-badge overflow-hidden ${className}`}
     >
-      <div className={`h-full rounded ${FILL[tone]}`} style={{ width: `${pct}%` }} />
+      <div className={`h-full rounded-badge ${FILL[tone]}`} style={{ width: `${pct}%` }} />
     </div>
   );
 }
@@ -62,12 +62,12 @@ export function DivergingBar({
   const max = Math.max(a, b, 1e-9);
   return (
     <div className="flex items-center h-1.5 mt-1" aria-label={ariaLabel} title={`A ${a} | B ${b}`}>
-      <div className="flex-1 flex justify-end overflow-hidden bg-panel-3 rounded-l">
-        <div className={`h-full rounded-l ${FILL[leftTone]}`} style={{ width: `${(a / max) * 100}%` }} />
+      <div className="flex-1 flex justify-end overflow-hidden bg-panel-3 rounded-l-control">
+        <div className={`h-full rounded-l-control ${FILL[leftTone]}`} style={{ width: `${(a / max) * 100}%` }} />
       </div>
       <div className="w-px h-full bg-line-2" />
-      <div className="flex-1 overflow-hidden bg-panel-3 rounded-r">
-        <div className={`h-full rounded-r ${FILL[rightTone]}`} style={{ width: `${(b / max) * 100}%` }} />
+      <div className="flex-1 overflow-hidden bg-panel-3 rounded-r-control">
+        <div className={`h-full rounded-r-control ${FILL[rightTone]}`} style={{ width: `${(b / max) * 100}%` }} />
       </div>
     </div>
   );
@@ -89,7 +89,7 @@ export function Sparkline({
       {data.map((d, i) => (
         <div
           key={i}
-          className={`flex-1 rounded-sm ${FILL[tone]}`}
+          className={`flex-1 rounded-badge ${FILL[tone]}`}
           style={{ height: `${Math.max(6, (d / max) * 100)}%` }}
         />
       ))}

@@ -1,14 +1,14 @@
 <svg width="48" height="48" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" fill="none">
-  <!-- prism outline -->
-  <path d="M24 5 L43.5 38 L4.5 38 Z" stroke="#5aa9ff" stroke-width="3" stroke-linejoin="round" />
+  <!-- prism outline (bone — matches the in-app mark's currentColor) -->
+  <path d="M24 5 L43.5 38 L4.5 38 Z" stroke="#e8e4d8" stroke-width="2.5" stroke-linejoin="round" />
   <!-- centroid spokes (the smallest non-trivial dependency graph) -->
-  <line x1="24" y1="8" x2="24" y2="27" stroke="#5aa9ff" stroke-width="2" opacity="0.55" />
-  <line x1="40.9" y1="36.5" x2="24" y2="27" stroke="#5aa9ff" stroke-width="2" opacity="0.55" />
-  <line x1="7.1" y1="36.5" x2="24" y2="27" stroke="#5aa9ff" stroke-width="2" opacity="0.55" />
-  <!-- vertex spectrum: sky / pink / gold (echoes the H0 / H1 / H2 TDA palette) -->
-  <circle cx="24" cy="5" r="3.5" fill="#60a5fa" />
-  <circle cx="43.5" cy="38" r="3.5" fill="#f472b6" />
-  <circle cx="4.5" cy="38" r="3.5" fill="#facc15" />
+  <line x1="24" y1="8" x2="24" y2="27" stroke="#e8e4d8" stroke-width="1.75" opacity="0.55" />
+  <line x1="40.9" y1="36.5" x2="24" y2="27" stroke="#e8e4d8" stroke-width="1.75" opacity="0.55" />
+  <line x1="7.1" y1="36.5" x2="24" y2="27" stroke="#e8e4d8" stroke-width="1.75" opacity="0.55" />
+  <!-- vertex spectrum: node-match / node-dup / node-gen (harmonized graph-role tints) -->
+  <circle cx="24" cy="5" r="3.3" fill="#8fb8ce" />
+  <circle cx="43.5" cy="38" r="3.3" fill="#c77fa0" />
+  <circle cx="4.5" cy="38" r="3.3" fill="#d8c06a" />
   <!-- center node -->
-  <circle cx="24" cy="27" r="2.5" fill="#5aa9ff" />
+  <circle cx="24" cy="27" r="2.4" fill="#e8e4d8" opacity="0.85" />
 </svg>

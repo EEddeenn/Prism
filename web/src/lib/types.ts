@@ -174,3 +174,70 @@ export interface Vec3 {
   y: number;
   z: number;
 }
+
+// --- Structural analysis (prism-api structure/risk/clusters views) ---------
+
+export interface RiskDimension {
+  name: string;
+  score: number;
+  detail: string;
+}
+
+export interface RiskProfile {
+  run: number;
+  overall: number;
+  band: string;
+  dimensions: RiskDimension[];
+}
+
+export interface Chokepoint {
+  dominated: number;
+  node: GraphNode;
+}
+
+export interface ClassifiedCycle {
+  class: string;
+  advice: string;
+  runtime_relevant: boolean;
+  touches_root: boolean;
+  internal_edges: number;
+  external_dependents: number;
+  kinds: string[];
+  members: GraphNode[];
+}
+
+export interface IslandView {
+  size: number;
+  detached_from_roots: boolean;
+  members: string[];
+}
+
+export interface Fragmentation {
+  run: number;
+  component_count: number;
+  largest_component: number;
+  artifact_singletons: number;
+  note: string;
+  subsystem_islands: IslandView[];
+}
+
+export interface ScopeRow {
+  kind: string;
+  direct_edges: number;
+  direct_targets: number;
+  footprint: number;
+  exclusive: number;
+  max_depth: number;
+}
+
+export interface WorkspaceRegion {
+  run: number;
+  ecosystem: string;
+  nodes: number;
+  edges: number;
+  runtime_footprint: number;
+  cycles: number;
+  duplicate_families: number;
+  risk_score: number;
+  risk_band: string;
+}

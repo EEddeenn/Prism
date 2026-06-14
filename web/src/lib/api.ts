@@ -8,6 +8,7 @@
 import type {
   Barcode, CandidatesResp, DuplicateCluster, ExportResp, GraphStats, NeighborhoodResp,
   RunMeta, RunSummary, SccComp, StatusResp, TdaPairsResp, TdaSupport,
+  RiskProfile, Chokepoint, ClassifiedCycle, Fragmentation, ScopeRow, WorkspaceRegion,
 } from './types';
 
 const BASE = process.env.NEXT_PUBLIC_PRISM_API ?? '';
@@ -63,4 +64,11 @@ export const api = {
       `/api/package/candidates?package=${encodeURIComponent(pkg)}` +
         (constraint ? `&constraint=${encodeURIComponent(constraint)}` : ''),
     ),
+  risk: (run: number) => getJson<RiskProfile>(`/api/graph/risk?run=${run}`),
+  chokepoints: (run: number, limit = 12) =>
+    getJson<Chokepoint[]>(`/api/graph/chokepoints?run=${run}&limit=${limit}`),
+  classifiedCycles: (run: number) => getJson<ClassifiedCycle[]>(`/api/graph/cycles?run=${run}`),
+  fragmentation: (run: number) => getJson<Fragmentation>(`/api/graph/fragmentation?run=${run}`),
+  scope: (run: number) => getJson<ScopeRow[]>(`/api/graph/scope?run=${run}`),
+  regions: () => getJson<WorkspaceRegion[]>('/api/regions'),
 };

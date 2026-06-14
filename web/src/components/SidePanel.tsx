@@ -3,15 +3,17 @@
 import { useGraphStore } from '@/store/useGraphStore';
 import OverviewTab from './panel/OverviewTab';
 import RiskTab from './panel/RiskTab';
+import StructureTab from './panel/StructureTab';
 import NodeTab from './panel/NodeTab';
 import DuplicatesTab from './panel/DuplicatesTab';
 import CyclesTab from './panel/CyclesTab';
 import TdaTab from './panel/TdaTab';
 import DiffTab from './panel/DiffTab';
 
-const TABS = ['overview', 'diff', 'risk', 'node', 'duplicates', 'cycles', 'tda'] as const;
+const TABS = ['overview', 'structure', 'diff', 'risk', 'node', 'duplicates', 'cycles', 'tda'] as const;
 const LABELS: Record<(typeof TABS)[number], string> = {
   overview: 'Overview',
+  structure: 'Structure',
   diff: 'Diff',
   risk: 'Risk',
   node: 'Node',
@@ -64,6 +66,7 @@ export default function SidePanel() {
 
       <div className="p-3.5 overflow-y-auto min-h-0">
         {activeTab === 'overview' && <OverviewTab />}
+        {activeTab === 'structure' && <StructureTab />}
         {activeTab === 'diff' && <DiffTab />}
         {activeTab === 'risk' && <RiskTab />}
         {activeTab === 'node' && <NodeTab />}

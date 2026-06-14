@@ -178,8 +178,10 @@ fn idents_from_npm_value(json: &Json) -> Result<Vec<NodeIdent>> {
             }
             // The root entry ("") has no path-derived name, but npm records the
             // project's own name in the entry's `name` field — prefer that (it may
-            // itself be scoped). Fall back to a stable "<root>" label only when the
+            // itself be scoped). Fall back to a plain `"root"` label only when the
             // lockfile omits it, and to the path for any other nameless entry.
+            // (The old `<root>` placeholder leaked URL-reserved `<`/`>` into the
+            // rendered purl, which read as an unfilled template.)
             None => {
                 let root_name = entry
                     .get("name")
@@ -199,7 +201,7 @@ fn idents_from_npm_value(json: &Json) -> Result<Vec<NodeIdent>> {
                         }),
                     },
                     None => idents.push(NodeIdent {
-                        name: if path.is_empty() { "<root>".into() } else { path.clone() },
+                        name: if path.is_empty() { "root".into() } else { path.clone() },
                         namespace: None,
                         version,
                     }),
@@ -253,8 +255,8 @@ mod tests {
         let p = parse_lockfile(Ecosystem::Npm, NPM_LOCK.as_bytes()).unwrap();
         assert_eq!(p.graph.node_count(), 3);
         assert_eq!(p.idents.len(), 3);
-        // Root entry.
-        assert_eq!(p.idents[0].name, "<root>");
+        // Root entry — plain `root` (purl-safe; no URL-reserved characters).
+        assert_eq!(p.idents[0].name, "root");
         assert_eq!(p.idents[0].version.as_deref(), Some("1.0.0"));
         // Scoped package split into namespace + name.
         assert_eq!(p.idents[1].namespace.as_deref(), Some("scope"));
@@ -332,8 +334,8 @@ snapshots:
         // root + @scope/left-pad + rxjs + tslib
         assert_eq!(p.graph.node_count(), 4);
         assert_eq!(p.idents.len(), p.graph.node_count());
-        // Synthetic root first.
-        assert_eq!(p.idents[0].name, "<root>");
+        // Synthetic root first — plain `root`, purl-safe (no `<`/`>`).
+        assert_eq!(p.idents[0].name, "root");
         assert!(p.idents[0].version.is_none());
         // Scoped package split into namespace + bare name (purls stay pkg:npm/...).
         let lp = p.idents.iter().find(|i| i.name == "left-pad").unwrap();

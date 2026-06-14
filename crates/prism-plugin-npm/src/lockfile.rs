@@ -406,7 +406,7 @@ mod tests {
     }"#;
 
     fn name_of(g: &ResolvedGraph, local: u32) -> &str {
-        name_from_path(&g.nodes[local as usize].occurrence_key).unwrap_or("<root>")
+        name_from_path(&g.nodes[local as usize].occurrence_key).unwrap_or("root")
     }
 
     #[test]

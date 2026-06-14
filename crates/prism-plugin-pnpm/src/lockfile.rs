@@ -52,7 +52,10 @@ impl LockfileParser for PnpmLockfile {
 /// One resolved occurrence, aligned 1:1 with a [`ResolvedGraph`] node (same order).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PnpmUnit {
-    /// Full package name (may be `@scope/name`). The synthetic root is `<root>`.
+    /// Full package name (may be `@scope/name`). The synthetic root is
+    /// `"root"` — a plain, purl-safe identifier that matches the bun
+    /// plugin's precedent and avoids the URL-reserved `<`/`>` characters
+    /// the previous `<root>` placeholder leaked into rendered purls.
     pub name: String,
     /// Pinned version, or `None` for the synthetic root.
     pub version: Option<String>,
@@ -396,7 +399,11 @@ pub fn parse_pnpm_units(text: &str) -> Result<Vec<PnpmUnit>, ParseError> {
     let asm = assemble(&doc);
     let mut units = Vec::with_capacity(asm.order.len() + 1);
     units.push(PnpmUnit {
-        name: "<root>".to_string(),
+        // Plain, purl-safe root identifier — matches the bun plugin's
+        // `"root"` precedent. The previous `<root>` placeholder rendered
+        // as `pkg:npm/<root>@0.0.0` in the UI; the angle brackets are
+        // URL-reserved characters and read as an unfilled template.
+        name: "root".to_string(),
         version: None,
     });
     for key in &asm.order {
@@ -415,7 +422,8 @@ pub fn parse_pnpm_graph(text: &str) -> Result<ResolvedGraph, ParseError> {
     let asm = assemble(&doc);
 
     let mut g = ResolvedGraph::new();
-    // Synthetic root (version-less; interning maps it to `<root>@0.0.0`).
+    // Synthetic root (version-less; the npm purl scheme later defaults
+    // the missing version to `0.0.0`, producing `pkg:npm/root@0.0.0`).
     g.add_node(VersionId::new(1), 0, "", NodeFlags::ROOT);
     for (i, key) in asm.order.iter().enumerate() {
         // Synthetic, deterministic version id (root took 1).
@@ -596,7 +604,7 @@ snapshots:
         let units = parse_pnpm_units(LOCK).unwrap();
         let g = parse_pnpm_graph(LOCK).unwrap();
         assert_eq!(units.len(), g.node_count());
-        assert_eq!(units[0].name, "<root>");
+        assert_eq!(units[0].name, "root");
         assert!(units[0].version.is_none());
         // The peer-suffixed unit keeps its base name + version, peer context dropped.
         let ui = units.iter().find(|u| u.name == "@scope/ui").unwrap();

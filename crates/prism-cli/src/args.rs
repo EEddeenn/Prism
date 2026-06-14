@@ -86,6 +86,33 @@ pub enum Command {
     ExportJson { run: u64 },
     /// `prism export graphml --run <id>`.
     ExportGraphml { run: u64 },
+    /// `prism export bundle --out <file>` — emit a single-file `.prismbundle`.
+    ExportBundle { out: String },
+    /// `prism analyze <input>... [--tda] [--filtration depth] --out <file>`.
+    ///
+    /// End-to-end: ingest every input into a throwaway tempdir workspace,
+    /// optionally compute persistence for each new lockfile run, and pack the
+    /// whole thing into a single `.prismbundle` at `out`.
+    Analyze {
+        /// Lockfile/manifest inputs to ingest, in order.
+        inputs: Vec<String>,
+        /// Whether to run the persistence pipeline (`prism tda run`) for each
+        /// lockfile run before packing.
+        tda: bool,
+        /// Filtration label passed through to `tda_run` (default `"depth"`).
+        filtration: String,
+        /// Output bundle path.
+        out: String,
+    },
+    /// `prism bundle inspect <FILE> [--json]` — verify and summarize a
+    /// `.prismbundle` (header, trailer, TOC, per-entry digests). With `--json`
+    /// the summary is emitted as a compact JSON object via [`crate::json`].
+    BundleInspect {
+        /// Path to the bundle file on disk.
+        file: String,
+        /// When true, emit JSON instead of a line-oriented report.
+        json: bool,
+    },
     /// `prism help` / `-h` / `--help`.
     Help,
     /// `prism --version` / `-V`.
@@ -172,6 +199,8 @@ where
         "conflicts" => parse_conflicts(it),
         "resolve" => parse_resolve(it),
         "export" => parse_export(it),
+        "analyze" => parse_analyze(it),
+        "bundle" => parse_bundle(it),
         other => Err(ParseError::UnknownCommand(other.to_string())),
     }
 }
@@ -237,6 +266,100 @@ fn parse_resolve<'a, I: Iterator<Item = &'a str>>(mut it: I) -> Result<Command, 
             flag: "--policy".into(),
             value: other.to_string(),
         }),
+    }
+}
+
+/// `prism analyze <input>... [--tda] [--filtration depth] --out <file>`.
+///
+/// Positional inputs are collected up to the first `--flag` token; flags then
+/// parse as usual. `--tda` is a boolean (value-less) flag, so we strip it from
+/// the stream before passing the rest to [`Flags::parse`] (which insists every
+/// `--name` carry a value). Required: at least one input and `--out`. Optional:
+/// `--filtration` (default `"depth"`).
+fn parse_analyze<'a, I: Iterator<Item = &'a str>>(it: I) -> Result<Command, ParseError> {
+    let mut inputs: Vec<String> = Vec::new();
+    let mut tda = false;
+    let mut rest: Vec<&str> = Vec::new();
+    let mut seen_flag = false;
+    for tok in it {
+        if tok.starts_with("--") {
+            seen_flag = true;
+            if tok == "--tda" {
+                tda = true;
+                continue;
+            }
+            rest.push(tok);
+        } else if !seen_flag {
+            inputs.push(tok.to_string());
+        } else {
+            // A positional after we've started parsing flags is the value for the
+            // preceding `--name <value>` flag; pass it through.
+            rest.push(tok);
+        }
+    }
+    if inputs.is_empty() {
+        return Err(ParseError::MissingArg { what: "<input>".into() });
+    }
+    let mut flags = Flags::parse(rest.into_iter())?;
+    let out = flags
+        .take_opt("--out")
+        .ok_or_else(|| ParseError::MissingArg { what: "--out".into() })?;
+    let filtration = flags
+        .take_opt("--filtration")
+        .unwrap_or_else(|| "depth".to_string());
+    flags.finish()?;
+    Ok(Command::Analyze { inputs, tda, filtration, out })
+}
+
+/// `prism bundle inspect <FILE> [--json]`.
+///
+/// The only v1 sub-subcommand is `inspect`. The positional `<FILE>` is the
+/// path to a `.prismbundle`. `--json` is a value-less boolean flag, so we
+/// strip it from the stream (same trick `parse_analyze` uses for `--tda`)
+/// before passing the rest to [`Flags::parse`].
+fn parse_bundle<'a, I: Iterator<Item = &'a str>>(mut it: I) -> Result<Command, ParseError> {
+    let sub = it
+        .next()
+        .ok_or_else(|| ParseError::MissingArg { what: "bundle <subcommand>".into() })?;
+    match sub {
+        "inspect" => {
+            // Pre-scan: pluck the value-less `--json` flag out, collect a
+            // single positional `<file>`, and forward any other `--name value`
+            // tokens to [`Flags::parse`] for the usual unknown-flag rejection.
+            // A positional may appear either before or after `--json`; a
+            // positional that follows any other `--name` token is treated as
+            // that flag's value and forwarded to `Flags`.
+            let mut file: Option<String> = None;
+            let mut json = false;
+            let mut rest: Vec<&str> = Vec::new();
+            let mut expecting_flag_value = false;
+            for tok in it {
+                if tok.starts_with("--") {
+                    if tok == "--json" {
+                        json = true;
+                        expecting_flag_value = false;
+                        continue;
+                    }
+                    rest.push(tok);
+                    // `--name=value` already carries its value; bare `--name`
+                    // takes the next positional as its value.
+                    expecting_flag_value = !tok.contains('=');
+                } else if expecting_flag_value {
+                    rest.push(tok);
+                    expecting_flag_value = false;
+                } else if file.is_some() {
+                    return Err(ParseError::Unexpected(tok.to_string()));
+                } else {
+                    file = Some(tok.to_string());
+                }
+            }
+            let file = file
+                .ok_or_else(|| ParseError::MissingArg { what: "<file>".into() })?;
+            let flags = Flags::parse(rest.into_iter())?;
+            flags.finish()?;
+            Ok(Command::BundleInspect { file, json })
+        }
+        other => Err(ParseError::UnknownCommand(format!("bundle {other}"))),
     }
 }
 
@@ -461,6 +584,14 @@ fn parse_export<'a, I: Iterator<Item = &'a str>>(mut it: I) -> Result<Command, P
             let run = flags.take_u64("--run")?;
             flags.finish()?;
             Ok(Command::ExportGraphml { run })
+        }
+        "bundle" => {
+            let mut flags = Flags::parse(it)?;
+            let out = flags
+                .take_opt("--out")
+                .ok_or_else(|| ParseError::MissingArg { what: "--out".into() })?;
+            flags.finish()?;
+            Ok(Command::ExportBundle { out })
         }
         // Parquet is a designed-but-unimplemented v0.1 format (a spec-compliant,
         // dependency-free columnar writer is a later milestone). Reject it with a
@@ -697,6 +828,93 @@ mod tests {
     }
 
     #[test]
+    fn export_bundle_parses() {
+        assert_eq!(
+            p(&["export", "bundle", "--out", "demo.prismbundle"]),
+            Ok(Command::ExportBundle { out: "demo.prismbundle".into() })
+        );
+        // Equals form also works.
+        assert_eq!(
+            p(&["export", "bundle", "--out=demo.prismbundle"]),
+            Ok(Command::ExportBundle { out: "demo.prismbundle".into() })
+        );
+    }
+
+    #[test]
+    fn export_bundle_requires_out() {
+        assert_eq!(
+            p(&["export", "bundle"]),
+            Err(ParseError::MissingArg { what: "--out".into() })
+        );
+    }
+
+    #[test]
+    fn analyze_parses_inputs_and_out() {
+        assert_eq!(
+            p(&["analyze", "Cargo.lock", "--out", "x.prismbundle"]),
+            Ok(Command::Analyze {
+                inputs: vec!["Cargo.lock".into()],
+                tda: false,
+                filtration: "depth".into(),
+                out: "x.prismbundle".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn analyze_multiple_inputs_with_tda() {
+        assert_eq!(
+            p(&[
+                "analyze",
+                "Cargo.lock",
+                "pnpm-lock.yaml",
+                "--tda",
+                "--out",
+                "x.prismbundle",
+            ]),
+            Ok(Command::Analyze {
+                inputs: vec!["Cargo.lock".into(), "pnpm-lock.yaml".into()],
+                tda: true,
+                filtration: "depth".into(),
+                out: "x.prismbundle".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn analyze_custom_filtration() {
+        assert_eq!(
+            p(&[
+                "analyze",
+                "Cargo.lock",
+                "--filtration",
+                "depth",
+                "--out=x.prismbundle",
+            ]),
+            Ok(Command::Analyze {
+                inputs: vec!["Cargo.lock".into()],
+                tda: false,
+                filtration: "depth".into(),
+                out: "x.prismbundle".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn analyze_requires_input_and_out() {
+        // No inputs.
+        assert_eq!(
+            p(&["analyze", "--out", "x.prismbundle"]),
+            Err(ParseError::MissingArg { what: "<input>".into() })
+        );
+        // No --out flag.
+        assert_eq!(
+            p(&["analyze", "Cargo.lock"]),
+            Err(ParseError::MissingArg { what: "--out".into() })
+        );
+    }
+
+    #[test]
     fn candidates_by_requirement() {
         assert_eq!(
             p(&["candidates", "--requirement", "7"]),
@@ -837,6 +1055,69 @@ mod tests {
         assert_eq!(
             p(&["graph", "stats", "oops"]),
             Err(ParseError::Unexpected("oops".into()))
+        );
+    }
+
+    #[test]
+    fn bundle_inspect_parses_file() {
+        assert_eq!(
+            p(&["bundle", "inspect", "x.prismbundle"]),
+            Ok(Command::BundleInspect {
+                file: "x.prismbundle".into(),
+                json: false,
+            })
+        );
+    }
+
+    #[test]
+    fn bundle_inspect_with_json_flag() {
+        assert_eq!(
+            p(&["bundle", "inspect", "x.prismbundle", "--json"]),
+            Ok(Command::BundleInspect {
+                file: "x.prismbundle".into(),
+                json: true,
+            })
+        );
+        // --json before the positional also works.
+        assert_eq!(
+            p(&["bundle", "inspect", "--json", "x.prismbundle"]),
+            Ok(Command::BundleInspect {
+                file: "x.prismbundle".into(),
+                json: true,
+            })
+        );
+    }
+
+    #[test]
+    fn bundle_inspect_requires_file() {
+        assert_eq!(
+            p(&["bundle", "inspect"]),
+            Err(ParseError::MissingArg { what: "<file>".into() })
+        );
+        // --json alone is still missing the positional.
+        assert_eq!(
+            p(&["bundle", "inspect", "--json"]),
+            Err(ParseError::MissingArg { what: "<file>".into() })
+        );
+    }
+
+    #[test]
+    fn bundle_rejects_unknown_subcommand() {
+        assert!(matches!(
+            p(&["bundle", "wat", "x.prismbundle"]),
+            Err(ParseError::UnknownCommand(m)) if m == "bundle wat"
+        ));
+        assert_eq!(
+            p(&["bundle"]),
+            Err(ParseError::MissingArg { what: "bundle <subcommand>".into() })
+        );
+    }
+
+    #[test]
+    fn bundle_inspect_extra_positional_is_unexpected() {
+        assert_eq!(
+            p(&["bundle", "inspect", "a.prismbundle", "b.prismbundle"]),
+            Err(ParseError::Unexpected("b.prismbundle".into()))
         );
     }
 }

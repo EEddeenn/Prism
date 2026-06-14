@@ -2,17 +2,20 @@
   "name": "prism-web",
   "version": "0.1.0",
   "private": true,
-  "description": "Prism dependency-topology explorer — Next.js + React Three Fiber UI over the prism-serve JSON API",
+  "description": "Prism dependency-topology explorer — Next.js + React Three Fiber UI rendered statically with an in-browser WASM engine",
   "scripts": {
+    "build:wasm": "wasm-pack build ../crates/prism-wasm --target web --release --out-dir ../../web/src/wasm --out-name prism_wasm && mkdir -p public/wasm && cp src/wasm/prism_wasm_bg.wasm public/wasm/prism_wasm_bg.wasm",
+    "prebuild": "npm run build:wasm",
+    "predev": "npm run build:wasm",
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@react-three/drei": "^10.0.0",
     "@react-three/fiber": "^9.0.0",
+    "idb-keyval": "^6.2.2",
     "next": "^15.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

@@ -1,39 +1,69 @@
 # Prism Web — dependency-topology explorer
 
-A Next.js + TypeScript + Tailwind CSS + **React Three Fiber** UI over the
-`prism-serve` JSON API. It replaces the old hermetic vanilla-JS UI with a modern
-2D **and** interactive **3D** topology experience.
+A Next.js + TypeScript + Tailwind CSS + **React Three Fiber** UI rendered as a
+**fully static site**. There is no backend at runtime: a WASM module
+(`crates/prism-wasm`) decodes `.prismbundle` files in the browser and answers
+every view query against an in-memory workspace.
 
 ## Architecture
 
 ```
-browser ──>  Next.js app (this)  ──proxy──>  prism-serve (Rust JSON API)  ──>  .prism store
-            React / R3F / Tailwind          crates/prism-server
+browser  ──>  static HTML/JS  ──load.wasm──>  prism-wasm (in-browser dispatcher)
+                                                   │
+                              IndexedDB ──┐        │
+                                          ▼        ▼
+                                  bundle bytes ──> Prism::open_in_memory
+                                                       │
+                                                       ▼
+                                              view JSON (regions/TDA/etc.)
 ```
 
-- The Rust `prism-serve` is now a slim, read-only, CORS-enabled JSON API
-  (`crates/prism-server`). Start it against a workspace:
-  `prism-serve --workspace /path/to/ws --port 7831`.
-- This app's server-side proxy (`src/app/api/[...path]/route.ts`) forwards
-  `/api/*` to `PRISM_API_URL` (default `http://127.0.0.1:7831`), so the browser
-  stays same-origin. Set `NEXT_PUBLIC_PRISM_API` to hit `prism-serve` directly
-  instead.
+1. User drops a `.prismbundle` on the landing page.
+2. The dropzone hashes the bytes (`crypto.subtle.digest('SHA-256', …)`),
+   verifies the envelope via `wasm.load_bundle(...)`, then persists the bytes
+   into IndexedDB keyed by the full 64-char SHA-256 hex.
+3. The URL becomes `?bundle=<sha>` and the page reloads.
+4. `WasmBundleLoader` reads `?bundle=`, fetches bytes from IndexedDB, and calls
+   `wasm.load_bundle(...)` again to install the singleton workspace.
+5. All view fetches go through `wasm.call_view(name, args_json)` — the same
+   names the deleted `prism-server` HTTP routes once carried (see
+   `crates/prism-api/src/dispatch.rs`).
 
-## Run
+## Run (dev / build)
+
+The Rust WASM artifact is built into `web/src/wasm/` and copied to
+`web/public/wasm/prism_wasm_bg.wasm` so Next.js serves it as a static asset.
 
 ```sh
-# 1. start the Rust API (in the Prism repo)
-cargo run --release -p prism-cli -- serve --workspace /path/to/workspace --port 7831
-#    or the dedicated binary: prism-serve --workspace /path/to/workspace --port 7831
-
-# 2. start the web app
 cd web
-cp .env.example .env.local          # optional: point PRISM_API_URL elsewhere
 npm install
-npm run dev                         # http://localhost:3000
+npm run dev       # http://localhost:3000  (prebuild auto-runs wasm-pack)
+npm run build     # static export → web/out/  (host-anywhere bundle)
+npm run typecheck # tsc --noEmit
 ```
 
-`npm run build` for a production build; `npm run typecheck` for types only.
+`npm run dev` and `npm run build` both invoke `wasm-pack` via the `predev` /
+`prebuild` script. You can also run it explicitly:
+
+```sh
+npm run build:wasm
+```
+
+Prerequisites (one-time): `rustup target add wasm32-unknown-unknown` and a
+`wasm-pack` binary on `$PATH` (`cargo install wasm-pack` or
+`brew install wasm-pack`).
+
+## Producing a bundle
+
+```sh
+prism analyze inputs/Cargo.lock --tda --out demo.prismbundle
+# or, against an existing .prism/ workspace:
+prism export bundle --out demo.prismbundle
+prism bundle inspect demo.prismbundle   # verify + dump TOC
+```
+
+See `STATIC-DEPLOY.md` (repo root) for hosting the `web/out/` directory on
+GitHub Pages, Cloudflare Pages, Netlify, S3 + CloudFront, nginx, or Caddy.
 
 ## Views
 
@@ -53,10 +83,21 @@ cycle member, or a TDA feature highlights it everywhere.
 
 ```
 src/
-  app/            Next.js app router (page, layout, globals, API proxy)
-  components/     Topbar, Graph2D, Graph3D, Controls3D, SidePanel
-    scene/        R3F scene pieces (Nodes, Edges, LayerPlanes, Fibers, TerrainMesh, …)
-    panel/        side-panel tabs (Overview, Node, Duplicates, Cycles, TDA)
-  lib/            types, api client, palette, graph metrics, 2D/3D layout
-  store/          the shared Zustand store
+  app/             Next.js app router (page, layout, globals — no /api routes)
+  components/      Topbar, Graph2D, Graph3D, Controls3D, SidePanel,
+                   BundleDropzone, WasmBundleLoader
+    scene/         R3F scene pieces (Nodes, Edges, LayerPlanes, Fibers, TerrainMesh, …)
+    panel/         side-panel tabs (Overview, Node, Duplicates, Cycles, TDA)
+  lib/             api client (wasm dispatcher), bundleStore (IndexedDB),
+                   wasm loader, types, palette, layout
+  store/           the shared Zustand store
+  wasm/            wasm-pack output (gitignored — regenerated on every build)
 ```
+
+## Why static + WASM (not a server)
+
+The Rust hermetic core already parses lockfiles, builds the graph, computes
+TDA, and renders view JSON correctly and panic-free on untrusted input. WASM
+reuses every byte of that — no parallel TypeScript reimplementation, no
+backend to host. Bundles are produced once by the CLI, shared as a single
+file, and replayed offline by anyone with a browser.

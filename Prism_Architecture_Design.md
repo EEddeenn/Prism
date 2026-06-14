@@ -2894,7 +2894,8 @@ prism/
     prism-tda/
     prism-api/
     prism-cli/
-    prism-server/
+    prism-bundle/      # single-file .prismbundle format (pack/unpack/inspect)
+    prism-wasm/        # non-hermetic wasm-bindgen bridge for the static web viewer
 
   apps/
     prism-desktop/

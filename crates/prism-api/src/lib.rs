@@ -29,14 +29,17 @@
 //! Untrusted bytes never panic: every parse/lookup failure surfaces as a
 //! [`prism_model::PrismError`].
 
+mod args;
 mod candidate_views;
 mod candidates;
 mod ci_topology;
 mod clusters;
+pub mod dispatch;
 mod duplicate_rootcause;
 mod ecosystem;
 mod fidelity_notes;
 mod ingest;
+mod json_writer;
 mod parse;
 mod query;
 mod raw;
@@ -47,17 +50,22 @@ mod resolve_store;
 mod reuse_views;
 mod risk_views;
 mod run_diff;
+mod run_ids;
 mod structure_views;
 mod tda;
 mod tda_views;
 mod views;
+pub mod views_json;
 
 #[cfg(test)]
 mod test_util;
 
+pub use args::Args;
 pub use candidate_views::{
     CandidateExclusion, CandidateVersion, CandidateView, ConflictPair, ConflictReportView,
 };
+pub use json_writer::{error_body, JsonWriter};
+pub use run_ids::list_run_ids;
 pub use ci_topology::{
     BudgetReport, BudgetViolation, MetricDelta, ShapeSignature, TopologyDistanceView,
 };
@@ -84,6 +92,7 @@ pub use views::{
 };
 
 use std::path::Path;
+use std::sync::Arc;
 
 use prism_graph::{read_pcsr, GraphSnapshot};
 use prism_model::{Result, RunId};
@@ -120,11 +129,32 @@ impl Prism {
     /// a concurrent writer — can coexist, since the published file set is immutable
     /// and content-checksummed.
     ///
-    /// This is the right entry point for a viewer such as `prism-serve`: it must
-    /// not block the CLI, and a crashed viewer must never strand a stale lock.
+    /// This is the right entry point for any viewer that must not block the CLI,
+    /// and where a crashed viewer must never strand a stale lock. The in-browser
+    /// path goes through [`Prism::open_in_memory`] instead.
     pub fn open_readonly(path: impl AsRef<Path>) -> Result<Prism> {
         Ok(Prism {
             store: Store::open_readonly(path)?,
+        })
+    }
+
+    /// Open a workspace whose published file set is embedded in a
+    /// `.prismbundle` byte image, without ever touching disk.
+    ///
+    /// `bytes` is the verified-on-read bundle: this function calls
+    /// [`prism_bundle::decode_toc_offsets`] (which runs the full
+    /// envelope-validation + per-entry SHA-256 sweep) and hands the resulting
+    /// `(rel_path, payload_offset, payload_len)` tuples plus a shared
+    /// `Arc<Vec<u8>>` of the bytes to [`Store::open_in_memory`].
+    ///
+    /// The returned facade is always read-only and never holds the workspace
+    /// lock — bundles are immutable shareable artefacts, not workspaces. This
+    /// is the entry point the WASM glue (`crates/prism-wasm`) uses to make a
+    /// browser-decoded bundle queryable.
+    pub fn open_in_memory(bytes: Arc<Vec<u8>>) -> Result<Prism> {
+        let toc = prism_bundle::decode_toc_offsets(&bytes)?;
+        Ok(Prism {
+            store: Store::open_in_memory(bytes, toc)?,
         })
     }
 

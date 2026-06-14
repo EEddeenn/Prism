@@ -73,6 +73,12 @@ COMMANDS:
                                                   synthetic resolve a manifest
     export json --run <id>                        emit the graph as JSON
     export graphml --run <id>                     emit the graph as GraphML (XML)
+    export bundle --out <file>                    emit a single-file .prismbundle
+    analyze <input>... [--tda] [--filtration depth] --out <file>
+                                                  ingest + (optionally) tda + bundle in one shot
+
+  bundle:
+    bundle inspect <file> [--json]                verify + summarize a .prismbundle
 
     help, -h, --help                              show this help
     --version, -V                                 show the version
@@ -143,6 +149,14 @@ where
         Command::Resolve { manifest, policy } => commands::resolve(out, manifest, policy),
         Command::ExportJson { run } => commands::export_json(out, *run),
         Command::ExportGraphml { run } => commands::export_graphml(out, *run),
+        Command::ExportBundle { out: path } => commands::export_bundle(out, path),
+        Command::Analyze {
+            inputs,
+            tda,
+            filtration,
+            out: path,
+        } => commands::analyze(out, inputs, *tda, filtration, path),
+        Command::BundleInspect { file, json } => commands::bundle_inspect(out, file, *json),
     };
 
     match result {
@@ -198,7 +212,9 @@ mod tests {
             "graph overlay", "graph distance", "graph diff", "graph budget",
             "tda run", "tda support", "tda compare", "tda h2",
             "candidates", "conflicts", "resolve",
-            "export json", "export graphml",
+            "export json", "export graphml", "export bundle",
+            "analyze",
+            "bundle inspect",
         ];
         for cmd in documented {
             assert!(HELP.contains(cmd), "HELP missing `{cmd}`");

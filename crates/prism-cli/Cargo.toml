@@ -18,6 +18,7 @@ path = "src/main.rs"
 prism-model = { path = "../prism-model" }
 prism-store = { path = "../prism-store" }
 prism-api = { path = "../prism-api" }
+prism-bundle = { path = "../prism-bundle" }
 
 [lints]
 workspace = true

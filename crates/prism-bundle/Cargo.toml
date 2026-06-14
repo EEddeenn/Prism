@@ -1,0 +1,15 @@
+[package]
+name = "prism-bundle"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Prism bundle (.prismbundle) single-file analysis format: pack/unpack a workspace's published files"
+
+[dependencies]
+prism-codec = { path = "../prism-codec" }
+prism-model = { path = "../prism-model" }
+prism-store = { path = "../prism-store" }
+
+[lints]
+workspace = true

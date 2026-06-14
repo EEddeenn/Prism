@@ -1,13 +1,13 @@
-//! Enumerating the runs a workspace can serve, using only the `prism-api`
-//! facade.
+//! Enumerating the runs a workspace can serve, using only the public surface
+//! of [`crate::Prism`] and the underlying store manifest.
 //!
-//! `prism-api` doesn't expose a run listing, and this crate intentionally
-//! depends on nothing below it. But every ingested run persists a graph file
-//! named `graphs/run_<8 digits>.pcsr` (see `prism_store::Layout::graph_file_name`),
-//! recorded in the published manifest. We recover the servable run ids by
-//! scanning those file names — no extra dependency, no record decoding.
+//! [`crate::Prism`] does not expose a run listing directly, but every ingested
+//! run persists a graph file named `graphs/run_<8 digits>.pcsr` (see
+//! `prism_store::Layout::graph_file_name`), recorded in the published manifest.
+//! Servable run ids are recovered by scanning those file names — no extra
+//! dependency, no record decoding.
 
-use prism_api::Prism;
+use crate::Prism;
 use prism_model::RunId;
 
 /// Prefix and suffix of a persisted graph file's manifest `rel_path`.

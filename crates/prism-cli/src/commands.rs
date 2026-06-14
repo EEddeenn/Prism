@@ -6,7 +6,7 @@
 //! the caller in [`crate::run`].
 
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use prism_api::{Ecosystem, Prism};
 use prism_model::{
@@ -1111,6 +1111,174 @@ pub fn export_graphml(out: &mut dyn Write, run: u64) -> Result<()> {
     s.push_str("</graphml>\n");
 
     write!(out, "{s}").map_err(PrismError::Io)?;
+    Ok(())
+}
+
+/// `prism export bundle --out <file>` — emit a single-file `.prismbundle`.
+///
+/// Opens the workspace at the current directory read-only, then asks
+/// [`prism_bundle::pack_workspace_to`] to write a verbatim copy of every
+/// published `.prism/` file (MANIFEST + segments + indexes + graphs + TDA
+/// filtrations) into the named bundle path. The writer is atomic on disk
+/// (write-then-rename via `<out>.tmp`); a partial bundle is never observed by a
+/// concurrent reader.
+///
+/// After writing we read the bundle back and run [`prism_bundle::read_summary`]
+/// so the success line reports the entry count, byte length, and the
+/// whole-bundle SHA-256 the format trailer commits to — the same hash a
+/// recipient sees on drop into the web app and `prism bundle inspect` shows.
+pub fn export_bundle(out: &mut dyn Write, out_path: &str) -> Result<()> {
+    let prism = Prism::open_readonly(workspace_root())?;
+    let dest = Path::new(out_path);
+    prism_bundle::pack_workspace_to(dest, prism.store().layout())?;
+
+    // Re-read the bundle we just wrote to surface its committed SHA-256 and
+    // entry count in the success line. read_summary fully re-verifies the file
+    // (header, trailer, TOC, every per-entry digest) so a corrupt write would
+    // surface here rather than silently sitting on disk.
+    let bytes = std::fs::read(dest).map_err(PrismError::Io)?;
+    let summary = prism_bundle::read_summary(&bytes)?;
+    // 16 hex chars = 64 bits of the trailer SHA-256: enough to identify the
+    // bundle in chat / logs without dragging the full 64-char digest around.
+    let sha_prefix: String = summary.bundle_sha256_hex.chars().take(16).collect();
+    writeln!(
+        out,
+        "wrote bundle: {out_path} ({} entries, {} bytes, sha256={}…)",
+        summary.entry_count, summary.byte_len, sha_prefix
+    )
+    .map_err(PrismError::Io)?;
+    Ok(())
+}
+
+/// A best-effort RAII cleanup for a temporary workspace.
+///
+/// `prism analyze` ingests into a throwaway `.prism/` workspace under
+/// `std::env::temp_dir()` and packs the result into the user's chosen
+/// `.prismbundle`. The temp workspace has no further use after the bundle is
+/// written, so we drop it on success *and* on panic (the `Drop` impl runs
+/// during unwinding). Errors from `remove_dir_all` are intentionally ignored:
+/// the tempdir is best-effort cleanup, not data the user can recover.
+struct TempDirGuard(PathBuf);
+
+impl Drop for TempDirGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// `prism analyze <input>... [--tda] [--filtration depth] --out <file>` — the
+/// headline one-shot command: ingest every input into a tempdir workspace,
+/// optionally compute persistence for each new lockfile run, then pack the
+/// whole thing into a single `.prismbundle`.
+///
+/// Inputs are dispatched to `ingest_lockfile_detailed` or `ingest_manifest`
+/// based on `Ecosystem::is_lockfile` / `Ecosystem::is_manifest`. Unknown file
+/// names are rejected before any work is committed.
+///
+/// The tempdir is rooted at `std::env::temp_dir().join("prism-analyze-<pid>")`
+/// so concurrent invocations don't collide; a [`TempDirGuard`] removes it on
+/// scope exit (including on panic). The output bundle is written atomically by
+/// [`prism_bundle::pack_workspace_to`], so a partial bundle is never observed.
+pub fn analyze(
+    out: &mut dyn Write,
+    inputs: &[String],
+    tda: bool,
+    filtration: &str,
+    out_path: &str,
+) -> Result<()> {
+    let tmp = std::env::temp_dir().join(format!("prism-analyze-{}", std::process::id()));
+    // Drop guard installed *before* create_dir_all so a failure mid-create still
+    // schedules removal of whatever subtree may have been started.
+    let _guard = TempDirGuard(tmp.clone());
+    std::fs::create_dir_all(&tmp).map_err(PrismError::Io)?;
+
+    let mut prism = Prism::init(&tmp)?;
+    let mut runs: Vec<RunId> = Vec::new();
+    for input in inputs {
+        let p = Path::new(input);
+        if Ecosystem::is_lockfile(p) {
+            let r = prism.ingest_lockfile_detailed(p)?;
+            runs.push(r.run);
+        } else if Ecosystem::is_manifest(p) {
+            let _ = prism.ingest_manifest(p)?;
+        } else {
+            return Err(PrismError::Other(format!(
+                "{input:?} is not a recognized manifest or lockfile"
+            )));
+        }
+    }
+
+    if tda {
+        for r in &runs {
+            prism.tda_run(*r, filtration)?;
+        }
+    }
+
+    prism_bundle::pack_workspace_to(Path::new(out_path), prism.store().layout())?;
+    writeln!(out, "wrote bundle: {out_path}").map_err(PrismError::Io)?;
+    Ok(())
+}
+
+/// `prism bundle inspect <FILE> [--json]` — verify and summarize a bundle.
+///
+/// Reads the file into memory and asks [`prism_bundle::read_summary`] to
+/// validate the header magic + CRC, the trailer SHA-256, the TOC CRC, and
+/// every per-entry payload digest. A corrupt or truncated bundle surfaces as
+/// a [`PrismError::Corrupt`] / [`PrismError::ChecksumMismatch`] /
+/// [`PrismError::UnsupportedFormatVersion`] from the bundle reader before any
+/// output is produced.
+///
+/// Without `--json` we print a line-oriented report (format version, entry
+/// count, byte length, whole-bundle SHA-256, then one row per entry with the
+/// first 16 hex chars of its digest). With `--json` the same summary is
+/// emitted as a single compact JSON object via [`JsonWriter`], suitable for
+/// piping into `jq` or another tool.
+pub fn bundle_inspect(out: &mut dyn Write, file: &str, json: bool) -> Result<()> {
+    let bytes = std::fs::read(file).map_err(PrismError::Io)?;
+    let summary = prism_bundle::read_summary(&bytes)?;
+
+    if json {
+        let mut w = JsonWriter::new();
+        w.begin_object();
+        // `JsonWriter` has `field_u64` but no `field_u32`; widen the small
+        // fields to `u64` rather than going through `field_str`+`format!`
+        // (keeps them as JSON numbers, not strings).
+        w.field_u64("format_version", u64::from(summary.format_version));
+        w.field_u64("entry_count", u64::from(summary.entry_count));
+        w.field_u64("byte_len", summary.byte_len);
+        w.field_str("bundle_sha256", &summary.bundle_sha256_hex);
+        w.key("entries");
+        w.begin_array();
+        for e in &summary.entries {
+            w.begin_object();
+            w.field_str("kind", &format!("{:?}", e.kind));
+            w.field_str("path", &e.rel_path);
+            w.field_u64("len", e.payload_len);
+            w.field_str("sha256", &e.sha256_hex);
+            w.end_object();
+        }
+        w.end_array();
+        w.end_object();
+        writeln!(out, "{}", w.finish()).map_err(PrismError::Io)?;
+    } else {
+        writeln!(out, "bundle: {file}").map_err(PrismError::Io)?;
+        writeln!(out, "  format_version: {}", summary.format_version)
+            .map_err(PrismError::Io)?;
+        writeln!(out, "  entries: {}", summary.entry_count).map_err(PrismError::Io)?;
+        writeln!(out, "  bytes: {}", summary.byte_len).map_err(PrismError::Io)?;
+        writeln!(out, "  sha256: {}", &summary.bundle_sha256_hex).map_err(PrismError::Io)?;
+        for e in &summary.entries {
+            // 16 hex chars = 64 bits, plenty to identify the entry in a
+            // table view; the full digest is available in --json output.
+            let short: String = e.sha256_hex.chars().take(16).collect();
+            writeln!(
+                out,
+                "    {:?}  {}  {}  {}",
+                e.kind, e.rel_path, e.payload_len, short
+            )
+            .map_err(PrismError::Io)?;
+        }
+    }
     Ok(())
 }
 

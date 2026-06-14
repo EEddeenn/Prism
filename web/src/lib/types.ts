@@ -1,6 +1,6 @@
-/* TypeScript mirror of the prism-serve JSON API shapes (see crates/prism-server
- * src/views_json.rs + router.rs). The PURL is the portable key; integer ids are
- * snapshot-local request handles. */
+/* TypeScript mirror of the in-browser WASM dispatcher's JSON shapes
+ * (see crates/prism-api src/dispatch.rs + src/views_json.rs). The PURL is
+ * the portable key; integer ids are snapshot-local request handles. */
 
 export interface RunSummary {
   run: number;

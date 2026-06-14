@@ -7,6 +7,8 @@ import Topbar from '@/components/Topbar';
 import Graph2D from '@/components/Graph2D';
 import SidePanel from '@/components/SidePanel';
 import CommandPalette from '@/components/CommandPalette';
+import BundleDropzone from '@/components/BundleDropzone';
+import WasmBundleLoader from '@/components/WasmBundleLoader';
 import { PALETTE } from '@/lib/palette';
 import { importanceColor } from '@/lib/encoding';
 import type { Mode3D, View } from '@/lib/types';
@@ -55,7 +57,10 @@ function legendFor(view: View, mode: Mode3D): LegendItem[] {
   }
 }
 
-export default function Page() {
+/** The actual explorer UI. Lives behind the WasmBundleLoader gate so it only
+ *  mounts once the singleton workspace is open — that way `useUrlSync()`'s
+ *  `loadRuns()` call hits a loaded workspace, not an empty one. */
+function Explorer() {
   useUrlSync(); // owns the initial load + two-way URL state
 
   const view = useGraphStore((s) => s.view);
@@ -109,12 +114,10 @@ export default function Page() {
           )}
 
           {noRuns && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-center pointer-events-none">
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
               <p className="text-ink">No runs to show.</p>
-              <p className="text-muted text-sm">
-                Ingest a lockfile with <code className="bg-panel-2 px-1.5 rounded">prism ingest</code>, then reload.
-              </p>
-              <p className="text-muted text-xs mt-2">Is <code className="bg-panel-2 px-1.5 rounded">prism-serve</code> running on :7831?</p>
+              <BundleDropzone />
+              <p className="text-muted text-xs">Or ingest locally with <code className="bg-panel-2 px-1.5 rounded">prism ingest</code> and reload.</p>
             </div>
           )}
           {emptyGraph && (
@@ -135,5 +138,13 @@ export default function Page() {
       </main>
       <CommandPalette />
     </div>
+  );
+}
+
+export default function Page() {
+  return (
+    <WasmBundleLoader>
+      <Explorer />
+    </WasmBundleLoader>
   );
 }

@@ -10,6 +10,7 @@ description = "High-level Prism API exposed to the CLI and bindings"
 prism-model = { path = "../prism-model" }
 prism-codec = { path = "../prism-codec" }
 prism-store = { path = "../prism-store" }
+prism-bundle = { path = "../prism-bundle" }
 prism-graph = { path = "../prism-graph" }
 prism-tda = { path = "../prism-tda" }
 prism-resolve = { path = "../prism-resolve" }

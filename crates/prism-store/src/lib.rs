@@ -10,6 +10,7 @@
 
 pub mod batch;
 pub mod blob;
+mod file_source;
 pub mod fsutil;
 pub mod index;
 pub mod lock;
@@ -30,6 +31,7 @@ pub use paths::Layout;
 pub use records::record_type;
 pub use segment::{SegmentReader, SegmentWriter};
 
+use file_source::{BundleFileSource, FileSource, FsFileSource};
 use index::keys;
 use prism_codec::sha256;
 use prism_model::{
@@ -37,7 +39,9 @@ use prism_model::{
     ResolverRun, Result, RunId, StringId, VersionId,
 };
 use prism_model::EcosystemId;
+use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 
 /// A record to be written into a segment during a publish. `logical_ts` is
 /// assigned by the store from the recovered high-water mark.
@@ -75,6 +79,11 @@ pub struct Store {
     /// mutating the workspace (a read-only store took no lock, so it must never
     /// race a writer).
     read_only: bool,
+    /// Read seam: every byte the store loads from a manifest-referenced file
+    /// flows through this. `FsFileSource` for disk-backed stores; a
+    /// `BundleFileSource` for bundle-in-memory stores opened via
+    /// [`Store::open_in_memory`].
+    file_source: Arc<dyn FileSource>,
 }
 
 impl Store {
@@ -95,12 +104,16 @@ impl Store {
         let lock = WorkspaceLock::acquire(&layout.lock())?;
         let manifest = Manifest::empty();
         fsutil::atomic_write(&layout.manifest(), &manifest.encode())?;
+        let file_source: Arc<dyn FileSource> = Arc::new(FsFileSource {
+            prism_dir: layout.prism_dir(),
+        });
         Ok(Store {
             layout,
             manifest,
             index: IndexSet::new(),
             _lock: Some(lock),
             read_only: false,
+            file_source,
         })
     }
 
@@ -109,7 +122,10 @@ impl Store {
     pub fn open(root: impl AsRef<Path>) -> Result<Store> {
         let layout = Self::existing_layout(root.as_ref())?;
         let lock = WorkspaceLock::acquire(&layout.lock())?;
-        let (manifest, index) = Self::load_published(&layout)?;
+        let file_source: Arc<dyn FileSource> = Arc::new(FsFileSource {
+            prism_dir: layout.prism_dir(),
+        });
+        let (manifest, index) = Self::load_published_from(&*file_source)?;
         // tmp/ cleanup is performed only by the writer under the lock.
         Self::clean_tmp(&layout)?;
         Ok(Store {
@@ -118,6 +134,7 @@ impl Store {
             index,
             _lock: Some(lock),
             read_only: false,
+            file_source,
         })
     }
 
@@ -127,17 +144,88 @@ impl Store {
     /// file set is immutable and content-checksummed, so a concurrent atomic
     /// manifest swap is never observed half-applied.
     ///
-    /// This is what `prism-serve` uses: a viewer must not block the CLI, and a
-    /// crashed viewer must never leave a stale lock behind.
+    /// This is what any out-of-process viewer uses: a viewer must not block
+    /// the CLI, and a crashed viewer must never leave a stale lock behind.
+    /// The in-browser WASM viewer goes through [`Store::open_in_memory`].
     pub fn open_readonly(root: impl AsRef<Path>) -> Result<Store> {
         let layout = Self::existing_layout(root.as_ref())?;
-        let (manifest, index) = Self::load_published(&layout)?;
+        let file_source: Arc<dyn FileSource> = Arc::new(FsFileSource {
+            prism_dir: layout.prism_dir(),
+        });
+        let (manifest, index) = Self::load_published_from(&*file_source)?;
         Ok(Store {
             layout,
             manifest,
             index,
             _lock: None,
             read_only: true,
+            file_source,
+        })
+    }
+
+    /// Open a workspace whose published file set is embedded in an
+    /// in-memory byte image, without unpacking to disk.
+    ///
+    /// `toc` is the pre-decoded list of `(rel_path, payload_offset,
+    /// payload_len)` tuples — one per file the bundle embeds. The caller
+    /// (typically `prism_api::Prism::open_in_memory`) is responsible for
+    /// validating the surrounding bundle envelope + every per-entry SHA-256
+    /// before handing the tuples here; this constructor only verifies that
+    /// each TOC range lives inside `bytes` (defense in depth) and then runs
+    /// the same manifest + index verification pass [`Store::open_readonly`]
+    /// would.
+    ///
+    /// Avoiding a direct `prism-bundle` dependency keeps this crate's
+    /// dependency graph acyclic — `prism-bundle` depends on `prism-store` for
+    /// its packer, so the inverse edge is provided via this seam.
+    ///
+    /// The returned store is always read-only: bundles are immutable. The
+    /// inner [`Layout`] is a `""` sentinel that is never read.
+    pub fn open_in_memory(
+        bytes: Arc<Vec<u8>>,
+        toc: Vec<(String, usize, usize)>,
+    ) -> Result<Store> {
+        let mut index_map: HashMap<String, (usize, usize)> = HashMap::with_capacity(toc.len());
+        for (rel, off, len) in toc {
+            // Defense in depth: re-validate the range against the actual
+            // bytes len. The caller has already done this via prism_bundle's
+            // verifier; doing it again costs O(n) bounded by MAX_TOC_ENTRIES
+            // and means a bug in the caller cannot panic this crate.
+            let end = off.checked_add(len).ok_or_else(|| PrismError::Corrupt {
+                detail: format!("bundle entry {rel}: offset + len overflows usize"),
+            })?;
+            if end > bytes.len() {
+                return Err(PrismError::OutOfBounds {
+                    detail: format!(
+                        "bundle entry {rel}: end {end} exceeds bundle length {}",
+                        bytes.len()
+                    ),
+                });
+            }
+            // Reject duplicate rel_path tuples. `prism_bundle::read_summary`
+            // also rejects these, but our contract permits a caller to skip
+            // it and call us directly with a hand-built TOC — keep the
+            // defense local. Without it, a hostile bundle could ship two
+            // segments with the same path and we would last-write-wins the
+            // payload silently.
+            if index_map.insert(rel.clone(), (off, len)).is_some() {
+                return Err(PrismError::Corrupt {
+                    detail: format!("duplicate bundle entry rel_path {rel:?}"),
+                });
+            }
+        }
+        let file_source: Arc<dyn FileSource> = Arc::new(BundleFileSource {
+            bytes,
+            index: index_map,
+        });
+        let (manifest, index) = Self::load_published_from(&*file_source)?;
+        Ok(Store {
+            layout: Layout::new(Path::new("")),
+            manifest,
+            index,
+            _lock: None,
+            read_only: true,
+            file_source,
         })
     }
 
@@ -154,14 +242,19 @@ impl Store {
     }
 
     /// Decode + verify the manifest and load its index segments into a merged read
-    /// view. Pure reads: shared by the read-write and read-only open paths.
-    fn load_published(layout: &Layout) -> Result<(Manifest, IndexSet)> {
-        let manifest = Manifest::decode(&fsutil::read_file(&layout.manifest())?)?;
+    /// view, reading every byte through `fs`. Pure reads: shared by the disk
+    /// open paths and [`Store::open_in_memory`].
+    ///
+    /// The `MANIFEST` itself is fetched via `fs.read("MANIFEST")`; each
+    /// referenced file is fetched by its `rel_path` and integrity-checked
+    /// (length + SHA-256) before either becoming part of the index set or
+    /// being trusted as a payload.
+    fn load_published_from(fs: &dyn FileSource) -> Result<(Manifest, IndexSet)> {
+        let manifest = Manifest::decode(&fs.read("MANIFEST")?)?;
 
         // Verify every referenced file: present, correct length, matching digest.
         for entry in &manifest.files {
-            let path = layout.prism_dir().join(&entry.rel_path);
-            let bytes = fsutil::read_file(&path).map_err(|_| PrismError::Corrupt {
+            let bytes = fs.read(&entry.rel_path).map_err(|_| PrismError::Corrupt {
                 detail: format!("manifest references missing file {}", entry.rel_path),
             })?;
             if bytes.len() as u64 != entry.len {
@@ -189,8 +282,7 @@ impl Store {
             if entry.kind != FileKind::Index {
                 continue;
             }
-            let path = layout.prism_dir().join(&entry.rel_path);
-            let reader = IndexReader::parse(&fsutil::read_file(&path)?)?;
+            let reader = IndexReader::parse(&fs.read(&entry.rel_path)?)?;
             index.push_newest(reader);
         }
         Ok((manifest, index))
@@ -295,8 +387,7 @@ impl Store {
             if entry.kind != FileKind::Segment {
                 continue;
             }
-            let path = self.layout.prism_dir().join(&entry.rel_path);
-            let seg = SegmentReader::parse(fsutil::read_file(&path)?)?;
+            let seg = SegmentReader::parse(self.file_source.read(&entry.rel_path)?)?;
             for rec in seg.records() {
                 let rec = rec?;
                 out.push(StoredRecord {
@@ -861,8 +952,7 @@ impl Store {
     /// verifying it is present, the recorded length, and the recorded digest.
     fn read_referenced(&self, rel_path: &str) -> Result<Vec<u8>> {
         let entry = self.manifest.file(rel_path).ok_or(PrismError::NotFound)?;
-        let path = self.layout.prism_dir().join(rel_path);
-        let bytes = fsutil::read_file(&path)?;
+        let bytes = self.file_source.read(rel_path)?;
         if bytes.len() as u64 != entry.len {
             return Err(PrismError::Corrupt {
                 detail: format!("{rel_path} length mismatch"),
@@ -878,9 +968,16 @@ impl Store {
 
     // --- Blob store ------------------------------------------------------------
 
-    /// A handle to this workspace's content-addressed blob store.
+    /// A handle to this workspace's content-addressed blob store. Inherits
+    /// the parent store's `read_only` flag so a bundle-backed (or
+    /// `open_readonly`) [`Store`] refuses `put`/`gc` and skips the direct
+    /// filesystem probes — see [`BlobStore`].
     pub fn blobs(&self) -> BlobStore {
-        BlobStore::new(self.layout.blobs_dir())
+        BlobStore::new(
+            self.layout.blobs_dir(),
+            Arc::clone(&self.file_source),
+            self.read_only,
+        )
     }
 }
 
@@ -1289,6 +1386,33 @@ mod tests {
         // New allocations continue strictly above the recovered high-water marks.
         assert!(s.alloc_run_id().get() > last_obj);
         assert!(s.intern_string("brand-new").unwrap().get() >= last_str);
+    }
+
+    #[test]
+    fn open_in_memory_rejects_duplicate_rel_path() {
+        // Two TOC tuples naming the same `rel_path` would otherwise
+        // last-write-wins inside the index_map and let a hostile bundle
+        // smuggle one payload past `load_published_from` while having
+        // a different one served from `read_referenced` later. Make the
+        // collision an explicit Corrupt error.
+        let mfst = Manifest::empty().encode();
+        let mut buf = mfst.clone();
+        // Append a duplicate byte image so both TOC tuples point at valid
+        // ranges. The decoder only ever reads MANIFEST, but the range
+        // check still requires off..off+len to be inside `bytes`.
+        buf.extend_from_slice(&mfst);
+        let bytes = Arc::new(buf);
+        let toc = vec![
+            ("MANIFEST".to_string(), 0usize, mfst.len()),
+            ("MANIFEST".to_string(), mfst.len(), mfst.len()),
+        ];
+        match Store::open_in_memory(bytes, toc) {
+            Err(PrismError::Corrupt { detail }) => {
+                assert!(detail.contains("duplicate"), "{detail}");
+            }
+            Err(other) => panic!("expected Corrupt, got {other:?}"),
+            Ok(_) => panic!("expected rejection on duplicate rel_path"),
+        }
     }
 
     #[test]

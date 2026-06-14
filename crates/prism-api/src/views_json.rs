@@ -5,7 +5,7 @@
 //! snapshot-local node ids are included but, like the CLI exporter, the purl is
 //! the portable key.
 
-use prism_api::{
+use crate::{
     BarcodeView, BudgetReport, CandidateView, ChokepointView, CycleView, DiamondReuseView,
     DuplicateClusterView, DuplicateRootCauseView, ExplanationView, FidelityReport,
     FiltrationSummary, FragmentationView, GraphEdgeView, GraphNodeView, GraphStatsView, H2View,
@@ -15,7 +15,7 @@ use prism_api::{
 };
 use prism_model::{CandidateReason, ExclusionReason};
 
-use crate::json::JsonWriter;
+use crate::json_writer::JsonWriter;
 
 /// Write a [`GraphNodeView`] as a JSON object.
 pub fn node(w: &mut JsonWriter, n: &GraphNodeView) {
@@ -722,7 +722,7 @@ fn write_str_array(w: &mut JsonWriter, key: &str, items: &[String]) {
     w.end_array();
 }
 
-fn write_cycle_diff_entry(w: &mut JsonWriter, c: &prism_api::CycleDiffEntry) {
+fn write_cycle_diff_entry(w: &mut JsonWriter, c: &crate::CycleDiffEntry) {
     w.begin_object();
     w.field_u64("size", c.members.len() as u64);
     w.field_str("class", c.class);
@@ -788,6 +788,42 @@ pub fn budget(w: &mut JsonWriter, r: &BudgetReport) {
     w.end_object();
 }
 
+/// Render a verified bundle summary into the JSON response shape used by the
+/// in-browser `load_bundle` WASM entry point (and previously by the legacy
+/// `POST /api/bundles` upload handler):
+///
+/// ```json
+/// {"id":"<64-hex>",
+///  "bundle_sha256":"<64-hex>",
+///  "entry_count":<u32>,
+///  "byte_len":<u64>,
+///  "runs":[<u64>,...]}
+/// ```
+///
+/// `id` and `bundle_sha256` are the same 64-char hex string: the legacy
+/// 16-hex prefix scheme used by the previous HTTP server was a session-id
+/// artefact that disappears when the workspace lives entirely in the
+/// browser.
+pub fn render_bundle_summary(
+    summary: &prism_bundle::BundleSummary,
+    runs: &[prism_model::RunId],
+) -> String {
+    let mut w = JsonWriter::new();
+    w.begin_object();
+    w.field_str("id", &summary.bundle_sha256_hex);
+    w.field_str("bundle_sha256", &summary.bundle_sha256_hex);
+    w.field_u64("entry_count", summary.entry_count as u64);
+    w.field_u64("byte_len", summary.byte_len);
+    w.key("runs");
+    w.begin_array();
+    for r in runs {
+        w.u64_value(r.get());
+    }
+    w.end_array();
+    w.end_object();
+    w.finish()
+}
+
 /// Write the multi-filtration comparison as a JSON array, one row per lens.
 pub fn filtration_compare(w: &mut JsonWriter, rows: &[FiltrationSummary]) {
     w.begin_array();
@@ -809,7 +845,7 @@ pub fn filtration_compare(w: &mut JsonWriter, rows: &[FiltrationSummary]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use prism_api::BarcodeDim;
+    use crate::BarcodeDim;
     use prism_model::{FiltrationId, GraphNodeId, PackageId, RunId, VersionId};
 
     fn sample_node() -> GraphNodeView {
@@ -924,7 +960,7 @@ mod tests {
 
     #[test]
     fn explanation_object_has_target_and_paths() {
-        use prism_api::{ExplanationView, IntroducerView};
+        use crate::{ExplanationView, IntroducerView};
         let v = ExplanationView {
             target: sample_node(),
             introducers: vec![IntroducerView {
@@ -948,7 +984,7 @@ mod tests {
 
     #[test]
     fn distance_object_serializes_negative_change() {
-        use prism_api::{MetricDelta, TopologyDistanceView};
+        use crate::{MetricDelta, TopologyDistanceView};
         let v = TopologyDistanceView {
             base: RunId::new(1),
             head: RunId::new(2),
@@ -970,7 +1006,7 @@ mod tests {
 
     #[test]
     fn compare_array_carries_persistence() {
-        use prism_api::FiltrationSummary;
+        use crate::FiltrationSummary;
         let rows = vec![FiltrationSummary {
             filtration: "depth",
             h0_components: 1,
@@ -990,7 +1026,7 @@ mod tests {
 
     #[test]
     fn dup_causes_array_nests_introducers() {
-        use prism_api::{ConstraintIntroducer, DuplicateRootCauseView, DuplicateVersionCause};
+        use crate::{ConstraintIntroducer, DuplicateRootCauseView, DuplicateVersionCause};
         use prism_model::{PackageId, VersionId};
         let views = vec![DuplicateRootCauseView {
             package: PackageId::new(3),

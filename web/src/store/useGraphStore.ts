@@ -83,8 +83,14 @@ interface GraphState {
 
   // actions
   setStatus: (text: string, error?: boolean) => void;
-  loadRuns: (preferRun?: number) => Promise<void>;
-  selectRun: (run: number) => Promise<void>;
+  /** Re-fetch the run list and switch to (or refresh) one of them.
+   *  `opts.preserveUi`: when the chosen run is the SAME as the current one,
+   *  keep the selected node, search query, panel tab, and TDA feature
+   *  highlight across the refresh. Used by the Topbar's Reload button so
+   *  the user's place is not silently rewound to runs[0] / overview / no
+   *  selection on every press. */
+  loadRuns: (preferRun?: number, opts?: { preserveUi?: boolean }) => Promise<void>;
+  selectRun: (run: number, opts?: { preserveUi?: boolean }) => Promise<void>;
   selectNode: (id: number) => Promise<void>;
   highlightSet: (ids: number[], label: string) => void;
   clearSelection: () => void;
@@ -142,26 +148,45 @@ export const useGraphStore = create<GraphState>((set, get) => ({
 
   setStatus: (text, error = false) => set({ statusText: text, statusError: error }),
 
-  loadRuns: async (preferRun) => {
+  loadRuns: async (preferRun, opts) => {
     set({ statusText: 'Loading runs…', statusError: false });
     try {
       const runs = await api.runs();
-      set({ runs, statusText: '' });
+      set({ runs }); // leave statusText set — selectRun will overwrite it
       if (!runs.length) {
-        set({ statusText: 'No runs — ingest a lockfile with the CLI first.' });
+        // The static + WASM model: the bundle IS the workspace. The CLI
+        // cannot ingest into a loaded bundle; the only remedy is to re-pack
+        // and re-drop a new .prismbundle.
+        set({
+          statusText:
+            'This bundle has no runs. Re-pack with `prism analyze` or `prism export bundle` and drop the new file.',
+          statusError: true,
+        });
         return;
       }
       const target = preferRun != null && runs.some((r) => r.run === preferRun) ? preferRun : runs[0].run;
-      await get().selectRun(target);
+      await get().selectRun(target, opts);
     } catch (e) {
       set({ statusText: errMsg(e), statusError: true });
     }
   },
 
-  selectRun: async (run) => {
+  selectRun: async (run, opts) => {
     // Picking the current compare run as the primary would diff a run against
     // itself — drop the now-redundant compare slot instead.
     if (get().compareRun === run) set({ compareRun: null, compareData: null });
+
+    // `preserveUi` is meaningful only on a same-run refresh (the Topbar's
+    // Reload button). When the run number changes the user IS switching
+    // contexts, and keeping their old selection / search / panel tab makes
+    // no semantic sense.
+    const preserve = opts?.preserveUi === true && get().run === run;
+    const cur = get();
+    const preservedSel = preserve ? cur.sel : null;
+    const preservedFeature = preserve ? cur.feature : null;
+    const preservedActiveTab = preserve ? cur.activeTab : 'overview';
+    const preservedQuery = preserve ? cur.query : '';
+
     set({ statusText: 'Loading graph…', statusError: false, run });
     try {
       const data = await api.exportGraph(run);
@@ -172,20 +197,40 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       const edges = data.graph_edges || [];
       const index = buildIndex(nodes, edges);
       const { pos, world } = layout2d(nodes, edges, index);
+
+      // A preserved sel survives only if the new graph still has that node id.
+      // Node ids are snapshot-local; in the static+WASM model the bundle is
+      // immutable so a refresh keeps them stable, but a future code path that
+      // swaps workspaces under us would invalidate them — fall back to null.
+      const sel = preservedSel != null && index.byId.has(preservedSel) ? preservedSel : null;
+
       set({
         nodes,
         edges,
         index,
         pos2d: pos,
         world2d: world,
-        sel: null,
+        sel,
+        // fwd/impact/matches are derived from sel + query and will be
+        // recomputed by selectNode / runSearch below if anything survived.
         fwd: new Set(),
         impact: new Set(),
         matches: new Set(),
-        feature: null,
+        feature: preservedFeature,
         dupVersionIds: new Set(),
-        activeTab: 'overview',
-        query: '',
+        activeTab: preservedActiveTab,
+        query: preservedQuery,
+        // Clear stale side-panel metadata so the panel never shows the
+        // PREVIOUS run's stats / cycles / barcode during the parallel
+        // in-flight window below. Without this, switching runs (or even
+        // refreshing the same run) leaves the panel showing data that no
+        // longer matches the visible graph for ~100-500 ms.
+        runMeta: null,
+        stats: null,
+        duplicates: [],
+        sccs: [],
+        barcode: null,
+        pairs: [],
       });
 
       // Side-panel data in parallel; one failure must not blank the others.
@@ -211,6 +256,12 @@ export const useGraphStore = create<GraphState>((set, get) => ({
         pairs: pairs.status === 'fulfilled' ? pairs.value.pairs : [],
         statusText: '',
       });
+
+      // Recompute selection-driven highlights and search matches AFTER the
+      // graph is in place. selectNode runs neighborhood + impact; runSearch
+      // re-derives `matches` from the preserved query string.
+      if (sel != null) void get().selectNode(sel);
+      if (preservedQuery) get().runSearch(preservedQuery);
     } catch (e) {
       set({ statusText: errMsg(e), statusError: true });
     }

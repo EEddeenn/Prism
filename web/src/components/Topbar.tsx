@@ -40,6 +40,11 @@ export default function Topbar() {
   const runSearch = useGraphStore((s) => s.runSearch);
   const loadRuns = useGraphStore((s) => s.loadRuns);
   const [copied, setCopied] = useState(false);
+  // Local busy state — guards the Reload button against concurrent presses
+  // and drives its visible label. We can't read it off the store's
+  // `statusText` because a node-click sets statusText to 'Tracing…' too,
+  // and we don't want to disable Reload for unrelated activity.
+  const [reloading, setReloading] = useState(false);
 
   const copyLink = async () => {
     try {
@@ -152,11 +157,24 @@ export default function Topbar() {
 
       <button
         type="button"
-        onClick={() => loadRuns()}
-        aria-label="Reload runs"
-        className="px-2.5 py-1.5 text-body font-semibold rounded-md border border-line-2 bg-panel-2 text-ink hover:border-accent hover:bg-panel-3"
+        onClick={async () => {
+          if (reloading) return;
+          setReloading(true);
+          try {
+            // Pass the current run so the refresh keeps the user on the run
+            // they were viewing instead of silently snapping to runs[0],
+            // and preserveUi so their selection/search/panel tab survive.
+            await loadRuns(run ?? undefined, { preserveUi: true });
+          } finally {
+            setReloading(false);
+          }
+        }}
+        disabled={reloading}
+        aria-busy={reloading}
+        aria-label={reloading ? 'Reloading runs' : 'Reload runs'}
+        className="px-2.5 py-1.5 text-body font-semibold rounded-md border border-line-2 bg-panel-2 text-ink hover:border-accent hover:bg-panel-3 disabled:opacity-60 disabled:cursor-wait disabled:hover:border-line-2 disabled:hover:bg-panel-2"
       >
-        Reload
+        {reloading ? 'Reloading…' : 'Reload'}
       </button>
 
       <span

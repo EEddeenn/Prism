@@ -117,13 +117,17 @@ function Explorer() {
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
               <p className="text-ink">No runs to show.</p>
               <BundleDropzone />
-              <p className="text-muted text-xs">Or ingest locally with <code className="bg-panel-2 px-1.5 rounded">prism ingest</code> and reload.</p>
+              <p className="text-muted text-xs">
+                Or build a new bundle with{' '}
+                <code className="bg-panel-2 px-1.5 rounded">prism analyze</code> /{' '}
+                <code className="bg-panel-2 px-1.5 rounded">prism export bundle</code> and drop it here.
+              </p>
             </div>
           )}
           {emptyGraph && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-center pointer-events-none">
               <p className="text-ink">This run has no graph nodes.</p>
-              <p className="text-muted text-sm">Pick another run, or re-ingest its lockfile.</p>
+              <p className="text-muted text-sm">Pick another run from the topbar.</p>
             </div>
           )}
 

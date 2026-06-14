@@ -338,6 +338,39 @@ pub fn graph_dup_causes(out: &mut dyn Write, run: u64) -> Result<()> {
     Ok(())
 }
 
+/// `prism graph overlay --run <id> --file <path>` — join a risk overlay file,
+/// weighting findings by production reachability and blast radius.
+pub fn graph_overlay(out: &mut dyn Write, run: u64, file: &str) -> Result<()> {
+    let prism = open_here()?;
+    let json = std::fs::read_to_string(file).map_err(PrismError::Io)?;
+    let report = prism.risk_overlay(RunId::new(run), &json)?;
+    writeln!(
+        out,
+        "risk overlay on run {run}: {} entries, {} matched, {} production-reachable",
+        report.entries, report.matched, report.production_findings
+    )
+    .map_err(PrismError::Io)?;
+    for f in &report.findings {
+        if f.matched_occurrences == 0 {
+            continue;
+        }
+        let reach = if f.production_reachable { "PROD" } else { "non-prod" };
+        let note = if f.note.is_empty() { String::new() } else { format!(" — {}", f.note) };
+        writeln!(
+            out,
+            "  [{:>4}] {:<8} {:<14} {:<8} {} (blast {}, {}×){}",
+            f.priority, f.severity, f.category, reach, f.purl, f.blast_radius, f.matched_occurrences, note
+        )
+        .map_err(PrismError::Io)?;
+    }
+    let unmatched = report.entries - report.matched;
+    if unmatched > 0 {
+        writeln!(out, "  ({unmatched} overlay entr{} not present in this run)",
+            if unmatched == 1 { "y" } else { "ies" }).map_err(PrismError::Io)?;
+    }
+    Ok(())
+}
+
 /// `prism graph diamonds --run <id> [--limit <n>]` — diamond-reuse foundations.
 pub fn graph_diamonds(out: &mut dyn Write, run: u64, limit: u32) -> Result<()> {
     let prism = open_here()?;

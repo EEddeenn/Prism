@@ -49,6 +49,8 @@ pub enum Command {
     GraphDiamonds { run: u64, limit: u32 },
     /// `prism graph minimal --run <id>` — minimal (dominator-tree) explanation.
     GraphMinimal { run: u64 },
+    /// `prism graph overlay --run <id> --file <path>` — join a risk overlay.
+    GraphOverlay { run: u64, file: String },
     /// `prism regions` — every run as a comparable dependency region.
     Regions,
     /// `prism tda run --run <id> [--filtration depth]`.
@@ -347,6 +349,15 @@ fn parse_graph<'a, I: Iterator<Item = &'a str>>(mut it: I) -> Result<Command, Pa
             let run = flags.take_u64("--run")?;
             flags.finish()?;
             Ok(Command::GraphMinimal { run })
+        }
+        "overlay" => {
+            let mut flags = Flags::parse(it)?;
+            let run = flags.take_u64("--run")?;
+            let file = flags
+                .take_opt("--file")
+                .ok_or_else(|| ParseError::MissingArg { what: "--file".into() })?;
+            flags.finish()?;
+            Ok(Command::GraphOverlay { run, file })
         }
         other => Err(ParseError::UnknownCommand(format!("graph {other}"))),
     }

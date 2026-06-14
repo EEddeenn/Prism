@@ -4,6 +4,9 @@
 
 export interface RunSummary {
   run: number;
+  /** Ecosystem label (`cargo` / `npm` / `pypi` / …). Omitted by older
+   *  dispatcher versions; the run-picker falls back to just `run N`. */
+  ecosystem?: string;
   nodes?: number;
   edges?: number;
   has_cycle?: boolean;

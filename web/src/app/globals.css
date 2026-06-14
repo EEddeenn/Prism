@@ -96,3 +96,24 @@ button:focus,
 input:focus {
   outline: none;
 }
+
+/* Themed thin scrollbar for long panel content (SidePanel). The default WebKit
+ * scrollbar is too wide and uses OS chrome that clashes with the dark theme. */
+.prism-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #353c4d transparent;
+}
+.prism-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.prism-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.prism-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #353c4d;
+  border-radius: 4px;
+}
+.prism-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: #4a526a;
+}

@@ -174,7 +174,7 @@ pub fn view_status(prism: &Prism, _q: &Args) -> Result<String> {
     Ok(w.finish())
 }
 
-/// `runs` — each servable run with its node/edge counts.
+/// `runs` — each servable run with its ecosystem label + node/edge counts.
 pub fn view_runs(prism: &Prism, _q: &Args) -> Result<String> {
     let ids = list_run_ids(prism);
     let mut w = JsonWriter::new();
@@ -184,6 +184,12 @@ pub fn view_runs(prism: &Prism, _q: &Args) -> Result<String> {
         // failing the whole listing.
         w.begin_object();
         w.field_u64("run", id.get());
+        // Best-effort ecosystem label — the Topbar's run-picker uses this so
+        // the user can tell `cargo · run 2503` from `pnpm · run 9076` at a
+        // glance. A missing ResolverRun record is rare but handled.
+        if let Ok(record) = prism.store().get_run(id) {
+            w.field_str("ecosystem", ecosystem_name(record.ecosystem));
+        }
         match prism.graph_stats(id) {
             Ok(s) => {
                 w.field_u64("nodes", s.nodes as u64);

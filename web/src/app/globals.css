@@ -64,6 +64,13 @@ body {
   stroke: #5aa9ff;
 }
 
+/* Selection / search dim the static neutral layer; the highlight overlay rides
+ * on top at full opacity. Doing it with one CSS opacity per group instead of a
+ * per-element React re-render is what makes selection cheap on big graphs. */
+.g2d .has-sel .edges-neutral { opacity: 0.14; }
+.g2d .has-sel .nodes-neutral { opacity: 0.2; }
+.g2d .searching .nodes-neutral { opacity: 0.22; }
+
 /* Form controls inherit the dark theme. */
 select,
 button,

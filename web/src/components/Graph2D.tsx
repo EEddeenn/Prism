@@ -4,7 +4,14 @@
  * (no React re-render on drag); React only re-renders when the graph or the
  * shared selection changes. Clicking a node selects it; hovering reports it to
  * the store (which re-renders only the DOM HoverCard, never this SVG). Node size
- * + neutral colour both encode IMPORTANCE (blast radius) via the shared scale. */
+ * + neutral colour both encode IMPORTANCE (blast radius) via the shared scale.
+ *
+ * Big-graph performance: the scene is split into a STATIC layer (neutral edges +
+ * neutral nodes, memoized on graph data only) and a thin HIGHLIGHT OVERLAY
+ * (selection cones + match accents). A selection click only re-renders the
+ * overlay (typically <200 elements) instead of every edge/node (often 10k+).
+ * Hover and click use event delegation off the viewport, so 3k+ nodes share
+ * one pointer listener instead of three each. */
 
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useGraphStore } from '@/store/useGraphStore';
@@ -19,6 +26,19 @@ const MIN_K = 0.05, MAX_K = 6, LABEL_ALL_BELOW = 70, LABEL_ZOOM = 1.5;
 const MINI_W = 150, MINI_H = 110, MINI_PAD = 4;
 const ZERO_STATS: MetricStats = {
   maxRevReach: 0, maxFwdReach: 0, maxInDeg: 0, maxOutDeg: 0, maxFamSize: 0, maxDepth: 0,
+};
+
+type EdgeGeo = {
+  source: number; target: number;
+  ax: number; ay: number; bx: number; by: number;
+  visible: boolean; flagged: boolean;
+  neutralStroke: string; neutralWidth: number; neutralOpacity: number;
+};
+
+type NodeBase = {
+  id: number; vid: number;
+  px: number; py: number; r: number; t: number;
+  isRoot: boolean; dupNode: boolean; purl: string;
 };
 
 export default function Graph2D() {
@@ -47,6 +67,13 @@ export default function Graph2D() {
   const miniRectRef = useRef<SVGRectElement>(null);
   const T = useRef({ x: 0, y: 0, k: 1 });
   const drag = useRef({ down: false, moved: 0, lastX: 0, lastY: 0, dragging: false, wasDrag: false });
+  // Delegated-hover tracker: lets one pointermove on the viewport report the
+  // node under the cursor without 3k per-node enter/leave listeners.
+  const lastHover = useRef<number | null>(null);
+
+  const hasSel = sel != null;
+  const searching = !hasSel && matches.size > 0;
+  const small = nodes.length <= LABEL_ALL_BELOW;
 
   const size = useCallback(() => {
     const svg = svgRef.current;
@@ -126,21 +153,211 @@ export default function Graph2D() {
     zoomAt(w / 2, h / 2, factor);
   };
 
+  // === Precomputed per-graph data ====================================
+  // Heavy math (Math.hypot, metric lookups, importance maps) runs ONCE per
+  // graph swap, not on every selection click.
+
+  const edgeGeo = useMemo<(EdgeGeo | null)[]>(() => {
+    const out: (EdgeGeo | null)[] = new Array(edges.length);
+    for (let i = 0; i < edges.length; i++) {
+      const e = edges[i];
+      const a = pos.get(e.source);
+      const b = pos.get(e.target);
+      if (!a || !b) { out[i] = null; continue; }
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len, uy = dy / len;
+      const sm = metrics?.get(e.source) as NodeMetrics | undefined;
+      const tm = metrics?.get(e.target) as NodeMetrics | undefined;
+      const sr = sm ? radius2D(importanceT(sm, stats)) : 10;
+      const tr = tm ? radius2D(importanceT(tm, stats)) : 10;
+      const tt = tm ? importanceT(tm, stats) : 0;
+      const visible = edgeVisible(e, edgeFilter);
+      const flagged = isFlagged(e);
+      const w = 1 + 1.6 * tt;
+      out[i] = {
+        source: e.source, target: e.target,
+        ax: a.x + ux * sr, ay: a.y + uy * sr,
+        bx: b.x - ux * (tr + 2), by: b.y - uy * (tr + 2),
+        visible, flagged,
+        // Neutral stroke/width/opacity bake in kind colour + flagged emphasis +
+        // edge-filter dimming. Selection-driven highlight rides in a separate
+        // overlay layer so a sel change does NOT invalidate this cache.
+        neutralStroke: visible ? kindColor(e.kind) : PALETTE.edge,
+        neutralWidth: visible ? (flagged ? Math.max(1.8, w) : w) : 1.3,
+        neutralOpacity: visible ? (flagged ? 0.95 : 0.5) : 0.05,
+      };
+    }
+    return out;
+  }, [edges, pos, metrics, stats, edgeFilter]);
+
+  const nodeBase = useMemo<(NodeBase | null)[]>(() => {
+    return nodes.map((n) => {
+      const p = pos.get(n.id);
+      if (!p) return null;
+      const m = metrics?.get(n.id) as NodeMetrics | undefined;
+      const t = m ? importanceT(m, stats) : 0;
+      const r = m ? radius2D(t) : 10;
+      return {
+        id: n.id, vid: n.version_id,
+        px: p.x, py: p.y, r, t,
+        isRoot: rootIds?.has(n.id) ?? false,
+        dupNode: dup.has(n.version_id),
+        purl: n.purl,
+      };
+    });
+  }, [nodes, pos, metrics, stats, rootIds, dup]);
+
+  // === Static layer (memoized on graph data only) ====================
+  // 7k+ <line>s and 3k+ <g.nodeg>s — rebuilt only when the graph or filter
+  // changes. Selection clicks no longer touch these.
+
+  const neutralEdges = useMemo(() => {
+    const out: React.ReactNode[] = [];
+    for (let i = 0; i < edgeGeo.length; i++) {
+      const g = edgeGeo[i];
+      if (!g) continue;
+      out.push(
+        <line
+          key={i}
+          x1={g.ax} y1={g.ay} x2={g.bx} y2={g.by}
+          stroke={g.neutralStroke}
+          strokeWidth={g.neutralWidth}
+          strokeOpacity={g.neutralOpacity}
+          markerEnd="url(#arrow2d)"
+        />,
+      );
+    }
+    return out;
+  }, [edgeGeo]);
+
+  const neutralNodes = useMemo(() => {
+    const out: React.ReactNode[] = [];
+    for (const b of nodeBase) {
+      if (!b) continue;
+      const fill = b.isRoot ? PALETTE.root : importanceColor(b.t);
+      const ring = b.dupNode ? PALETTE.dup : '#0b0d12';
+      const ringW = b.dupNode ? 2.5 : 1.5;
+      // `data-id` powers the delegated pointer handler on the viewport. Per-node
+      // listeners are gone — one listener handles hover + click for the whole
+      // graph, saving thousands of event registrations.
+      out.push(
+        <g key={b.id} className="nodeg" data-id={b.id}>
+          <circle cx={b.px} cy={b.py} r={b.r} fill={fill} stroke={ring} strokeWidth={ringW} />
+          <text x={b.px + b.r + 4} y={b.py + 4}>{shortLabel(b.purl)}</text>
+        </g>,
+      );
+    }
+    return out;
+  }, [nodeBase]);
+
+  // === Highlight overlay (depends on selection / matches) ============
+  // Drawn ON TOP of the dimmed static layer; usually only hundreds of
+  // elements even on a graph of thousands.
+
+  const highlightEdges = useMemo(() => {
+    if (!hasSel) return null;
+    const out: React.ReactNode[] = [];
+    for (let i = 0; i < edgeGeo.length; i++) {
+      const g = edgeGeo[i];
+      if (!g || !g.visible) continue;
+      let stroke: string | null = null;
+      let dash: string | undefined;
+      if (fwd.has(g.source) && fwd.has(g.target)) {
+        stroke = PALETTE.fwd;
+      } else if (impact.has(g.source) && impact.has(g.target)) {
+        stroke = PALETTE.impact;
+        dash = '5 3';
+      }
+      if (!stroke) continue;
+      out.push(
+        <line
+          key={i}
+          x1={g.ax} y1={g.ay} x2={g.bx} y2={g.by}
+          stroke={stroke} strokeWidth={2} strokeOpacity={1}
+          strokeDasharray={dash} markerEnd="url(#arrow2d)"
+        />,
+      );
+    }
+    return out;
+  }, [edgeGeo, hasSel, fwd, impact]);
+
+  const highlightNodes = useMemo(() => {
+    if (!hasSel && matches.size === 0) return null;
+    const out: React.ReactNode[] = [];
+    for (const b of nodeBase) {
+      if (!b) continue;
+      // Determine the node's selection role.
+      let role: 'sel' | 'fwd' | 'impact' | null = null;
+      if (hasSel) {
+        if (b.id === sel) role = 'sel';
+        else if (fwd.has(b.id)) role = 'fwd';
+        else if (impact.has(b.id)) role = 'impact';
+      }
+      const isMatch = matches.has(b.id);
+      if (!role && !isMatch) continue;
+
+      // Fill follows the role; falls back to the neutral hue when only the
+      // match accent applies, so a searched-but-unselected node keeps its
+      // importance colour under the accent ring.
+      const fill =
+        role === 'sel' ? PALETTE.center :
+        role === 'fwd' ? PALETTE.fwd :
+        role === 'impact' ? PALETTE.impact :
+        (b.isRoot ? PALETTE.root : importanceColor(b.t));
+
+      // Ring precedence: match accent > dup ring > neutral.
+      const ring = isMatch ? PALETTE.accent : (b.dupNode ? PALETTE.dup : '#0b0d12');
+      const ringW = isMatch ? 3 : (b.dupNode ? 2.5 : 1.5);
+
+      // A search hit that's NOT in the active selection's cone stays dimmed —
+      // the accent ring signals "still a match", the low opacity signals "not
+      // relevant to what you're looking at". Matches the original behaviour.
+      const op = hasSel && !role && isMatch ? 0.2 : 1;
+
+      out.push(
+        <g key={b.id} className="nodeg on" data-id={b.id} opacity={op === 1 ? undefined : op}>
+          <circle cx={b.px} cy={b.py} r={b.r} fill={fill} stroke={ring} strokeWidth={ringW} />
+          <text className="on" x={b.px + b.r + 4} y={b.py + 4}>{shortLabel(b.purl)}</text>
+        </g>,
+      );
+    }
+    return out;
+  }, [nodeBase, hasSel, sel, fwd, impact, matches]);
+
+  // === Pan / wheel handlers ==========================================
+
   const onPointerDown = (e: React.PointerEvent) => {
     drag.current = { down: true, moved: 0, lastX: e.clientX, lastY: e.clientY, dragging: false, wasDrag: false };
   };
+
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current;
-    if (!d.down) return;
-    const dx = e.clientX - d.lastX, dy = e.clientY - d.lastY;
-    d.lastX = e.clientX; d.lastY = e.clientY;
-    d.moved += Math.abs(dx) + Math.abs(dy);
-    if (!d.dragging && d.moved > 4) {
-      d.dragging = true;
-      try { svgRef.current?.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    if (d.down) {
+      const dx = e.clientX - d.lastX, dy = e.clientY - d.lastY;
+      d.lastX = e.clientX; d.lastY = e.clientY;
+      d.moved += Math.abs(dx) + Math.abs(dy);
+      if (!d.dragging && d.moved > 4) {
+        d.dragging = true;
+        try { svgRef.current?.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+        // Dropping any sticky hover the moment a drag begins matches the
+        // user's mental model: panning is not hovering.
+        if (lastHover.current !== null) { lastHover.current = null; setHovered(null); }
+      }
+      if (d.dragging) { T.current.x += dx; T.current.y += dy; apply(); }
+      return;
     }
-    if (d.dragging) { T.current.x += dx; T.current.y += dy; apply(); }
+    // Not panning: delegated hover. `closest('g.nodeg')` walks up at most a few
+    // levels (circle/text → nodeg), so this stays cheap per move event.
+    const target = e.target as Element;
+    const ng = target.closest?.('g.nodeg') as SVGGElement | null;
+    const id = ng?.dataset.id != null ? Number(ng.dataset.id) : null;
+    if (id !== lastHover.current) {
+      lastHover.current = id;
+      setHovered(id);
+    }
   };
+
   const onPointerUp = (e: React.PointerEvent) => {
     const d = drag.current;
     if (!d.down) return;
@@ -149,6 +366,25 @@ export default function Graph2D() {
     if (d.dragging) try { svgRef.current?.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
     d.dragging = false;
   };
+
+  const onPointerLeave = () => {
+    if (lastHover.current !== null) {
+      lastHover.current = null;
+      setHovered(null);
+    }
+  };
+
+  const onClick = (e: React.MouseEvent) => {
+    // A click at the end of a drag is just a pan release, not a selection.
+    if (drag.current.wasDrag) { drag.current.wasDrag = false; return; }
+    const target = e.target as Element;
+    const ng = target.closest?.('g.nodeg') as SVGGElement | null;
+    if (ng?.dataset.id != null) {
+      e.stopPropagation();
+      void selectNode(Number(ng.dataset.id));
+    }
+  };
+
   const onWheel = (e: React.WheelEvent) => {
     const rect = svgRef.current!.getBoundingClientRect();
     zoomAt(e.clientX - rect.left, e.clientY - rect.top, e.deltaY < 0 ? 1.12 : 1 / 1.12);
@@ -190,16 +426,6 @@ export default function Graph2D() {
   // Clear a sticky hover/cursor when the view unmounts (e.g. switching to 3D).
   useEffect(() => () => { setHovered(null); }, [setHovered]);
 
-  const hasSel = sel != null;
-  const searching = !hasSel && matches.size > 0;
-  const small = nodes.length <= LABEL_ALL_BELOW;
-
-  // Importance-driven node radius (blast radius), with a fixed fallback.
-  const radiusOf = (id: number): number => {
-    const m = metrics?.get(id) as NodeMetrics | undefined;
-    return m ? radius2D(importanceT(m, stats)) : 10;
-  };
-
   // Static minimap dots: one cheap <circle> per node, faintly tinted by importance.
   // Depends only on the layout/metrics, NOT on pan/zoom or selection, so it's
   // memoized once per graph and the viewport rect rides on top imperatively.
@@ -217,6 +443,11 @@ export default function Graph2D() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ), [nodes, pos, metrics, stats, miniDotR]);
 
+  // Viewport-group class drives the dimming of the static layer when a
+  // selection or search is active. The overlay layer rides on top at full
+  // opacity, so the highlighted set still pops.
+  const vpClass = [hasSel ? 'has-sel' : '', searching ? 'searching' : ''].filter(Boolean).join(' ');
+
   return (
     <div className="absolute inset-0 dot-grid">
       <svg
@@ -227,6 +458,8 @@ export default function Graph2D() {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        onPointerLeave={onPointerLeave}
+        onClick={onClick}
         onWheel={onWheel}
       >
         <defs>
@@ -235,74 +468,11 @@ export default function Graph2D() {
             <path d="M 0 0 L 10 5 L 0 10 z" fill="#5b6478" />
           </marker>
         </defs>
-        <g ref={vpRef}>
-          {edges.map((e, i) => {
-            const a = pos.get(e.source), b = pos.get(e.target);
-            if (!a || !b) return null;
-            const visible = edgeVisible(e, edgeFilter);
-            // Terminate each edge at the node boundary so the arrowhead sits at
-            // the rim regardless of the now-variable node radius.
-            const dx = b.x - a.x, dy = b.y - a.y;
-            const len = Math.hypot(dx, dy) || 1;
-            const ux = dx / len, uy = dy / len;
-            const sr = radiusOf(e.source), tr = radiusOf(e.target);
-            const ax = a.x + ux * sr, ay = a.y + uy * sr;
-            const bx = b.x - ux * (tr + 2), by = b.y - uy * (tr + 2);
-
-            let stroke = PALETTE.edge, width = 1.3, opacity = 1, dash: string | undefined;
-            if (!visible) {
-              opacity = 0.05; // filtered out by the edge lens
-            } else if (hasSel) {
-              if (fwd.has(e.source) && fwd.has(e.target)) { stroke = PALETTE.fwd; width = 2; }
-              else if (impact.has(e.source) && impact.has(e.target)) { stroke = PALETTE.impact; width = 2; dash = '5 3'; }
-              else opacity = 0.14;
-            } else {
-              // Neutral state: colour by dependency kind; brighten flagged smells;
-              // width tracks the target's blast radius so the backbone stands out.
-              stroke = kindColor(e.kind);
-              const tm = metrics?.get(e.target);
-              const w = tm ? 1 + 1.6 * importanceT(tm, stats) : 1.3;
-              if (isFlagged(e)) { opacity = 0.95; width = Math.max(1.8, w); } else { opacity = 0.5; width = w; }
-            }
-            return (
-              <line key={`${e.source}>${e.target}:${i}`} x1={ax} y1={ay} x2={bx} y2={by}
-                stroke={stroke} strokeWidth={width} strokeOpacity={opacity}
-                strokeDasharray={dash} markerEnd="url(#arrow2d)" />
-            );
-          })}
-          {nodes.map((n) => {
-            const p = pos.get(n.id);
-            if (!p) return null;
-            const m = metrics?.get(n.id) as NodeMetrics | undefined;
-            const t = m ? importanceT(m, stats) : 0;
-            const r = m ? radius2D(t) : 10;
-            // Neutral fill encodes importance; roots + selection roles override.
-            let fill = rootIds?.has(n.id) ? PALETTE.root : importanceColor(t);
-            let ring = '#0b0d12', ringW = 1.5, op = 1, on = false;
-            if (dup.has(n.version_id)) { ring = PALETTE.dup; ringW = 2.5; }
-            if (hasSel) {
-              if (n.id === sel) { fill = PALETTE.center; on = true; }
-              else if (fwd.has(n.id)) { fill = PALETTE.fwd; on = true; }
-              else if (impact.has(n.id)) { fill = PALETTE.impact; on = true; }
-              else op = 0.2;
-            } else if (searching && !matches.has(n.id)) {
-              op = 0.22; // an active search dims everything that doesn't match
-            }
-            if (matches.has(n.id)) { ring = PALETTE.accent; ringW = 3; on = true; }
-            return (
-              <g
-                key={n.id}
-                className="nodeg"
-                opacity={op}
-                onPointerEnter={() => { if (!drag.current.dragging) setHovered(n.id); }}
-                onPointerLeave={() => setHovered(null)}
-                onClick={(ev) => { ev.stopPropagation(); if (!drag.current.wasDrag) selectNode(n.id); }}
-              >
-                <circle cx={p.x} cy={p.y} r={r} fill={fill} stroke={ring} strokeWidth={ringW} />
-                <text className={on ? 'on' : ''} x={p.x + r + 4} y={p.y + 4}>{shortLabel(n.purl)}</text>
-              </g>
-            );
-          })}
+        <g ref={vpRef} className={vpClass}>
+          <g className="edges-neutral">{neutralEdges}</g>
+          {highlightEdges && <g className="edges-overlay">{highlightEdges}</g>}
+          <g className="nodes-neutral">{neutralNodes}</g>
+          {highlightNodes && <g className="nodes-overlay">{highlightNodes}</g>}
         </g>
       </svg>
 

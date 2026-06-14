@@ -16,12 +16,25 @@ export interface NodeMetrics {
   depth: number;
 }
 
+/** Per-metric maxima over the whole run, computed once so every view normalizes
+ *  size/colour against the SAME numbers (no per-render scans). */
+export interface MetricStats {
+  maxRevReach: number;
+  maxFwdReach: number;
+  maxInDeg: number;
+  maxOutDeg: number;
+  maxFamSize: number;
+  maxDepth: number;
+}
+
 export interface GraphIndex {
   byId: Map<number, GraphNode>;
   out: Map<number, number[]>;
   inn: Map<number, number[]>;
   rootIds: Set<number>;
   metrics: Map<number, NodeMetrics>;
+  /** Whole-run maxima for normalizing the size/colour encodings. */
+  stats: MetricStats;
   /** `"source>target"` → edge kind/flags, for semantics-aware UI. */
   edgeMeta: Map<string, { kind: number; flags: number }>;
   /** True when transitive reach fell back to degree proxies (graph over cap), so
@@ -108,5 +121,18 @@ export function buildIndex(nodes: GraphNode[], edges: GraphEdge[]): GraphIndex {
     }
   }
 
-  return { byId, out, inn, rootIds, metrics, edgeMeta, approximate };
+  // Whole-run maxima (one pass) so size/colour scales normalize consistently.
+  const stats: MetricStats = {
+    maxRevReach: 0, maxFwdReach: 0, maxInDeg: 0, maxOutDeg: 0, maxFamSize: 0, maxDepth: 0,
+  };
+  for (const m of metrics.values()) {
+    if (m.revReach > stats.maxRevReach) stats.maxRevReach = m.revReach;
+    if (m.fwdReach > stats.maxFwdReach) stats.maxFwdReach = m.fwdReach;
+    if (m.inDeg > stats.maxInDeg) stats.maxInDeg = m.inDeg;
+    if (m.outDeg > stats.maxOutDeg) stats.maxOutDeg = m.outDeg;
+    if (m.famSize > stats.maxFamSize) stats.maxFamSize = m.famSize;
+    if (m.depth > stats.maxDepth) stats.maxDepth = m.depth;
+  }
+
+  return { byId, out, inn, rootIds, metrics, stats, edgeMeta, approximate };
 }

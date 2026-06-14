@@ -8,8 +8,12 @@ import { node3dStyle, type StyleCtx } from './nodeStyle';
 import GlowNodes, { type Glow } from './GlowNodes';
 import type { Layout3D } from '@/lib/layout3d';
 import type { GraphNode } from '@/lib/types';
+import type { MetricStats } from '@/lib/graph';
 
 const SMALL = 70;
+const ZERO_STATS: MetricStats = {
+  maxRevReach: 0, maxFwdReach: 0, maxInDeg: 0, maxOutDeg: 0, maxFamSize: 0, maxDepth: 0,
+};
 
 export default function Nodes({ layout }: { layout: Layout3D }) {
   const nodes = useGraphStore((s) => s.nodes);
@@ -18,7 +22,8 @@ export default function Nodes({ layout }: { layout: Layout3D }) {
   const impact = useGraphStore((s) => s.impact);
   const matches = useGraphStore((s) => s.matches);
   const dup = useGraphStore((s) => s.dupVersionIds);
-  const roots = useGraphStore((s) => s.index?.rootIds);
+  const index = useGraphStore((s) => s.index);
+  const roots = index?.rootIds;
   const mode = useGraphStore((s) => s.mode3d);
   const feature = useGraphStore((s) => s.feature);
   const selectNode = useGraphStore((s) => s.selectNode);
@@ -47,13 +52,18 @@ export default function Nodes({ layout }: { layout: Layout3D }) {
     sel, fwd, impact, matches, dup,
     roots: roots ?? new Set(),
     peaks: new Set(layout.peaks ?? []),
+    metrics: index?.metrics ?? new Map(),
+    stats: index?.stats ?? ZERO_STATS,
     mode, feature, small: nodes.length <= SMALL,
   };
 
-  // One pass: base instances for every node + the bright glow set on top.
+  // Resolve every node's style ONCE (importance size/colour + role), then reuse
+  // it for both the bright glow set and the base instances (was computed twice).
+  const styles = new Map<number, ReturnType<typeof node3dStyle>>();
   const glows: Glow[] = [];
   for (const n of placed) {
     const st = node3dStyle(n, ctx);
+    styles.set(n.id, st);
     if (st.glow) {
       const p = layout.pos.get(n.id)!;
       glows.push({ id: n.id, pos: [p.x, p.y, p.z], color: st.color, scale: st.scale });
@@ -100,7 +110,7 @@ export default function Nodes({ layout }: { layout: Layout3D }) {
         <meshStandardMaterial roughness={0.5} metalness={0.1} />
         {placed.map((n) => {
           const p = layout.pos.get(n.id)!;
-          const st = node3dStyle(n, ctx);
+          const st = styles.get(n.id)!;
           return (
             <Instance
               key={n.id}

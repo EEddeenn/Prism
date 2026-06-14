@@ -8,13 +8,14 @@ import Graph2D from '@/components/Graph2D';
 import SidePanel from '@/components/SidePanel';
 import CommandPalette from '@/components/CommandPalette';
 import { PALETTE } from '@/lib/palette';
+import { importanceColor } from '@/lib/encoding';
 import type { Mode3D, View } from '@/lib/types';
 
 // Browser-only views (WebGL / sizing) — no SSR.
 const Graph3D = dynamic(() => import('@/components/Graph3D'), { ssr: false });
 const Treemap = dynamic(() => import('@/components/Treemap'), { ssr: false });
 
-type LegendItem = { label: string; color: string; ring?: boolean };
+type LegendItem = { label: string; color: string; ring?: boolean; ringColor?: string };
 
 const COMMON: LegendItem[] = [
   { label: 'selected', color: PALETTE.center },
@@ -58,8 +59,16 @@ export default function Page() {
   const runs = useGraphStore((s) => s.runs);
   const run = useGraphStore((s) => s.run);
   const statusText = useGraphStore((s) => s.statusText);
+  const matches = useGraphStore((s) => s.matches);
 
   const legend = legendFor(view, mode3d);
+  if (matches.size > 0) legend.push({ label: 'search match', color: '#252a3a', ring: true, ringColor: PALETTE.accent });
+  // Node size + neutral colour encode blast radius everywhere except terrain
+  // (whose height legend, top-right, owns the elevation channel).
+  const showImportance = view === '2d' || (view === '3d' && mode3d !== 'terrain');
+  const importanceGradient = `linear-gradient(to right, ${[0, 0.5, 1]
+    .map((t) => importanceColor(t))
+    .join(', ')})`;
 
   const loading = statusText.startsWith('Loading');
   const noRuns = !loading && runs.length === 0;
@@ -75,12 +84,18 @@ export default function Page() {
           {view === 'map' && <Treemap />}
 
           {view !== 'map' && (
-            <div className="absolute left-3.5 bottom-3.5 z-10 flex flex-wrap gap-x-3 gap-y-1 px-2.5 py-2 max-w-[60%] rounded-lg border border-line bg-panel/85 backdrop-blur-sm text-[11.5px] text-muted">
-              {legend.map(({ label, color, ring }) => (
+            <div className="absolute left-3.5 bottom-3.5 z-10 flex flex-wrap items-center gap-x-3 gap-y-1 px-2.5 py-2 max-w-[64%] rounded-lg border border-line bg-panel/85 backdrop-blur-sm text-mini text-muted">
+              {showImportance && (
+                <span className="inline-flex items-center gap-1.5" title="Node size and resting colour both encode blast radius (transitive dependents).">
+                  <i className="h-2 w-8 rounded-full inline-block" style={{ background: importanceGradient }} />
+                  size · colour = blast radius
+                </span>
+              )}
+              {legend.map(({ label, color, ring, ringColor }) => (
                 <span key={label} className="inline-flex items-center gap-1.5">
                   <i
                     className="w-2.5 h-2.5 rounded-full inline-block"
-                    style={ring ? { background: color, boxShadow: `0 0 0 2px ${PALETTE.dup}` } : { background: color }}
+                    style={ring ? { background: color, boxShadow: `0 0 0 2px ${ringColor ?? PALETTE.dup}` } : { background: color }}
                   />
                   {label}
                 </span>

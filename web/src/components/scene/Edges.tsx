@@ -79,7 +79,9 @@ export default function Edges({ layout }: { layout: Layout3D }) {
         // cycle detector.
         litHex = PALETTE.impact;
       } else {
-        hex = kindColor(e.kind); fade = isFlagged(e) ? 0.15 : 0.62;
+        // Smell-flagged edges stay the most visible thing at rest; plain edges
+        // colour by kind, a touch brighter than before so kind reads at a glance.
+        hex = kindColor(e.kind); fade = isFlagged(e) ? 0.12 : 0.5;
       }
 
       if (litHex) {
@@ -87,9 +89,14 @@ export default function Edges({ layout }: { layout: Layout3D }) {
         const c = rgb01(litHex);
         litCol.push(c, c);
       } else {
-        const [r, g, bl] = hexToRgb(mixHex(hex, PALETTE.bg, fade));
+        // Direction cue with zero extra geometry: fade the SOURCE vertex harder
+        // toward the background and keep the TARGET vertex bright, so each edge
+        // reads as a gradient flowing toward the dependency (matches the 2D
+        // arrowhead, which points source → target).
+        const src = hexToRgb(mixHex(hex, PALETTE.bg, Math.min(0.95, fade + 0.32)));
+        const tgt = hexToRgb(mixHex(hex, PALETTE.bg, fade));
         pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
-        col.push(r / 255, g / 255, bl / 255, r / 255, g / 255, bl / 255);
+        col.push(src[0] / 255, src[1] / 255, src[2] / 255, tgt[0] / 255, tgt[1] / 255, tgt[2] / 255);
       }
     }
 

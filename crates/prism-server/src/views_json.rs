@@ -6,8 +6,10 @@
 //! the portable key.
 
 use prism_api::{
-    BarcodeView, CandidateView, DuplicateClusterView, GraphEdgeView, GraphNodeView, GraphStatsView,
-    NeighborhoodView, PairView, SccView, SupportObject, SupportView,
+    BarcodeView, CandidateView, ChokepointView, CycleView, DuplicateClusterView, FragmentationView,
+    GraphEdgeView, GraphNodeView, GraphStatsView, H2View, NeighborhoodView, PairView,
+    RiskProfileView, SccView, ScopeSummaryView, ShapeSignature, SupportObject, SupportView,
+    WorkspaceRegion,
 };
 use prism_model::{CandidateReason, ExclusionReason};
 
@@ -273,6 +275,165 @@ pub fn candidates(w: &mut JsonWriter, v: &CandidateView) {
         w.field_u64("version_id", e.version.get());
         w.field_str("reason", exclusion_reason_name(e.reason));
         w.end_object();
+    }
+    w.end_array();
+    w.end_object();
+}
+
+/// Write the per-scope footprint summary as a JSON array.
+pub fn scope_summary(w: &mut JsonWriter, rows: &[ScopeSummaryView]) {
+    w.begin_array();
+    for r in rows {
+        w.begin_object();
+        w.field_str("kind", r.kind);
+        w.field_u64("direct_edges", r.direct_edges as u64);
+        w.field_u64("direct_targets", r.direct_targets as u64);
+        w.field_u64("footprint", r.footprint as u64);
+        w.field_u64("exclusive", r.exclusive as u64);
+        w.field_u64("max_depth", r.max_depth as u64);
+        w.end_object();
+    }
+    w.end_array();
+}
+
+/// Write the chokepoint ranking as a JSON array.
+pub fn chokepoints(w: &mut JsonWriter, cps: &[ChokepointView]) {
+    w.begin_array();
+    for c in cps {
+        w.begin_object();
+        w.field_u64("dominated", c.dominated as u64);
+        w.key("node");
+        node(w, &c.node);
+        w.end_object();
+    }
+    w.end_array();
+}
+
+/// Write the classified-cycle list as a JSON array.
+pub fn classified_cycles(w: &mut JsonWriter, cycles: &[CycleView]) {
+    w.begin_array();
+    for c in cycles {
+        w.begin_object();
+        w.field_str("class", c.class);
+        w.field_str("advice", c.advice);
+        w.field_bool("runtime_relevant", c.runtime_relevant);
+        w.field_bool("touches_root", c.touches_root);
+        w.field_u64("internal_edges", c.internal_edges as u64);
+        w.field_u64("external_dependents", c.external_dependents as u64);
+        w.key("kinds");
+        w.begin_array();
+        for k in &c.kinds {
+            w.str_value(k);
+        }
+        w.end_array();
+        w.key("members");
+        w.begin_array();
+        for m in &c.members {
+            node(w, m);
+        }
+        w.end_array();
+        w.end_object();
+    }
+    w.end_array();
+}
+
+/// Write the structural risk profile as a JSON object.
+pub fn risk(w: &mut JsonWriter, r: &RiskProfileView) {
+    w.begin_object();
+    w.field_u64("run", r.run.get());
+    w.field_u64("overall", r.overall as u64);
+    w.field_str("band", r.band);
+    w.key("dimensions");
+    w.begin_array();
+    for d in &r.dimensions {
+        w.begin_object();
+        w.field_str("name", d.name);
+        w.field_u64("score", d.score as u64);
+        w.field_str("detail", &d.detail);
+        w.end_object();
+    }
+    w.end_array();
+    w.end_object();
+}
+
+/// Write the fragmentation decomposition as a JSON object.
+pub fn fragmentation(w: &mut JsonWriter, f: &FragmentationView) {
+    w.begin_object();
+    w.field_u64("run", f.run.get());
+    w.field_u64("component_count", f.component_count as u64);
+    w.field_u64("largest_component", f.largest_component as u64);
+    w.field_u64("artifact_singletons", f.artifact_singletons as u64);
+    w.field_str("note", &f.note);
+    w.key("subsystem_islands");
+    w.begin_array();
+    for island in &f.subsystem_islands {
+        w.begin_object();
+        w.field_u64("size", island.size as u64);
+        w.field_bool("detached_from_roots", island.detached_from_roots);
+        w.key("members");
+        w.begin_array();
+        for m in &island.members {
+            w.str_value(m);
+        }
+        w.end_array();
+        w.end_object();
+    }
+    w.end_array();
+    w.end_object();
+}
+
+/// Write a topology shape signature as a JSON object.
+pub fn shape(w: &mut JsonWriter, s: &ShapeSignature) {
+    w.begin_object();
+    w.field_u64("run", s.run.get());
+    w.field_u64("nodes", s.nodes as u64);
+    w.field_u64("edges", s.edges as u64);
+    w.field_u64("max_depth", s.max_depth as u64);
+    w.field_u64("components", s.components as u64);
+    w.field_u64("cycles", s.cycles as u64);
+    w.field_u64("runtime_cycles", s.runtime_cycles as u64);
+    w.field_u64("duplicate_families", s.duplicate_families as u64);
+    w.field_u64("reconvergence", s.reconvergence as u64);
+    w.field_u64("top_chokepoint", s.top_chokepoint as u64);
+    w.field_u64("runtime_footprint", s.runtime_footprint as u64);
+    w.end_object();
+}
+
+/// Write the workspace dependency regions as a JSON array.
+pub fn regions(w: &mut JsonWriter, regions: &[WorkspaceRegion]) {
+    w.begin_array();
+    for r in regions {
+        w.begin_object();
+        w.field_u64("run", r.run.get());
+        w.field_str("ecosystem", r.ecosystem);
+        w.field_u64("nodes", r.nodes as u64);
+        w.field_u64("edges", r.edges as u64);
+        w.field_u64("runtime_footprint", r.runtime_footprint as u64);
+        w.field_u64("cycles", r.cycles as u64);
+        w.field_u64("duplicate_families", r.duplicate_families as u64);
+        w.field_u64("risk_score", r.risk_score as u64);
+        w.field_str("risk_band", r.risk_band);
+        w.end_object();
+    }
+    w.end_array();
+}
+
+/// Write the experimental H2 (flag-complex) homology as a JSON object.
+pub fn h2(w: &mut JsonWriter, h: &H2View) {
+    w.begin_object();
+    w.field_u64("run", h.run.get());
+    w.field_u64("betti0", h.betti0 as u64);
+    w.field_u64("betti1", h.betti1 as u64);
+    w.field_u64("betti2", h.betti2 as u64);
+    w.field_u64("triangles", h.triangles as u64);
+    w.key("voids");
+    w.begin_array();
+    for v in &h.voids {
+        w.begin_array();
+        for m in v {
+            node(w, m);
+        }
+        w.end_array();
     }
     w.end_array();
     w.end_object();

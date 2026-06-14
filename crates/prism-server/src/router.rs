@@ -152,6 +152,14 @@ fn api_index_body() -> String {
         "/api/graph/impact?run=&node=",
         "/api/graph/scc?run=",
         "/api/graph/duplicates?run=",
+        "/api/graph/scope?run=",
+        "/api/graph/chokepoints?run=",
+        "/api/graph/cycles?run=",
+        "/api/graph/risk?run=",
+        "/api/graph/fragmentation?run=",
+        "/api/graph/shape?run=",
+        "/api/graph/h2?run=",
+        "/api/regions",
         "/api/tda?run=",
         "/api/tda/pairs?run=",
         "/api/tda/support?run=&pair=",
@@ -175,6 +183,14 @@ fn route_api(state: &AppState, rest: &str, q: &Query) -> ApiResult<String> {
         "graph/impact" => api_impact(state, q),
         "graph/scc" => api_scc(state, q),
         "graph/duplicates" => api_duplicates(state, q),
+        "graph/scope" => api_scope(state, q),
+        "graph/chokepoints" => api_chokepoints(state, q),
+        "graph/cycles" => api_classified_cycles(state, q),
+        "graph/risk" => api_risk(state, q),
+        "graph/fragmentation" => api_fragmentation(state, q),
+        "graph/shape" => api_shape(state, q),
+        "graph/h2" => api_h2(state, q),
+        "regions" => api_regions(state),
         "tda" => api_tda(state, q),
         "tda/pairs" => api_tda_pairs(state, q),
         "tda/support" => api_tda_support(state, q),
@@ -392,6 +408,94 @@ fn api_duplicates(state: &AppState, q: &Query) -> ApiResult<String> {
         let clusters = prism.duplicate_clusters(run)?;
         let mut w = JsonWriter::new();
         views_json::duplicates(&mut w, &clusters);
+        Ok(w.finish())
+    })
+}
+
+/// `GET /api/graph/scope?run=` — per-scope footprint summary.
+fn api_scope(state: &AppState, q: &Query) -> ApiResult<String> {
+    let run = run_param(q)?;
+    state.with_prism(|prism| {
+        let rows = prism.scope_summary(run)?;
+        let mut w = JsonWriter::new();
+        views_json::scope_summary(&mut w, &rows);
+        Ok(w.finish())
+    })
+}
+
+/// `GET /api/graph/chokepoints?run=&limit=` — structural gateways.
+fn api_chokepoints(state: &AppState, q: &Query) -> ApiResult<String> {
+    let run = run_param(q)?;
+    let limit = q.u32_or("limit", 25).unwrap_or(25) as usize;
+    state.with_prism(|prism| {
+        let cps = prism.chokepoints(run, limit)?;
+        let mut w = JsonWriter::new();
+        views_json::chokepoints(&mut w, &cps);
+        Ok(w.finish())
+    })
+}
+
+/// `GET /api/graph/cycles?run=` — classified dependency cycles.
+fn api_classified_cycles(state: &AppState, q: &Query) -> ApiResult<String> {
+    let run = run_param(q)?;
+    state.with_prism(|prism| {
+        let cycles = prism.classified_cycles(run)?;
+        let mut w = JsonWriter::new();
+        views_json::classified_cycles(&mut w, &cycles);
+        Ok(w.finish())
+    })
+}
+
+/// `GET /api/graph/risk?run=` — structural risk profile.
+fn api_risk(state: &AppState, q: &Query) -> ApiResult<String> {
+    let run = run_param(q)?;
+    state.with_prism(|prism| {
+        let r = prism.structural_risk(run)?;
+        let mut w = JsonWriter::new();
+        views_json::risk(&mut w, &r);
+        Ok(w.finish())
+    })
+}
+
+/// `GET /api/graph/fragmentation?run=` — connected-component breakdown.
+fn api_fragmentation(state: &AppState, q: &Query) -> ApiResult<String> {
+    let run = run_param(q)?;
+    state.with_prism(|prism| {
+        let f = prism.fragmentation(run)?;
+        let mut w = JsonWriter::new();
+        views_json::fragmentation(&mut w, &f);
+        Ok(w.finish())
+    })
+}
+
+/// `GET /api/graph/shape?run=` — topology shape signature.
+fn api_shape(state: &AppState, q: &Query) -> ApiResult<String> {
+    let run = run_param(q)?;
+    state.with_prism(|prism| {
+        let s = prism.shape_signature(run)?;
+        let mut w = JsonWriter::new();
+        views_json::shape(&mut w, &s);
+        Ok(w.finish())
+    })
+}
+
+/// `GET /api/graph/h2?run=` — experimental flag-complex H2 homology.
+fn api_h2(state: &AppState, q: &Query) -> ApiResult<String> {
+    let run = run_param(q)?;
+    state.with_prism(|prism| {
+        let h = prism.tda_h2(run)?;
+        let mut w = JsonWriter::new();
+        views_json::h2(&mut w, &h);
+        Ok(w.finish())
+    })
+}
+
+/// `GET /api/regions` — every run as a comparable dependency region.
+fn api_regions(state: &AppState) -> ApiResult<String> {
+    state.with_prism(|prism| {
+        let regions = prism.workspace_regions()?;
+        let mut w = JsonWriter::new();
+        views_json::regions(&mut w, &regions);
         Ok(w.finish())
     })
 }

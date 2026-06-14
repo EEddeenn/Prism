@@ -95,6 +95,8 @@ interface GraphState {
   setEdgeFilter: (f: EdgeFilter) => void;
   runSearch: (term: string) => void;
   selectFeature: (pair: number, dim: number) => Promise<void>;
+  selectVoid: (voidIndex: number, members: GraphNode[]) => void;
+  clearFeature: () => void;
   requestFocus: (id: number) => void;
   setHovered: (id: number | null) => void;
   setCompareRun: (run: number | null) => Promise<void>;
@@ -316,6 +318,32 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       set({ statusText: errMsg(e), statusError: true });
     }
   },
+
+  // Light up an H2 void (dim 2): its bounding packages and the dependency arcs
+  // among them. Unlike selectFeature this needs no API round-trip — the void's
+  // member nodes already arrived with the H2 payload; the arcs are the graph
+  // edges internal to that node set. Reuses the `feature` lens (dim 2 paints it
+  // violet rather than the gold of an H0/H1 generator).
+  selectVoid: (voidIndex, members) => {
+    const nodeIds = new Set<number>();
+    for (const n of members) nodeIds.add(n.id);
+    const edgeKeys = new Set<string>();
+    for (const e of get().edges) {
+      if (nodeIds.has(e.source) && nodeIds.has(e.target)) edgeKeys.add(`${e.source}>${e.target}`);
+    }
+    set({
+      feature: { pair: voidIndex, dim: 2, nodeIds, edgeKeys },
+      view: '3d',
+      mode3d: 'tda',
+      statusText: `H₂ void lit: ${nodeIds.size} package(s) bounding a void.`,
+    });
+    const firstId = members[0]?.id;
+    if (firstId != null) get().requestFocus(firstId);
+  },
+
+  // Drop the TDA feature/void lens (the 3D HUD "clear" affordance) without
+  // touching the node selection.
+  clearFeature: () => set({ feature: null }),
 
   requestFocus: (id) => set((s) => ({ focusTarget: id, focusNonce: s.focusNonce + 1 })),
 

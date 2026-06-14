@@ -1,15 +1,20 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useGraphStore } from '@/store/useGraphStore';
 import { diffRuns, type FamilyDiff, type DiffStatus } from '@/lib/diff';
 import { shortLabel } from '@/lib/palette';
+import { api, ApiError } from '@/lib/api';
+import type { TopologyDistance, MetricDelta } from '@/lib/types';
 import {
   MetricPill,
   SectionHeader,
   RowButton,
   Sparkline,
+  DivergingBar,
+  Callout,
   PanelState,
+  type MeterTone,
 } from '@/components/ui';
 
 const ROW_CAP = 50;
@@ -125,7 +130,127 @@ function Section({
   );
 }
 
+/** Format a signed percent integer with an explicit + / − (true minus glyph), or
+ *  "0%" when it rounds to nothing. change_pct is already a percent integer. */
+function signedPct(n: number): string {
+  const r = Math.round(n);
+  if (r > 0) return `+${r}%`;
+  if (r < 0) return `−${Math.abs(r)}%`;
+  return '0%';
+}
+
+/** Tone for a single dimension's change: growth reads warn (or bad when large),
+ *  shrink reads ok, near-zero muted. Mirrors the diff's added/removed sentiment. */
+function deltaTone(changePct: number): MeterTone {
+  const r = Math.round(changePct);
+  if (r === 0) return 'muted';
+  if (r > 0) return r >= 50 ? 'bad' : 'warn';
+  return 'ok';
+}
+
+// Literal text classes per tone — Tailwind can't see template strings (see the
+// SECTION map above for the same constraint).
+const TONE_TEXT: Record<MeterTone, string> = {
+  accent: 'text-accent',
+  ok: 'text-ok',
+  warn: 'text-warn',
+  bad: 'text-bad',
+  muted: 'text-muted',
+};
+
+/** One structural dimension: name, base → head values, a diverging bar (base left,
+ *  head right) and a signed change label. */
+function DistanceRow({ d }: { d: MetricDelta }) {
+  const tone = deltaTone(d.change_pct);
+  return (
+    <div className="rounded-lg bg-panel-2 border border-line px-2.5 py-2">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="font-mono text-mini text-ink truncate" title={d.metric}>
+          {d.metric}
+        </span>
+        <span className={`text-mini font-semibold tabular-nums shrink-0 ${TONE_TEXT[tone]}`}>
+          {signedPct(d.change_pct)}
+        </span>
+      </div>
+      <DivergingBar
+        a={d.base}
+        b={d.head}
+        leftTone="muted"
+        rightTone={tone}
+        ariaLabel={`${d.metric}: base ${d.base}, head ${d.head}, ${signedPct(d.change_pct)}`}
+      />
+      <div className="mt-1 flex items-baseline gap-1 text-micro text-muted tabular-nums">
+        <span className="text-ink">{d.base}</span>
+        <span aria-hidden>→</span>
+        <span className="text-ink">{d.head}</span>
+      </div>
+    </div>
+  );
+}
+
+/** Topology distance: the active run (base) vs. the compare run (head), same
+ *  orientation as the family diff above. Lazily fetched; degrades to empty. */
+function TopologyDistanceSection({ base, head }: { base: number; head: number }) {
+  const [dist, setDist] = useState<TopologyDistance | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    setLoading(true);
+    setError(null);
+    setDist(null); // clear the prior comparison so a refetch shows loading, not stale deltas
+    api
+      .distance(base, head)
+      .then((d) => {
+        if (!live) return;
+        setDist(d);
+      })
+      .catch((e) => {
+        if (!live) return;
+        setError(e instanceof ApiError ? e.message : 'failed to load topology distance');
+      })
+      .finally(() => live && setLoading(false));
+    return () => {
+      live = false;
+    };
+  }, [base, head]);
+
+  return (
+    <section className="mb-3">
+      <SectionHeader>Topology distance</SectionHeader>
+      {error ? (
+        <Callout tone="bad" role="alert">{error}</Callout>
+      ) : loading && !dist ? (
+        <PanelState kind="loading">Measuring topology distance…</PanelState>
+      ) : !dist ? null : (
+        <div className="flex flex-col gap-2">
+          <div className="rounded-lg bg-panel-2 border border-line px-2.5 py-2">
+            <div className="text-head font-semibold tabular-nums text-ink">
+              topology distance: {Math.round(dist.distance_pct)}%
+            </div>
+            <p className="mt-0.5 text-micro text-muted">
+              mean absolute change across structural dimensions; 0% = identical shape (can
+              exceed 100% for very different runs).
+            </p>
+          </div>
+          {dist.deltas.length === 0 ? (
+            <PanelState kind="empty">No per-dimension deltas reported.</PanelState>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {dist.deltas.map((d) => (
+                <DistanceRow key={d.metric} d={d} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function DiffTab() {
+  const run = useGraphStore((s) => s.run);
   const nodes = useGraphStore((s) => s.nodes);
   const index = useGraphStore((s) => s.index);
   const compareData = useGraphStore((s) => s.compareData);
@@ -196,6 +321,12 @@ export default function DiffTab() {
             ))}
           </div>
         </div>
+      )}
+
+      {/* Topology distance: structural shape delta, active (base) → compare (head),
+          same orientation as the family diff. Compare-only, like the rest of the tab. */}
+      {run != null && compareRun != null && (
+        <TopologyDistanceSection base={run} head={compareRun} />
       )}
 
       {/* Sections, most impactful first within each (rows are pre-sorted by blast). */}

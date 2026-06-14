@@ -155,14 +155,22 @@ fn api_index_body() -> String {
         "/api/graph/scope?run=",
         "/api/graph/chokepoints?run=",
         "/api/graph/cycles?run=",
+        "/api/graph/why?run=&node=",
+        "/api/graph/dup-causes?run=",
         "/api/graph/risk?run=",
         "/api/graph/fragmentation?run=",
+        "/api/graph/subsystems?run=",
+        "/api/graph/diamonds?run=",
+        "/api/graph/minimal?run=",
+        "/api/graph/shared?run=",
+        "/api/graph/distance?base=&head=",
         "/api/graph/shape?run=",
         "/api/graph/h2?run=",
         "/api/regions",
         "/api/tda?run=",
         "/api/tda/pairs?run=",
         "/api/tda/support?run=&pair=",
+        "/api/tda/compare?run=",
         "/api/export?run=",
     ] {
         w.str_value(ep);
@@ -186,14 +194,22 @@ fn route_api(state: &AppState, rest: &str, q: &Query) -> ApiResult<String> {
         "graph/scope" => api_scope(state, q),
         "graph/chokepoints" => api_chokepoints(state, q),
         "graph/cycles" => api_classified_cycles(state, q),
+        "graph/why" => api_why(state, q),
+        "graph/dup-causes" => api_dup_causes(state, q),
         "graph/risk" => api_risk(state, q),
         "graph/fragmentation" => api_fragmentation(state, q),
+        "graph/subsystems" => api_subsystems(state, q),
+        "graph/diamonds" => api_diamonds(state, q),
+        "graph/minimal" => api_minimal(state, q),
+        "graph/shared" => api_shared(state, q),
+        "graph/distance" => api_distance(state, q),
         "graph/shape" => api_shape(state, q),
         "graph/h2" => api_h2(state, q),
         "regions" => api_regions(state),
         "tda" => api_tda(state, q),
         "tda/pairs" => api_tda_pairs(state, q),
         "tda/support" => api_tda_support(state, q),
+        "tda/compare" => api_tda_compare(state, q),
         "package/candidates" => api_package_candidates(state, q),
         "export" => api_export(state, q),
         _ => Err(ApiError::not_found("no such api endpoint")),
@@ -446,6 +462,95 @@ fn api_classified_cycles(state: &AppState, q: &Query) -> ApiResult<String> {
     })
 }
 
+/// `GET /api/graph/why?run=&node=` — why a dependency occurrence is present:
+/// its introducers, a few shortest root→node paths, and the nearest owner.
+fn api_why(state: &AppState, q: &Query) -> ApiResult<String> {
+    let run = run_param(q)?;
+    let node = node_param(q)?;
+    state.with_prism(|prism| {
+        let v = prism.explain_node(run, node, 6)?;
+        let mut w = JsonWriter::new();
+        views_json::explanation(&mut w, &v);
+        Ok(w.finish())
+    })
+}
+
+/// `GET /api/graph/dup-causes?run=` — duplicate-version root cause: who pins
+/// each coexisting version of a fragmented family, and the convergence verdict.
+fn api_dup_causes(state: &AppState, q: &Query) -> ApiResult<String> {
+    let run = run_param(q)?;
+    state.with_prism(|prism| {
+        let views = prism.duplicate_root_causes(run)?;
+        let mut w = JsonWriter::new();
+        views_json::duplicate_root_causes(&mut w, &views);
+        Ok(w.finish())
+    })
+}
+
+/// `GET /api/graph/subsystems?run=` — the top-level subsystem partition.
+fn api_subsystems(state: &AppState, q: &Query) -> ApiResult<String> {
+    let run = run_param(q)?;
+    state.with_prism(|prism| {
+        let subs = prism.subsystems(run)?;
+        let mut w = JsonWriter::new();
+        views_json::subsystems(&mut w, &subs);
+        Ok(w.finish())
+    })
+}
+
+/// `GET /api/graph/diamonds?run=&limit=` — diamond-reuse foundations.
+fn api_diamonds(state: &AppState, q: &Query) -> ApiResult<String> {
+    let run = run_param(q)?;
+    let limit = q.u32_or("limit", 15).unwrap_or(15) as usize;
+    state.with_prism(|prism| {
+        let v = prism.diamond_reuse(run, limit)?;
+        let mut w = JsonWriter::new();
+        views_json::diamonds(&mut w, &v);
+        Ok(w.finish())
+    })
+}
+
+/// `GET /api/graph/minimal?run=` — minimal (dominator-tree) explanation.
+fn api_minimal(state: &AppState, q: &Query) -> ApiResult<String> {
+    let run = run_param(q)?;
+    state.with_prism(|prism| {
+        let v = prism.minimal_view(run)?;
+        let mut w = JsonWriter::new();
+        views_json::minimal(&mut w, &v);
+        Ok(w.finish())
+    })
+}
+
+/// `GET /api/graph/shared?run=&limit=` — higher-order overlap across subsystems.
+fn api_shared(state: &AppState, q: &Query) -> ApiResult<String> {
+    let run = run_param(q)?;
+    let limit = q.u32_or("limit", 15).unwrap_or(15) as usize;
+    state.with_prism(|prism| {
+        let v = prism.higher_order_overlap(run, limit)?;
+        let mut w = JsonWriter::new();
+        views_json::overlap(&mut w, &v);
+        Ok(w.finish())
+    })
+}
+
+/// `GET /api/graph/distance?base=&head=` — topology shape distance between runs.
+fn api_distance(state: &AppState, q: &Query) -> ApiResult<String> {
+    let base = q
+        .u64("base")
+        .map(RunId::new)
+        .ok_or_else(|| ApiError::bad_request("missing or invalid 'base' parameter"))?;
+    let head = q
+        .u64("head")
+        .map(RunId::new)
+        .ok_or_else(|| ApiError::bad_request("missing or invalid 'head' parameter"))?;
+    state.with_prism(|prism| {
+        let v = prism.topology_distance(base, head)?;
+        let mut w = JsonWriter::new();
+        views_json::topology_distance(&mut w, &v);
+        Ok(w.finish())
+    })
+}
+
 /// `GET /api/graph/risk?run=` — structural risk profile.
 fn api_risk(state: &AppState, q: &Query) -> ApiResult<String> {
     let run = run_param(q)?;
@@ -561,6 +666,18 @@ fn api_tda_support(state: &AppState, q: &Query) -> ApiResult<String> {
         let view = prism.tda_support(run, filtration, pair)?;
         let mut w = JsonWriter::new();
         views_json::support(&mut w, &view);
+        Ok(w.finish())
+    })
+}
+
+/// `GET /api/tda/compare?run=` — the run's topology under multiple filtration
+/// lenses (depth/centrality/scope): one summary row per lens.
+fn api_tda_compare(state: &AppState, q: &Query) -> ApiResult<String> {
+    let run = run_param(q)?;
+    state.with_prism(|prism| {
+        let rows = prism.tda_compare(run)?;
+        let mut w = JsonWriter::new();
+        views_json::filtration_compare(&mut w, &rows);
         Ok(w.finish())
     })
 }

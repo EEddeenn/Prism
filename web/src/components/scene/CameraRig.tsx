@@ -51,6 +51,9 @@ export default function CameraRig({
   // selectNode's async fwd/impact resolve (they are empty at requestFocus time).
   const fwd = useGraphStore((s) => s.fwd);
   const impact = useGraphStore((s) => s.impact);
+  // A TDA feature/void lights a SET of packages (its generator/bounding shell);
+  // framing its whole extent reads far better than recentering on one member.
+  const feature = useGraphStore((s) => s.feature);
   const pendingFocus = useRef<number | null>(null);
 
   // Animation state, held in refs so useFrame can drive it without re-renders.
@@ -181,6 +184,10 @@ export default function CameraRig({
       fwd.forEach((id) => ids.add(id));
       impact.forEach((id) => ids.add(id));
     }
+    // A lit feature/void: frame the whole generator/shell, not just the target.
+    if (feature && feature.nodeIds.has(target)) {
+      feature.nodeIds.forEach((id) => ids.add(id));
+    }
     const box = new THREE.Box3();
     let any = false;
     ids.forEach((id) => {
@@ -207,7 +214,10 @@ export default function CameraRig({
     if (focusTarget == null || !controls) return;
     pendingFocus.current = focusTarget;
     frameFocus(focusTarget);
-    if (fwd.has(focusTarget) || impact.has(focusTarget)) pendingFocus.current = null;
+    // Already framed in full if the neighbourhood (fwd/impact) or a feature/void
+    // set is resolved now; only a still-empty node neighbourhood needs upgrading.
+    if (fwd.has(focusTarget) || impact.has(focusTarget) || (feature && feature.nodeIds.has(focusTarget)))
+      pendingFocus.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusNonce, controls]);
 

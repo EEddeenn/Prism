@@ -14,6 +14,7 @@ export const PALETTE = {
   ink: '#e7e9f0',
   muted: '#8b93a7',
   gen: '#ffd166',
+  void: '#c084fc', // H2 void generator — violet, distinct from gold gen & pink dup
 };
 
 /** Terrain / importance elevation ramp (low → high). A viridis map: perceptually
@@ -94,4 +95,5 @@ export const CHART_COLORS = {
   accent2: '#ffb454', // accent-2
   dim0: '#5aa9ff', // H0 — keep the original accent blue (was historically blue)
   dim1: '#ffb454', // H1 — accent-2 amber
+  dim2: '#c084fc', // H2 — void violet (matches PALETTE.void)
 } as const;

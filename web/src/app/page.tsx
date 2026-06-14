@@ -39,7 +39,12 @@ function legendFor(view: View, mode: Mode3D): LegendItem[] {
     case 'terrain':
       return [...COMMON, { label: 'duplicated', color: PALETTE.dup }];
     case 'tda':
-      return [{ label: 'generator', color: PALETTE.gen }, ...COMMON, { label: 'duplicated', color: PALETTE.dup }];
+      return [
+        { label: 'H₀/H₁ generator', color: PALETTE.gen },
+        { label: 'H₂ void', color: PALETTE.void },
+        ...COMMON,
+        { label: 'duplicated', color: PALETTE.dup },
+      ];
     case 'layered':
     default:
       return [

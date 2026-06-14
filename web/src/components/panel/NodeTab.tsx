@@ -1,12 +1,14 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useGraphStore } from '@/store/useGraphStore';
+import { api, ApiError } from '@/lib/api';
 import { shortLabel } from '@/lib/palette';
 import { kindName, flagNames } from '@/lib/edges';
-import type { GraphNode } from '@/lib/types';
+import type { GraphNode, Explanation } from '@/lib/types';
 import type { GraphIndex } from '@/lib/graph';
 import CandidateStrip from '@/components/CandidateStrip';
-import { SectionHeader, RowButton, Row, Badge, PanelState, type Tone } from '@/components/ui';
+import { SectionHeader, RowButton, Row, Badge, Callout, PanelState, type Tone } from '@/components/ui';
 
 /** BFS upward from `sel` over `inn` to the nearest depth-0 root, then
  *  reconstruct the shortest path root -> ... -> sel. Returns node ids
@@ -208,8 +210,171 @@ function PeerList({ title, ids }: { title: string; ids: number[] }) {
   );
 }
 
+/** Edge-kind chip tone: runtime is the load-bearing case (accent), dev/build/peer
+ *  informational (muted), optional de-emphasised. */
+const KIND_TONE: Record<string, Tone> = {
+  runtime: 'accent',
+  prod: 'accent',
+  production: 'accent',
+  dev: 'muted',
+  build: 'muted',
+  peer: 'warn',
+  optional: 'muted',
+};
+
+/**
+ * "Why is this here?" — server-computed provenance for the selected node:
+ * runtime reachability, nearest first-party owner, the edges that introduce it,
+ * and a few shortest root → target chains. Lazily fetched per [run, sel].
+ */
+function WhyHere({ run, sel }: { run: number; sel: number }) {
+  const selectNode = useGraphStore((s) => s.selectNode);
+
+  const [why, setWhy] = useState<Explanation | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    setLoading(true);
+    setError(null);
+    setWhy(null);
+    api
+      .why(run, sel)
+      .then((r) => {
+        if (!live) return;
+        setWhy(r);
+      })
+      .catch((e) => {
+        if (!live) return;
+        setError(e instanceof ApiError ? e.message : 'failed to load provenance');
+      })
+      .finally(() => live && setLoading(false));
+    return () => {
+      live = false;
+    };
+  }, [run, sel]);
+
+  return (
+    <div>
+      <SectionHeader>Why is this here?</SectionHeader>
+      {error ? (
+        <Callout tone="bad" role="alert">{error}</Callout>
+      ) : loading && !why ? (
+        <PanelState kind="loading">Tracing provenance…</PanelState>
+      ) : !why ? (
+        <PanelState kind="empty">No provenance available.</PanelState>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {/* Reachability status */}
+          <div className="flex flex-wrap items-center gap-1.5 text-mini">
+            {why.production_reachable ? (
+              <Badge tone="ok">runtime-reachable</Badge>
+            ) : why.non_production_only ? (
+              <Badge tone="warn">dev/build-only</Badge>
+            ) : (
+              <Badge tone="muted">unreachable from roots</Badge>
+            )}
+          </div>
+
+          {/* Nearest first-party owner */}
+          {why.nearest_owner && (
+            <div className="text-mini text-muted">
+              nearest first-party owner:{' '}
+              <button
+                type="button"
+                title={why.nearest_owner.purl}
+                aria-label={`Select ${shortLabel(why.nearest_owner.purl)}`}
+                onClick={() => selectNode(why.nearest_owner!.id)}
+                className="font-mono rounded-md px-0.5 text-accent-2 cursor-pointer hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+              >
+                {shortLabel(why.nearest_owner.purl)}
+              </button>{' '}
+              · {why.owner_distance} {why.owner_distance === 1 ? 'hop' : 'hops'}
+            </div>
+          )}
+
+          {/* Introducers */}
+          <div>
+            <div className="text-micro text-muted mb-1">pulled in by</div>
+            {why.introducers.length === 0 ? (
+              <p className="text-muted text-mini">
+                This is a root / first-party package (no parents).
+              </p>
+            ) : (
+              <ul className="list-none m-0 p-0 flex flex-col gap-[3px]">
+                {why.introducers.map(({ node, kinds }) => {
+                  const label = shortLabel(node.purl);
+                  return (
+                    <li key={node.id}>
+                      <RowButton
+                        onSelect={() => selectNode(node.id)}
+                        ariaLabel={`Select ${label}`}
+                        title={node.purl}
+                        className="flex-wrap gap-1.5"
+                      >
+                        <span className="font-mono text-mini truncate">{label}</span>
+                        {kinds.map((k) => (
+                          <Badge key={k} mono tone={KIND_TONE[k] ?? 'muted'} className="shrink-0">
+                            {k}
+                          </Badge>
+                        ))}
+                        <span className="ml-auto text-micro text-muted shrink-0">d{node.depth}</span>
+                      </RowButton>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+
+          {/* Shortest root → target chains */}
+          {why.paths.length > 0 && (
+            <div>
+              <div className="text-micro text-muted mb-1">shortest paths from a root</div>
+              <ul className="list-none m-0 p-0 flex flex-col gap-1">
+                {why.paths.slice(0, 3).map((path, pi) => (
+                  <li key={pi} className="px-2.5 py-1.5 rounded-md bg-panel-2">
+                    <ol className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-micro list-none m-0 p-0">
+                      {path.map((n, ni) => {
+                        const label = shortLabel(n.purl);
+                        const isLast = ni === path.length - 1;
+                        return (
+                          <li key={`${n.id}-${ni}`} className="flex items-center gap-x-1">
+                            {ni > 0 && (
+                              <span aria-hidden className="text-muted select-none">→</span>
+                            )}
+                            <button
+                              type="button"
+                              title={n.purl}
+                              aria-label={`Select ${label}`}
+                              aria-current={isLast ? 'true' : undefined}
+                              onClick={() => selectNode(n.id)}
+                              className={
+                                'font-mono rounded-md px-0.5 max-w-[180px] truncate cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ' +
+                                (isLast ? 'text-accent-2' : 'text-muted hover:text-accent')
+                              }
+                            >
+                              {label}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function NodeTab() {
   const sel = useGraphStore((s) => s.sel);
+  const run = useGraphStore((s) => s.run);
   const index = useGraphStore((s) => s.index);
   const dup = useGraphStore((s) => s.dupVersionIds);
   const requestFocus = useGraphStore((s) => s.requestFocus);
@@ -247,6 +412,8 @@ export default function NodeTab() {
       {rows.map(({ label, value, tone }) => (
         <Row key={label} label={label} value={value} valueTone={tone} />
       ))}
+
+      {run != null && <WhyHere key={`${run}:${sel}`} run={run} sel={sel} />}
 
       <SectionHeader>Version headroom</SectionHeader>
       <CandidateStrip nodePurl={node.purl} />

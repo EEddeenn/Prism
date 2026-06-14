@@ -7,7 +7,7 @@
 
 import { useMemo } from 'react';
 import { useGraphStore } from '@/store/useGraphStore';
-import { rampHex } from '@/lib/palette';
+import { rampHex, PALETTE } from '@/lib/palette';
 import { signalValue, SIGNAL_LABELS, REACH_SIGNALS } from '@/lib/layout3d';
 import HoverCard from '@/components/HoverCard';
 
@@ -85,6 +85,43 @@ function TdaHint() {
   );
 }
 
+function FeatureCard() {
+  const feature = useGraphStore((s) => s.feature);
+  const clearFeature = useGraphStore((s) => s.clearFeature);
+  const setActiveTab = useGraphStore((s) => s.setActiveTab);
+  if (!feature) return null;
+
+  // Dim-2 voids read VIOLET; H₀/H₁ generators read GOLD.
+  const isVoid = feature.dim === 2;
+  const accent = isVoid ? PALETTE.void : PALETTE.gen;
+  const label = isVoid ? 'H₂ void' : `H${feature.dim} generator`;
+
+  return (
+    <div className="absolute top-3.5 left-3.5 z-10 p-2.5 rounded-xl border border-line bg-panel/90 backdrop-blur-sm shadow-panel text-mini">
+      <div className="font-semibold mb-0.5" style={{ color: accent }}>{label}</div>
+      <div className="text-muted tabular-nums">
+        {feature.nodeIds.size} package(s) · {feature.edgeKeys.size} arc(s) lit
+      </div>
+      <div className="flex gap-1.5 mt-2">
+        <button
+          type="button"
+          onClick={() => clearFeature()}
+          className="px-2 py-1 text-mini hover:border-accent"
+        >
+          Clear
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('tda')}
+          className="px-2 py-1 text-mini hover:border-accent"
+        >
+          Open TDA panel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function SceneHud() {
   const mode = useGraphStore((s) => s.mode3d);
   const feature = useGraphStore((s) => s.feature);
@@ -93,6 +130,7 @@ export default function SceneHud() {
       <HoverCard />
       {mode === 'terrain' && <TerrainLegend />}
       {mode === 'tda' && !feature && <TdaHint />}
+      {mode === 'tda' && feature && <FeatureCard />}
     </>
   );
 }

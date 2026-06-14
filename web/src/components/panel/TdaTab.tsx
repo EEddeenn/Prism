@@ -1,20 +1,24 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useGraphStore } from '@/store/useGraphStore';
 import FidelityBanner from '@/components/FidelityBanner';
-import { Badge, MetricPill, RowButton, SectionHeader, PanelState } from '@/components/ui';
-import { CHART_COLORS, PALETTE } from '@/lib/palette';
-import type { TdaPair } from '@/lib/types';
+import { Badge, MetricPill, RowButton, SectionHeader, PanelState, Callout } from '@/components/ui';
+import { api, ApiError } from '@/lib/api';
+import { CHART_COLORS, PALETTE, shortLabel } from '@/lib/palette';
+import type { TdaPair, H2View, FiltrationSummary } from '@/lib/types';
 
 const fmt = (x: number | null) => (x == null ? '?' : String(Math.round(x * 10) / 10));
 
-// H0 = connected components (chart dim0) · H1 = loops (chart dim1 / amber).
+// H0 = connected components (chart dim0) · H1 = loops (chart dim1 / amber) ·
+// H2 = voids (chart dim2 / violet). The persistence diagram + barcode only plot
+// s.pairs (H0/H1); H2 lives in its own flag-complex section below.
 const DIM = {
   0: { stroke: CHART_COLORS.dim0, label: 'H0' },
   1: { stroke: CHART_COLORS.dim1, label: 'H1' },
+  2: { stroke: CHART_COLORS.dim2, label: 'H2' },
 } as const;
-const dimColor = (dim: number) => (dim === 1 ? DIM[1].stroke : DIM[0].stroke);
+const dimColor = (dim: number) => (dim === 2 ? DIM[2].stroke : dim === 1 ? DIM[1].stroke : DIM[0].stroke);
 
 const lifetime = (p: TdaPair) =>
   p.persistence ?? (p.death != null ? p.death - p.birth : Number.POSITIVE_INFINITY);
@@ -235,7 +239,9 @@ function Barcode({
 function FeatureRow({ p }: { p: TdaPair }) {
   const feature = useGraphStore((s) => s.feature);
   const selectFeature = useGraphStore((s) => s.selectFeature);
-  const active = feature?.pair === p.pair;
+  // A void (dim 2) reuses the `feature.pair` slot as its own array index — never
+  // a barcode pair id — so it must not mark an H0/H1 row active.
+  const active = feature != null && feature.dim !== 2 && feature.pair === p.pair;
   const desc = p.essential
     ? `born d${fmt(p.birth)} · never dies`
     : `d${fmt(p.birth)} → d${fmt(p.death)} · life ${fmt(p.persistence)}`;
@@ -280,6 +286,178 @@ function Group({ title, list }: { title: string; list: TdaPair[] }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// (c) VOIDS (H₂) — flag-complex homology, computed independently of the
+//     filtration barcode. Lazily fetched per run; each void is a cycle of
+//     package nodes bounding a 2-dimensional hole in the dependency graph.
+// ---------------------------------------------------------------------------
+function VoidsSection({ run }: { run: number }) {
+  const selectVoid = useGraphStore((s) => s.selectVoid);
+  const [h2, setH2] = useState<H2View | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true); // we always fetch on mount
+
+  useEffect(() => {
+    let live = true;
+    setLoading(true);
+    setError(null);
+    setH2(null);
+    api
+      .h2(run)
+      .then((v) => {
+        if (!live) return;
+        setH2(v);
+      })
+      .catch((e) => {
+        if (!live) return;
+        setError(e instanceof ApiError ? e.message : 'failed to load flag-complex homology');
+      })
+      .finally(() => live && setLoading(false));
+    return () => {
+      live = false;
+    };
+  }, [run]);
+
+  const CAP = 24;
+
+  return (
+    <section className="mt-4">
+      <SectionHeader right={<Badge tone="muted">experimental</Badge>}>Voids (H₂)</SectionHeader>
+      <p className="text-muted text-mini mb-1.5">
+        Flag-complex homology — computed independently of the filtration barcode above, so its H₁ may differ.
+      </p>
+
+      {error ? (
+        <Callout tone="bad" role="alert">{error}</Callout>
+      ) : loading && !h2 ? (
+        <PanelState kind="loading">Computing flag-complex homology…</PanelState>
+      ) : h2 ? (
+        <>
+          <div className="flex flex-wrap items-center gap-1.5 mb-2">
+            <MetricPill label="H₀" value={h2.betti0} tone="accent" title="Connected components (flag complex)" />
+            <MetricPill label="H₁" value={h2.betti1} tone="warn" title="Independent loops (flag complex)" />
+            <MetricPill
+              label="H₂ voids"
+              value={h2.betti2}
+              tone={h2.betti2 > 0 ? 'accent' : 'muted'}
+              title="2-dimensional voids — hollow shells in the dependency graph"
+            />
+            <MetricPill label="triangles" value={h2.triangles} tone="muted" title="2-simplices in the flag complex" />
+          </div>
+
+          {h2.betti2 === 0 || h2.voids.length === 0 ? (
+            <PanelState kind="empty">No 2-dimensional voids — no hollow shells in the dependency graph.</PanelState>
+          ) : (
+            <ul className="flex flex-col gap-1">
+              {h2.voids.slice(0, CAP).map((members, i) => {
+                const preview = members.slice(0, 3).map((n) => shortLabel(n.purl)).join(' · ');
+                return (
+                  <li key={i}>
+                    <RowButton
+                      onSelect={() => selectVoid(i, members)}
+                      ariaLabel={`Void ${i + 1}, ${members.length} packages: ${preview}`}
+                    >
+                      <span
+                        className="shrink-0 font-mono font-bold text-mini min-w-[22px]"
+                        style={{ color: DIM[2].stroke }}
+                      >
+                        H₂
+                      </span>
+                      <span className="shrink-0 text-mini tabular-nums text-muted min-w-[28px]">{members.length}</span>
+                      <span className="flex-1 text-mini font-mono truncate">{preview}</span>
+                    </RowButton>
+                  </li>
+                );
+              })}
+              {h2.voids.length > CAP && (
+                <li className="text-muted text-mini mt-0.5">… and {h2.voids.length - CAP} more voids.</li>
+              )}
+            </ul>
+          )}
+        </>
+      ) : (
+        <PanelState kind="empty">No flag-complex homology for this run.</PanelState>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// (d) FILTRATION COMPARISON — Betti numbers are invariant across lenses; only
+//     the persistence (how long-lived features are) differs. Lazily fetched.
+// ---------------------------------------------------------------------------
+function FiltrationComparison({ run }: { run: number }) {
+  const [rows, setRows] = useState<FiltrationSummary[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    setLoading(true);
+    setError(null);
+    setRows([]);
+    api
+      .tdaCompare(run)
+      .then((r) => {
+        if (!live) return;
+        setRows(r);
+      })
+      .catch((e) => {
+        if (!live) return;
+        setError(e instanceof ApiError ? e.message : 'failed to load filtration comparison');
+      })
+      .finally(() => live && setLoading(false));
+    return () => {
+      live = false;
+    };
+  }, [run]);
+
+  return (
+    <section className="mt-4">
+      <SectionHeader>Filtration comparison</SectionHeader>
+
+      {error ? (
+        <Callout tone="bad" role="alert">{error}</Callout>
+      ) : loading && rows.length === 0 ? (
+        <PanelState kind="loading">Comparing filtration lenses…</PanelState>
+      ) : rows.length === 0 ? (
+        <PanelState kind="empty">No filtration comparison available for this run.</PanelState>
+      ) : (
+        <>
+          <table className="w-full text-mini tabular-nums">
+            <thead className="text-muted">
+              <tr>
+                <th className="text-left font-medium">filtration</th>
+                <th className="text-right font-medium">H₀</th>
+                <th className="text-right font-medium">H₁</th>
+                <th className="text-right font-medium">finite bars</th>
+                <th className="text-right font-medium text-ink">Σ persistence</th>
+                <th className="text-right font-medium text-ink">max persistence</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.filtration} className="border-t border-line">
+                  <td className="py-0.5 font-mono">{r.filtration}</td>
+                  <td className="text-right">{r.h0_components}</td>
+                  <td className="text-right">{r.h1_loops}</td>
+                  <td className="text-right">{r.finite_bars}</td>
+                  <td className="text-right font-semibold text-ink">{fmt(r.total_persistence)}</td>
+                  <td className="text-right font-semibold text-ink">{fmt(r.max_persistence)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="text-muted text-micro mt-1">
+            H₀/H₁ Betti numbers are invariant across lenses; persistence shows how long-lived features are under each
+            filtration (depth / centrality / scope).
+          </p>
+        </>
+      )}
+    </section>
+  );
+}
+
 export default function TdaTab() {
   const barcode = useGraphStore((s) => s.barcode);
   const pairs = useGraphStore((s) => s.pairs);
@@ -300,7 +478,9 @@ export default function TdaTab() {
     return Math.max(1, stats?.max_depth ?? 0, dataMax) + 1;
   }, [stats?.max_depth, pairs]);
 
-  const activePair = feature?.pair ?? null;
+  // Only an H0/H1 generator marks a barcode/diagram glyph active; a void (dim 2)
+  // carries an array index here, not a pair id, so it never lights a plotted pair.
+  const activePair = feature != null && feature.dim !== 2 ? feature.pair : null;
 
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -440,6 +620,9 @@ export default function TdaTab() {
           )}
         </>
       )}
+
+      <VoidsSection run={run} />
+      <FiltrationComparison run={run} />
     </div>
   );
 }

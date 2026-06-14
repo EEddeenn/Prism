@@ -6,10 +6,11 @@
 //! the portable key.
 
 use prism_api::{
-    BarcodeView, CandidateView, ChokepointView, CycleView, DuplicateClusterView, FragmentationView,
-    GraphEdgeView, GraphNodeView, GraphStatsView, H2View, NeighborhoodView, PairView,
-    RiskProfileView, SccView, ScopeSummaryView, ShapeSignature, SupportObject, SupportView,
-    WorkspaceRegion,
+    BarcodeView, CandidateView, ChokepointView, CycleView, DiamondReuseView, DuplicateClusterView,
+    DuplicateRootCauseView, ExplanationView, FiltrationSummary, FragmentationView, GraphEdgeView,
+    GraphNodeView, GraphStatsView, H2View, MinimalView, NeighborhoodView, OverlapView, PairView,
+    RiskProfileView, SccView, ScopeSummaryView, ShapeSignature, Subsystem, SupportObject,
+    SupportView, TopologyDistanceView, WorkspaceRegion,
 };
 use prism_model::{CandidateReason, ExclusionReason};
 
@@ -439,6 +440,219 @@ pub fn h2(w: &mut JsonWriter, h: &H2View) {
     w.end_object();
 }
 
+/// Write a "why is this here?" [`ExplanationView`] as a JSON object: the target
+/// occurrence, its direct introducers (with the kinds they pull it in by), a few
+/// shortest root→target paths, and the nearest first-party owner.
+pub fn explanation(w: &mut JsonWriter, v: &ExplanationView) {
+    w.begin_object();
+    w.key("target");
+    node(w, &v.target);
+    w.key("introducers");
+    w.begin_array();
+    for i in &v.introducers {
+        w.begin_object();
+        w.key("node");
+        node(w, &i.node);
+        w.key("kinds");
+        w.begin_array();
+        for k in &i.kinds {
+            w.str_value(k);
+        }
+        w.end_array();
+        w.end_object();
+    }
+    w.end_array();
+    w.key("paths");
+    w.begin_array();
+    for path in &v.paths {
+        w.begin_array();
+        for n in path {
+            node(w, n);
+        }
+        w.end_array();
+    }
+    w.end_array();
+    w.key("nearest_owner");
+    match &v.nearest_owner {
+        Some(n) => node(w, n),
+        None => w.null_value(),
+    }
+    w.field_u64("owner_distance", v.owner_distance as u64);
+    w.field_bool("production_reachable", v.production_reachable);
+    w.field_bool("non_production_only", v.non_production_only);
+    w.end_object();
+}
+
+/// Write the duplicate-version root-cause report as a JSON array, one object per
+/// fragmented family with its versions, the (introducer, constraint) pairs that
+/// pin each, and the convergence verdict + severity.
+pub fn duplicate_root_causes(w: &mut JsonWriter, views: &[DuplicateRootCauseView]) {
+    w.begin_array();
+    for v in views {
+        w.begin_object();
+        w.field_u64("package_id", v.package.get());
+        w.field_str("package_purl", &v.package_purl);
+        w.key("versions");
+        w.begin_array();
+        for ver in &v.versions {
+            w.begin_object();
+            w.field_u64("version_id", ver.version.get());
+            w.field_str("purl", &ver.purl);
+            w.field_u64("occurrences", ver.occurrences as u64);
+            w.key("introducers");
+            w.begin_array();
+            for ci in &ver.introducers {
+                w.begin_object();
+                w.field_str("introducer_purl", &ci.introducer_purl);
+                w.field_str("constraint", &ci.constraint);
+                w.end_object();
+            }
+            w.end_array();
+            w.end_object();
+        }
+        w.end_array();
+        w.field_u64("occurrence_count", v.occurrence_count as u64);
+        w.field_u64("blast_radius", v.blast_radius as u64);
+        w.field_u64("distinct_constraints", v.distinct_constraints as u64);
+        w.field_str("convergence", v.convergence);
+        w.field_u64("risk_score", v.risk_score as u64);
+        w.end_object();
+    }
+    w.end_array();
+}
+
+/// Write the top-level subsystem partition as a JSON array.
+pub fn subsystems(w: &mut JsonWriter, subs: &[Subsystem]) {
+    w.begin_array();
+    for s in subs {
+        w.begin_object();
+        w.field_str("owner_purl", &s.owner_purl);
+        w.field_u64("size", s.size as u64);
+        w.field_u64("exclusive", s.exclusive as u64);
+        w.field_bool("runtime", s.runtime);
+        w.end_object();
+    }
+    w.end_array();
+}
+
+/// Write the diamond-reuse summary as a JSON object: total reconvergence and the
+/// top shared foundations that close the most independent loops.
+pub fn diamonds(w: &mut JsonWriter, v: &DiamondReuseView) {
+    w.begin_object();
+    w.field_u64("run", v.run.get());
+    w.field_u64("total_reconvergence", v.total_reconvergence as u64);
+    w.field_u64("top_share_pct", v.top_share_pct as u64);
+    w.key("foundations");
+    w.begin_array();
+    for d in &v.foundations {
+        w.begin_object();
+        w.field_str("purl", &d.purl);
+        w.field_u64("parents", d.parents as u64);
+        w.field_u64("reconvergence", d.reconvergence as u64);
+        w.key("sample_parents");
+        w.begin_array();
+        for p in &d.sample_parents {
+            w.str_value(p);
+        }
+        w.end_array();
+        w.end_object();
+    }
+    w.end_array();
+    w.end_object();
+}
+
+/// Write the minimal (dominator-tree) explanation view as a JSON object.
+pub fn minimal(w: &mut JsonWriter, v: &MinimalView) {
+    w.begin_object();
+    w.field_u64("run", v.run.get());
+    w.field_u64("original_edges", v.original_edges as u64);
+    w.field_u64("reduced_edges", v.reduced_edges as u64);
+    w.key("edges");
+    w.begin_array();
+    for e in &v.edges {
+        w.begin_object();
+        w.field_str("gateway", &e.gateway);
+        w.field_str("node", &e.node);
+        w.end_object();
+    }
+    w.end_array();
+    w.end_object();
+}
+
+/// Write the topology shape distance between two runs as a JSON object. The
+/// signed `change_pct` rides the `f64` writer (it is always integral).
+pub fn topology_distance(w: &mut JsonWriter, v: &TopologyDistanceView) {
+    w.begin_object();
+    w.field_u64("base", v.base.get());
+    w.field_u64("head", v.head.get());
+    w.field_u64("distance_pct", v.distance_pct as u64);
+    w.key("deltas");
+    w.begin_array();
+    for d in &v.deltas {
+        w.begin_object();
+        w.field_str("metric", d.metric);
+        w.field_u64("base", d.base as u64);
+        w.field_u64("head", d.head as u64);
+        w.key("change_pct");
+        w.f64_value(d.change_pct as f64);
+        w.end_object();
+    }
+    w.end_array();
+    w.end_object();
+}
+
+/// Write the higher-order overlap report as a JSON object: packages shared by
+/// multiple subsystems, and the subsystem pairs with the largest shared surface.
+pub fn overlap(w: &mut JsonWriter, v: &OverlapView) {
+    w.begin_object();
+    w.field_u64("run", v.run.get());
+    w.field_u64("subsystems", v.subsystems as u64);
+    w.key("shared_surfaces");
+    w.begin_array();
+    for s in &v.shared_surfaces {
+        w.begin_object();
+        w.field_str("purl", &s.purl);
+        w.field_u64("spread", s.spread as u64);
+        w.key("subsystems");
+        w.begin_array();
+        for owner in &s.subsystems {
+            w.str_value(owner);
+        }
+        w.end_array();
+        w.end_object();
+    }
+    w.end_array();
+    w.key("top_pairs");
+    w.begin_array();
+    for p in &v.top_pairs {
+        w.begin_object();
+        w.field_str("a", &p.a);
+        w.field_str("b", &p.b);
+        w.field_u64("shared", p.shared as u64);
+        w.end_object();
+    }
+    w.end_array();
+    w.end_object();
+}
+
+/// Write the multi-filtration comparison as a JSON array, one row per lens.
+pub fn filtration_compare(w: &mut JsonWriter, rows: &[FiltrationSummary]) {
+    w.begin_array();
+    for r in rows {
+        w.begin_object();
+        w.field_str("filtration", r.filtration);
+        w.field_u64("h0_components", r.h0_components as u64);
+        w.field_u64("h1_loops", r.h1_loops as u64);
+        w.field_u64("finite_bars", r.finite_bars as u64);
+        w.key("total_persistence");
+        w.f64_value(r.total_persistence);
+        w.key("max_persistence");
+        w.f64_value(r.max_persistence);
+        w.end_object();
+    }
+    w.end_array();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -553,6 +767,103 @@ mod tests {
         assert!(out.contains(r#""type":"edge""#));
         assert!(out.contains(r#""source":2"#));
         assert!(out.contains(r#""target":5"#));
+    }
+
+    #[test]
+    fn explanation_object_has_target_and_paths() {
+        use prism_api::{ExplanationView, IntroducerView};
+        let v = ExplanationView {
+            target: sample_node(),
+            introducers: vec![IntroducerView {
+                node: sample_node(),
+                kinds: vec!["runtime", "build"],
+            }],
+            paths: vec![vec![sample_node(), sample_node()]],
+            nearest_owner: None,
+            owner_distance: 2,
+            production_reachable: true,
+            non_production_only: false,
+        };
+        let mut w = JsonWriter::new();
+        explanation(&mut w, &v);
+        let out = w.finish();
+        assert!(out.contains(r#""kinds":["runtime","build"]"#), "{out}");
+        assert!(out.contains(r#""nearest_owner":null"#), "{out}");
+        assert!(out.contains(r#""owner_distance":2"#));
+        assert!(out.contains(r#""production_reachable":true"#));
+    }
+
+    #[test]
+    fn distance_object_serializes_negative_change() {
+        use prism_api::{MetricDelta, TopologyDistanceView};
+        let v = TopologyDistanceView {
+            base: RunId::new(1),
+            head: RunId::new(2),
+            distance_pct: 30,
+            deltas: vec![MetricDelta {
+                metric: "edges",
+                base: 100,
+                head: 50,
+                change_pct: -50,
+            }],
+        };
+        let mut w = JsonWriter::new();
+        topology_distance(&mut w, &v);
+        let out = w.finish();
+        assert!(out.contains(r#""distance_pct":30"#), "{out}");
+        // Signed change must round-trip as a negative integer, not null.
+        assert!(out.contains(r#""change_pct":-50"#), "{out}");
+    }
+
+    #[test]
+    fn compare_array_carries_persistence() {
+        use prism_api::FiltrationSummary;
+        let rows = vec![FiltrationSummary {
+            filtration: "depth",
+            h0_components: 1,
+            h1_loops: 4,
+            finite_bars: 9,
+            total_persistence: 12.5,
+            max_persistence: 3.0,
+        }];
+        let mut w = JsonWriter::new();
+        filtration_compare(&mut w, &rows);
+        let out = w.finish();
+        assert!(out.contains(r#""filtration":"depth""#), "{out}");
+        assert!(out.contains(r#""h1_loops":4"#));
+        assert!(out.contains(r#""total_persistence":12.5"#), "{out}");
+        assert!(out.contains(r#""max_persistence":3"#), "{out}");
+    }
+
+    #[test]
+    fn dup_causes_array_nests_introducers() {
+        use prism_api::{ConstraintIntroducer, DuplicateRootCauseView, DuplicateVersionCause};
+        use prism_model::{PackageId, VersionId};
+        let views = vec![DuplicateRootCauseView {
+            package: PackageId::new(3),
+            package_purl: "pkg:npm/lodash".into(),
+            versions: vec![DuplicateVersionCause {
+                version: VersionId::new(7),
+                purl: "pkg:npm/lodash@4.0.0".into(),
+                occurrences: 2,
+                introducers: vec![ConstraintIntroducer {
+                    introducer_purl: "pkg:npm/a@1.0.0".into(),
+                    constraint: "^4".into(),
+                }],
+            }],
+            occurrence_count: 5,
+            blast_radius: 8,
+            distinct_constraints: 2,
+            convergence: "diverged",
+            risk_score: 24,
+        }];
+        let mut w = JsonWriter::new();
+        duplicate_root_causes(&mut w, &views);
+        let out = w.finish();
+        assert!(out.contains(r#""convergence":"diverged""#), "{out}");
+        assert!(out.contains(r#""constraint":"^4""#), "{out}");
+        assert!(out.contains(r#""distinct_constraints":2"#));
+        assert!(out.contains(r#""blast_radius":8"#));
     }
 
     #[test]

@@ -9,6 +9,8 @@ import type {
   Barcode, CandidatesResp, DuplicateCluster, ExportResp, GraphStats, NeighborhoodResp,
   RunMeta, RunSummary, SccComp, StatusResp, TdaPairsResp, TdaSupport,
   RiskProfile, Chokepoint, ClassifiedCycle, Fragmentation, ScopeRow, WorkspaceRegion,
+  Explanation, DuplicateRootCause, Subsystem, DiamondReuse, MinimalView, OverlapView,
+  TopologyDistance, H2View, FiltrationSummary,
 } from './types';
 
 const BASE = process.env.NEXT_PUBLIC_PRISM_API ?? '';
@@ -71,4 +73,21 @@ export const api = {
   fragmentation: (run: number) => getJson<Fragmentation>(`/api/graph/fragmentation?run=${run}`),
   scope: (run: number) => getJson<ScopeRow[]>(`/api/graph/scope?run=${run}`),
   regions: () => getJson<WorkspaceRegion[]>('/api/regions'),
+
+  // Interpretive analytics (formerly CLI-only) ------------------------------
+  why: (run: number, node: number) =>
+    getJson<Explanation>(`/api/graph/why?run=${run}&node=${node}`),
+  dupCauses: (run: number) => getJson<DuplicateRootCause[]>(`/api/graph/dup-causes?run=${run}`),
+  subsystems: (run: number) => getJson<Subsystem[]>(`/api/graph/subsystems?run=${run}`),
+  diamonds: (run: number, limit = 12) =>
+    getJson<DiamondReuse>(`/api/graph/diamonds?run=${run}&limit=${limit}`),
+  minimal: (run: number) => getJson<MinimalView>(`/api/graph/minimal?run=${run}`),
+  shared: (run: number, limit = 12) =>
+    getJson<OverlapView>(`/api/graph/shared?run=${run}&limit=${limit}`),
+  distance: (base: number, head: number) =>
+    getJson<TopologyDistance>(`/api/graph/distance?base=${base}&head=${head}`),
+
+  // TDA: H2 voids + multi-filtration comparison -----------------------------
+  h2: (run: number) => getJson<H2View>(`/api/graph/h2?run=${run}`),
+  tdaCompare: (run: number) => getJson<FiltrationSummary[]>(`/api/tda/compare?run=${run}`),
 };

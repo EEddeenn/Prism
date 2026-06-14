@@ -47,10 +47,12 @@ export function node3dStyle(n: GraphNode, c: StyleCtx): NodeStyle {
   if (c.dup.has(n.version_id)) neutral = PALETTE.dup;
 
   let style: NodeStyle;
-  // TDA mode: the selected feature's generator support is the focus.
+  // TDA mode: the selected feature's generator support is the focus. Dim-2 voids
+  // light up VIOLET; dim 0/1 generators stay GOLD.
   if (c.mode === 'tda' && c.feature) {
+    const litCol = c.feature.dim === 2 ? PALETTE.void : PALETTE.gen;
     style = c.feature.nodeIds.has(n.id)
-      ? { color: PALETTE.gen, scale: base * 1.5, dim: false, label: true, glow: true }
+      ? { color: litCol, scale: base * 1.5, dim: false, label: true, glow: true }
       : { color: dimHex(neutral, 0.82), scale: base * 0.6, dim: true, label: false, glow: false };
   } else if (c.sel != null) {
     if (n.id === c.sel) style = { color: PALETTE.center, scale: base * 1.5, dim: false, label: true, glow: true };

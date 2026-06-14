@@ -67,7 +67,8 @@ export default function Edges({ layout }: { layout: Layout3D }) {
       if (!edgeVisible(e, edgeFilter)) {
         hex = PALETTE.edge; fade = 0.93; // filtered out by the edge lens
       } else if (feat) {
-        if (feature!.edgeKeys.has(`${e.source}>${e.target}`)) litHex = PALETTE.gen;
+        if (feature!.edgeKeys.has(`${e.source}>${e.target}`))
+          litHex = feature!.dim === 2 ? PALETTE.void : PALETTE.gen;
         else fade = 0.9;
       } else if (hasSel) {
         if (fwd.has(e.source) && fwd.has(e.target)) litHex = PALETTE.fwd;

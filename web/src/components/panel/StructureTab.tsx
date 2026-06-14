@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useGraphStore } from '@/store/useGraphStore';
 import { api, ApiError } from '@/lib/api';
 import { shortLabel } from '@/lib/palette';
@@ -18,6 +18,7 @@ import {
 } from '@/components/ui';
 import type {
   RiskProfile, Chokepoint, ClassifiedCycle, Fragmentation, ScopeRow,
+  Subsystem, DiamondReuse, MinimalView, OverlapView,
 } from '@/lib/types';
 
 /** Tone a 0–100 risk score (low → high) so risk red matches the shared `bad` red. */
@@ -47,12 +48,39 @@ const CYCLE_TONE: Record<string, Tone> = {
 };
 
 /**
+ * Render a purl's shortLabel: a clickable button selecting its node when the purl
+ * maps to one in the loaded graph (e.g. a versioned purl), else plain text (e.g. a
+ * base purl with no `@version`).
+ */
+function PurlLabel({
+  purl, id, selectNode, className,
+}: {
+  purl: string;
+  id: number | undefined;
+  selectNode: (id: number) => void;
+  className?: string;
+}) {
+  const label = shortLabel(purl);
+  if (id == null) return <span className={className}>{label}</span>;
+  return (
+    <button
+      type="button"
+      onClick={() => selectNode(id)}
+      className={`text-left hover:text-accent transition-colors ${className ?? ''}`}
+    >
+      {label}
+    </button>
+  );
+}
+
+/**
  * The Structure tab: a server-computed structural-analysis dashboard — risk
  * profile, scope footprints, chokepoints, classified cycles, and fragmentation —
  * surfacing the prism-api structural views the 2D/3D leaderboards cannot.
  */
 export default function StructureTab() {
   const run = useGraphStore((s) => s.run);
+  const nodes = useGraphStore((s) => s.nodes);
   const selectNode = useGraphStore((s) => s.selectNode);
 
   const [risk, setRisk] = useState<RiskProfile | null>(null);
@@ -60,8 +88,19 @@ export default function StructureTab() {
   const [chokepoints, setChokepoints] = useState<Chokepoint[]>([]);
   const [cycles, setCycles] = useState<ClassifiedCycle[]>([]);
   const [frag, setFrag] = useState<Fragmentation | null>(null);
+  const [subsystems, setSubsystems] = useState<Subsystem[]>([]);
+  const [diamonds, setDiamonds] = useState<DiamondReuse | null>(null);
+  const [minimal, setMinimal] = useState<MinimalView | null>(null);
+  const [shared, setShared] = useState<OverlapView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  /** purl → node id, for making owner/foundation purls clickable. */
+  const purlToId = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const n of nodes) m.set(n.purl, n.id);
+    return m;
+  }, [nodes]);
 
   useEffect(() => {
     if (run == null) return;
@@ -74,10 +113,15 @@ export default function StructureTab() {
       api.chokepoints(run, 10),
       api.classifiedCycles(run),
       api.fragmentation(run),
+      api.subsystems(run),
+      api.diamonds(run, 8),
+      api.minimal(run),
+      api.shared(run, 8),
     ])
-      .then(([r, sc, cp, cy, fr]) => {
+      .then(([r, sc, cp, cy, fr, sub, dia, min, shr]) => {
         if (!live) return;
         setRisk(r); setScope(sc); setChokepoints(cp); setCycles(cy); setFrag(fr);
+        setSubsystems(sub); setDiamonds(dia); setMinimal(min); setShared(shr);
       })
       .catch((e) => {
         if (!live) return;
@@ -147,6 +191,84 @@ export default function StructureTab() {
         </section>
       )}
 
+      {/* Subsystems — the top-level partition */}
+      {subsystems.length > 0 && (() => {
+        const sorted = [...subsystems].sort((a, b) => b.size - a.size);
+        const maxSize = sorted[0]?.size ?? 1;
+        const shown = sorted.slice(0, 8);
+        const more = sorted.length - shown.length;
+        return (
+          <section>
+            <SectionHeader count={subsystems.length}>Subsystems</SectionHeader>
+            <p className="text-muted text-micro mb-1.5">the top-level partition: who owns what.</p>
+            <ul className="flex flex-col gap-1">
+              {shown.map((sub) => (
+                <li key={sub.owner_purl} className="flex items-center gap-2">
+                  <PurlLabel
+                    purl={sub.owner_purl}
+                    id={purlToId.get(sub.owner_purl)}
+                    selectNode={selectNode}
+                    className="text-mini truncate min-w-0 flex-[2]"
+                  />
+                  <StatBar
+                    value={sub.size}
+                    max={maxSize}
+                    tone="accent"
+                    ariaLabel={`${shortLabel(sub.owner_purl)} subsystem size ${sub.size}`}
+                    className="flex-1"
+                  />
+                  <span className="w-[34px] text-right text-mini tabular-nums shrink-0">{sub.size}</span>
+                  <span className="w-[44px] text-right text-micro text-muted tabular-nums shrink-0" title={`${sub.exclusive} exclusive`}>
+                    {sub.exclusive} excl
+                  </span>
+                  <Badge tone={sub.runtime ? 'ok' : 'muted'}>{sub.runtime ? 'runtime' : 'dev'}</Badge>
+                </li>
+              ))}
+            </ul>
+            {more > 0 && <p className="text-muted text-micro mt-1">… +{more} more</p>}
+          </section>
+        );
+      })()}
+
+      {/* Shared surfaces — packages spanning multiple subsystems */}
+      {shared && (
+        <section>
+          <SectionHeader>Shared surfaces</SectionHeader>
+          {shared.shared_surfaces.length === 0 ? (
+            <p className="text-muted text-mini">
+              Only {shared.subsystems} subsystem{shared.subsystems === 1 ? '' : 's'} — no packages span multiple subsystems.
+            </p>
+          ) : (
+            <>
+              <p className="text-muted text-micro mb-1.5">packages reached across more than one subsystem.</p>
+              <ul className="flex flex-col gap-1">
+                {shared.shared_surfaces.map((s) => (
+                  <li key={s.purl} className="flex items-center gap-2 text-mini">
+                    <PurlLabel
+                      purl={s.purl}
+                      id={purlToId.get(s.purl)}
+                      selectNode={selectNode}
+                      className="truncate min-w-0 flex-1"
+                    />
+                    <span className="text-muted text-micro tabular-nums shrink-0">in {s.spread} subsystems</span>
+                  </li>
+                ))}
+              </ul>
+              {shared.top_pairs.length > 0 && (
+                <ul className="flex flex-col gap-1 mt-1.5">
+                  {shared.top_pairs.map((p, i) => (
+                    <li key={i} className="text-micro text-muted px-2.5 py-1 rounded-md bg-panel-2 truncate">
+                      <span className="text-ink">{shortLabel(p.a)}</span> ∩ <span className="text-ink">{shortLabel(p.b)}</span>:{' '}
+                      <span className="tabular-nums">{p.shared}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+        </section>
+      )}
+
       {/* Chokepoints */}
       {chokepoints.length > 0 && (
         <section>
@@ -190,6 +312,70 @@ export default function StructureTab() {
           </ul>
         )}
       </section>
+
+      {/* Diamond reuse */}
+      {diamonds && (
+        <section>
+          <SectionHeader>Diamond reuse</SectionHeader>
+          <div className="flex items-baseline gap-2 mb-1">
+            <span className="text-head font-semibold tabular-nums">{diamonds.total_reconvergence}</span>
+            <span className="text-muted text-mini">reconvergence</span>
+          </div>
+          {diamonds.foundations.length > 0 && (
+            <p className="text-muted text-micro mb-1.5">
+              top {diamonds.foundations.length} foundation{diamonds.foundations.length === 1 ? '' : 's'} carry {Math.round(diamonds.top_share_pct)}% of reconvergence.
+            </p>
+          )}
+          {diamonds.foundations.length === 0 ? (
+            <p className="text-muted text-mini">no shared foundations.</p>
+          ) : (
+            <ul className="flex flex-col gap-1">
+              {diamonds.foundations.map((f) => (
+                <li key={f.purl} className="flex items-center gap-2 text-mini">
+                  <PurlLabel
+                    purl={f.purl}
+                    id={purlToId.get(f.purl)}
+                    selectNode={selectNode}
+                    className="truncate min-w-0 flex-1"
+                  />
+                  <span className="text-muted text-micro tabular-nums shrink-0" title={`${f.parents} parents`}>{f.parents} parents</span>
+                  <span className="text-accent text-micro tabular-nums shrink-0 w-[40px] text-right" title={`${f.reconvergence} reconvergence`}>{f.reconvergence}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="text-muted text-micro mt-1">shared foundations reached along many paths — the diamonds that create reconvergence (≈ the H₁ loop count).</p>
+        </section>
+      )}
+
+      {/* Minimal skeleton */}
+      {minimal && (
+        <section>
+          <SectionHeader>Minimal skeleton</SectionHeader>
+          <div className="flex items-baseline gap-2 mb-1">
+            <span className="text-head font-semibold tabular-nums">{minimal.original_edges}</span>
+            <span className="text-muted text-mini">→</span>
+            <span className="text-head font-semibold tabular-nums">{minimal.reduced_edges}</span>
+            {minimal.original_edges > 0 && (
+              <span className="text-muted text-mini tabular-nums">
+                −{Math.round(100 * (1 - minimal.reduced_edges / minimal.original_edges))}%
+              </span>
+            )}
+          </div>
+          <p className="text-muted text-micro">the dominator skeleton: the edges that actually control reachability.</p>
+          {minimal.edges.length > 0 && (
+            <ul className="flex flex-col gap-1 mt-1.5">
+              {minimal.edges.slice(0, 6).map((e, i) => (
+                <li key={i} className="flex items-center gap-1.5 text-micro text-muted truncate">
+                  <span className="text-ink truncate min-w-0">{shortLabel(e.gateway)}</span>
+                  <span className="shrink-0">→</span>
+                  <span className="text-ink truncate min-w-0">{shortLabel(e.node)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       {/* Fragmentation */}
       {frag && (

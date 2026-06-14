@@ -241,3 +241,144 @@ export interface WorkspaceRegion {
   risk_score: number;
   risk_band: string;
 }
+
+// --- "Why is this here?" (graph/why) ---------------------------------------
+
+export interface Introducer {
+  node: GraphNode;
+  kinds: string[];
+}
+
+export interface Explanation {
+  target: GraphNode;
+  introducers: Introducer[];
+  paths: GraphNode[][];
+  nearest_owner: GraphNode | null;
+  owner_distance: number;
+  production_reachable: boolean;
+  non_production_only: boolean;
+}
+
+// --- Duplicate-version root cause (graph/dup-causes) ------------------------
+
+export interface ConstraintIntroducer {
+  introducer_purl: string;
+  constraint: string;
+}
+
+export interface DuplicateVersionCause {
+  version_id: number;
+  purl: string;
+  occurrences: number;
+  introducers: ConstraintIntroducer[];
+}
+
+export interface DuplicateRootCause {
+  package_id: number;
+  package_purl: string;
+  versions: DuplicateVersionCause[];
+  occurrence_count: number;
+  blast_radius: number;
+  distinct_constraints: number;
+  convergence: string;
+  risk_score: number;
+}
+
+// --- Subsystem partition (graph/subsystems) --------------------------------
+
+export interface Subsystem {
+  owner_purl: string;
+  size: number;
+  exclusive: number;
+  runtime: boolean;
+}
+
+// --- Diamond reuse (graph/diamonds) ----------------------------------------
+
+export interface DiamondNode {
+  purl: string;
+  parents: number;
+  reconvergence: number;
+  sample_parents: string[];
+}
+
+export interface DiamondReuse {
+  run: number;
+  total_reconvergence: number;
+  top_share_pct: number;
+  foundations: DiamondNode[];
+}
+
+// --- Minimal dominator skeleton (graph/minimal) ----------------------------
+
+export interface MinimalEdge {
+  gateway: string;
+  node: string;
+}
+
+export interface MinimalView {
+  run: number;
+  original_edges: number;
+  reduced_edges: number;
+  edges: MinimalEdge[];
+}
+
+// --- Higher-order overlap (graph/shared) -----------------------------------
+
+export interface SharedSurface {
+  purl: string;
+  spread: number;
+  subsystems: string[];
+}
+
+export interface OverlapPair {
+  a: string;
+  b: string;
+  shared: number;
+}
+
+export interface OverlapView {
+  run: number;
+  subsystems: number;
+  shared_surfaces: SharedSurface[];
+  top_pairs: OverlapPair[];
+}
+
+// --- Topology shape distance (graph/distance) ------------------------------
+
+export interface MetricDelta {
+  metric: string;
+  base: number;
+  head: number;
+  change_pct: number;
+}
+
+export interface TopologyDistance {
+  base: number;
+  head: number;
+  distance_pct: number;
+  deltas: MetricDelta[];
+}
+
+// --- TDA: H2 voids (graph/h2) ----------------------------------------------
+
+export interface H2View {
+  run: number;
+  betti0: number;
+  betti1: number;
+  betti2: number;
+  triangles: number;
+  /** Each void is the cycle of package occurrences bounding a 2-dimensional hole. */
+  voids: GraphNode[][];
+}
+
+// --- TDA: multi-filtration comparison (tda/compare) ------------------------
+
+export interface FiltrationSummary {
+  filtration: string;
+  h0_components: number;
+  h1_loops: number;
+  finite_bars: number;
+  total_persistence: number;
+  max_persistence: number;
+}

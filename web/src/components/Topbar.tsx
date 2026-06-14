@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useGraphStore } from '@/store/useGraphStore';
 import { EDGE_FILTER_LABELS } from '@/lib/edges';
 import { SegmentedControl, type SegOption } from '@/components/ui';
+import Logo from '@/components/Logo';
 import type { EdgeFilter, View } from '@/lib/types';
 
 const VIEW_LABELS: Record<View, string> = { '2d': '2D', '3d': '3D', map: 'Map' };
@@ -58,11 +59,13 @@ export default function Topbar() {
 
   return (
     <header className="flex flex-wrap items-center gap-3 px-4 py-2 border-b border-line bg-gradient-to-b from-[#181c28] to-panel">
-      {/* nav cluster: brand + run pickers */}
-      <span className="font-extrabold text-base tracking-wide text-accent">Prism</span>
-      <span className="text-mini uppercase tracking-[1px] text-muted -ml-1.5 mr-1">
-        dependency topology
-      </span>
+      {/* nav cluster: brand + run pickers. Logo + wordmark form a single
+          tight unit (negative gap pulls the word toward the mark), which
+          reads as one brand instead of two stacked items. */}
+      <div className="flex items-center gap-1.5 mr-1">
+        <Logo size={26} className="text-accent" />
+        <span className="font-extrabold text-base tracking-wide text-accent">Prism</span>
+      </div>
 
       <div className="flex items-center gap-1.5">
         <label htmlFor="run-select" className="text-body text-muted">Run</label>

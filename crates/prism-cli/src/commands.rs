@@ -338,6 +338,64 @@ pub fn graph_dup_causes(out: &mut dyn Write, run: u64) -> Result<()> {
     Ok(())
 }
 
+/// `prism graph diamonds --run <id> [--limit <n>]` — diamond-reuse foundations.
+pub fn graph_diamonds(out: &mut dyn Write, run: u64, limit: u32) -> Result<()> {
+    let prism = open_here()?;
+    let d = prism.diamond_reuse(RunId::new(run), limit as usize)?;
+    writeln!(
+        out,
+        "diamond reuse for run {run}: {} total reconvergence loops (~H1)",
+        d.total_reconvergence
+    )
+    .map_err(PrismError::Io)?;
+    if d.foundations.is_empty() {
+        writeln!(out, "  (no shared foundations — the graph is a forest)").map_err(PrismError::Io)?;
+        return Ok(());
+    }
+    writeln!(
+        out,
+        "  top {} foundations account for {}% of reconvergence:",
+        d.foundations.len(),
+        d.top_share_pct
+    )
+    .map_err(PrismError::Io)?;
+    for f in &d.foundations {
+        writeln!(
+            out,
+            "    {:>4} loops  {} ({} parents)",
+            f.reconvergence, f.purl, f.parents
+        )
+        .map_err(PrismError::Io)?;
+    }
+    Ok(())
+}
+
+/// `prism graph minimal --run <id>` — minimal (dominator-tree) explanation view.
+pub fn graph_minimal(out: &mut dyn Write, run: u64) -> Result<()> {
+    let prism = open_here()?;
+    let v = prism.minimal_view(RunId::new(run))?;
+    writeln!(
+        out,
+        "minimal explanation view for run {run}: {} → {} edges ({}% hidden)",
+        v.original_edges,
+        v.reduced_edges,
+        v.reduction_pct()
+    )
+    .map_err(PrismError::Io)?;
+    writeln!(
+        out,
+        "  (each package shown beneath the single gateway that controls its access)"
+    )
+    .map_err(PrismError::Io)?;
+    for e in v.edges.iter().take(20) {
+        writeln!(out, "    {} ▸ {}", e.gateway, e.node).map_err(PrismError::Io)?;
+    }
+    if v.edges.len() > 20 {
+        writeln!(out, "    … and {} more", v.edges.len() - 20).map_err(PrismError::Io)?;
+    }
+    Ok(())
+}
+
 /// `prism graph fidelity --run <id>` — per-metric fidelity notes.
 pub fn graph_fidelity(out: &mut dyn Write, run: u64) -> Result<()> {
     let prism = open_here()?;

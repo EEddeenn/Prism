@@ -92,6 +92,8 @@ where
         Command::GraphFragmentation { run } => commands::graph_fragmentation(out, *run),
         Command::GraphFidelity { run } => commands::graph_fidelity(out, *run),
         Command::GraphSubsystems { run } => commands::graph_subsystems(out, *run),
+        Command::GraphDiamonds { run, limit } => commands::graph_diamonds(out, *run, *limit),
+        Command::GraphMinimal { run } => commands::graph_minimal(out, *run),
         Command::Regions => commands::regions(out),
         Command::TdaRun { run, filtration } => commands::tda_run(out, *run, filtration),
         Command::TdaSupport { pair } => commands::tda_support(out, *pair),

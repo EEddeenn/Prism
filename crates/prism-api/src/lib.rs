@@ -41,6 +41,7 @@ mod query;
 mod raw;
 mod resolve;
 mod resolve_store;
+mod reuse_views;
 mod risk_views;
 mod run_diff;
 mod structure_views;
@@ -62,6 +63,7 @@ pub use ecosystem::{Ecosystem, CARGO_ECOSYSTEM_ID, NPM_ECOSYSTEM_ID};
 pub use fidelity_notes::{FidelityNote, FidelityReport};
 pub use ingest::{LockfileIngest, ManifestIngest};
 pub use resolve::SyntheticResolve;
+pub use reuse_views::{DiamondNode, DiamondReuseView, MinimalEdge, MinimalView};
 pub use risk_views::{FragmentationView, IslandView, RiskDimension, RiskProfileView};
 pub use run_diff::{CycleDiffEntry, HotspotShift, RunDiffView, ScopeShift};
 pub use structure_views::{

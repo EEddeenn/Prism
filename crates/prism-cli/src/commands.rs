@@ -338,6 +338,72 @@ pub fn graph_dup_causes(out: &mut dyn Write, run: u64) -> Result<()> {
     Ok(())
 }
 
+/// `prism graph fidelity --run <id>` — per-metric fidelity notes.
+pub fn graph_fidelity(out: &mut dyn Write, run: u64) -> Result<()> {
+    let prism = open_here()?;
+    let f = prism.fidelity_notes(RunId::new(run))?;
+    writeln!(out, "fidelity for run {run} ({}, {}):", f.ecosystem, f.tier).map_err(PrismError::Io)?;
+    for note in &f.notes {
+        writeln!(out, "  [{}] {}", note.topic, note.note).map_err(PrismError::Io)?;
+    }
+    Ok(())
+}
+
+/// `prism graph subsystems --run <id>` — top-level subsystem partition.
+pub fn graph_subsystems(out: &mut dyn Write, run: u64) -> Result<()> {
+    let prism = open_here()?;
+    let subs = prism.subsystems(RunId::new(run))?;
+    if subs.is_empty() {
+        writeln!(out, "no top-level subsystems in run {run}").map_err(PrismError::Io)?;
+        return Ok(());
+    }
+    writeln!(out, "{} subsystem(s) in run {run} (by size):", subs.len()).map_err(PrismError::Io)?;
+    for s in &subs {
+        let scope = if s.runtime { "runtime" } else { "non-runtime" };
+        writeln!(
+            out,
+            "  {:>5} pkgs ({:>4} exclusive) [{scope}]  {}",
+            s.size, s.exclusive, s.owner_purl
+        )
+        .map_err(PrismError::Io)?;
+    }
+    Ok(())
+}
+
+/// `prism regions` — every run as a comparable dependency region.
+pub fn regions(out: &mut dyn Write) -> Result<()> {
+    let prism = open_here()?;
+    let regions = prism.workspace_regions()?;
+    if regions.is_empty() {
+        writeln!(out, "no runs in this workspace").map_err(PrismError::Io)?;
+        return Ok(());
+    }
+    writeln!(out, "{} dependency region(s):", regions.len()).map_err(PrismError::Io)?;
+    writeln!(
+        out,
+        "  {:>5} {:<7} {:>6} {:>6} {:>8} {:>7} {:>5} {:>5}",
+        "run", "eco", "nodes", "edges", "runtime", "cycles", "dups", "risk"
+    )
+    .map_err(PrismError::Io)?;
+    for r in &regions {
+        writeln!(
+            out,
+            "  {:>5} {:<7} {:>6} {:>6} {:>8} {:>7} {:>5} {:>3}/{}",
+            r.run.get(),
+            r.ecosystem,
+            r.nodes,
+            r.edges,
+            r.runtime_footprint,
+            r.cycles,
+            r.duplicate_families,
+            r.risk_score,
+            r.risk_band
+        )
+        .map_err(PrismError::Io)?;
+    }
+    Ok(())
+}
+
 /// `prism graph risk --run <id>` — structural risk profile.
 pub fn graph_risk(out: &mut dyn Write, run: u64) -> Result<()> {
     let prism = open_here()?;

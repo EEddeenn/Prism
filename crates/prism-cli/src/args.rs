@@ -41,6 +41,12 @@ pub enum Command {
     GraphRisk { run: u64 },
     /// `prism graph fragmentation --run <id>` — connected-component breakdown.
     GraphFragmentation { run: u64 },
+    /// `prism graph fidelity --run <id>` — per-metric fidelity notes.
+    GraphFidelity { run: u64 },
+    /// `prism graph subsystems --run <id>` — top-level subsystem partition.
+    GraphSubsystems { run: u64 },
+    /// `prism regions` — every run as a comparable dependency region.
+    Regions,
     /// `prism tda run --run <id> [--filtration depth]`.
     TdaRun { run: u64, filtration: String },
     /// `prism tda support --pair <id>`.
@@ -139,6 +145,10 @@ where
         "status" => {
             reject_trailing(it)?;
             Ok(Command::Status)
+        }
+        "regions" => {
+            reject_trailing(it)?;
+            Ok(Command::Regions)
         }
         "graph" => parse_graph(it),
         "tda" => parse_tda(it),
@@ -302,6 +312,18 @@ fn parse_graph<'a, I: Iterator<Item = &'a str>>(mut it: I) -> Result<Command, Pa
             let run = flags.take_u64("--run")?;
             flags.finish()?;
             Ok(Command::GraphFragmentation { run })
+        }
+        "fidelity" => {
+            let mut flags = Flags::parse(it)?;
+            let run = flags.take_u64("--run")?;
+            flags.finish()?;
+            Ok(Command::GraphFidelity { run })
+        }
+        "subsystems" => {
+            let mut flags = Flags::parse(it)?;
+            let run = flags.take_u64("--run")?;
+            flags.finish()?;
+            Ok(Command::GraphSubsystems { run })
         }
         other => Err(ParseError::UnknownCommand(format!("graph {other}"))),
     }

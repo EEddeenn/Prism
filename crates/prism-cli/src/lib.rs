@@ -90,6 +90,9 @@ where
         Command::GraphDiff { base, head } => commands::graph_diff(out, *base, *head),
         Command::GraphRisk { run } => commands::graph_risk(out, *run),
         Command::GraphFragmentation { run } => commands::graph_fragmentation(out, *run),
+        Command::GraphFidelity { run } => commands::graph_fidelity(out, *run),
+        Command::GraphSubsystems { run } => commands::graph_subsystems(out, *run),
+        Command::Regions => commands::regions(out),
         Command::TdaRun { run, filtration } => commands::tda_run(out, *run, filtration),
         Command::TdaSupport { pair } => commands::tda_support(out, *pair),
         Command::Candidates {

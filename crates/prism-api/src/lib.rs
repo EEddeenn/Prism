@@ -31,8 +31,10 @@
 
 mod candidate_views;
 mod candidates;
+mod clusters;
 mod duplicate_rootcause;
 mod ecosystem;
+mod fidelity_notes;
 mod ingest;
 mod parse;
 mod query;
@@ -52,10 +54,12 @@ mod test_util;
 pub use candidate_views::{
     CandidateExclusion, CandidateVersion, CandidateView, ConflictPair, ConflictReportView,
 };
+pub use clusters::{Subsystem, WorkspaceRegion};
 pub use duplicate_rootcause::{
     ConstraintIntroducer, DuplicateRootCauseView, DuplicateVersionCause,
 };
 pub use ecosystem::{Ecosystem, CARGO_ECOSYSTEM_ID, NPM_ECOSYSTEM_ID};
+pub use fidelity_notes::{FidelityNote, FidelityReport};
 pub use ingest::{LockfileIngest, ManifestIngest};
 pub use resolve::SyntheticResolve;
 pub use risk_views::{FragmentationView, IslandView, RiskDimension, RiskProfileView};

@@ -35,6 +35,19 @@ pub enum Ecosystem {
     Uv,
 }
 
+/// Map a stored [`EcosystemId`] back to an [`Ecosystem`]. Because Bun shares
+/// [`NPM_ECOSYSTEM_ID`], the npm id resolves to [`Ecosystem::Npm`] (npm and bun
+/// graphs are indistinguishable once ingested, and analyze identically).
+pub(crate) fn ecosystem_of(id: EcosystemId) -> Ecosystem {
+    if id == CARGO_ECOSYSTEM_ID {
+        Ecosystem::Cargo
+    } else if id == PYPI_ECOSYSTEM_ID {
+        Ecosystem::Uv
+    } else {
+        Ecosystem::Npm
+    }
+}
+
 impl Ecosystem {
     /// The store-stable [`EcosystemId`] for this ecosystem.
     ///

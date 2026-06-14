@@ -3,7 +3,6 @@ name = "prism-plugin-cargo"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license.workspace = true
 description = "Cargo ecosystem plugin: Cargo.toml/Cargo.lock parsing and version semantics"
 
 [dependencies]

@@ -3,7 +3,6 @@ name = "prism-bundle"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license.workspace = true
 description = "Prism bundle (.prismbundle) single-file analysis format: pack/unpack a workspace's published files"
 
 [dependencies]

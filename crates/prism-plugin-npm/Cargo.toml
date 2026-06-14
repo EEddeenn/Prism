@@ -3,7 +3,6 @@ name = "prism-plugin-npm"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license.workspace = true
 description = "npm ecosystem plugin: package.json/package-lock.json parsing and semver semantics"
 
 [dependencies]

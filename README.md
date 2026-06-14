@@ -142,7 +142,3 @@ Known follow-ups: live registry fetching is out of scope for the offline v0.1 (r
 selects from versions already on hand), and `export` emits JSON and GraphML (both PURL-keyed,
 with the run's `GraphFidelity` in the header); Parquet export is recognized but deferred — a
 spec-compliant, dependency-free columnar writer is a later milestone.
-
-## License
-
-MIT OR Apache-2.0.

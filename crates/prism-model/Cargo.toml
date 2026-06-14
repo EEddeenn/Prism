@@ -3,7 +3,6 @@ name = "prism-model"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license.workspace = true
 description = "Canonical domain model: typed IDs, flags, and core entities for Prism"
 
 [lints]

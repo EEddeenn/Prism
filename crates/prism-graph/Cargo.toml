@@ -3,7 +3,6 @@ name = "prism-graph"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license.workspace = true
 description = "Immutable CSR graph snapshots, traversal, SCC, and duplicate-version analysis"
 
 [dependencies]

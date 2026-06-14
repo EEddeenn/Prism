@@ -24,6 +24,50 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { getBundle } from '@/lib/bundleStore';
 import { wasm } from '@/lib/wasm';
 import BundleDropzone from './BundleDropzone';
+import Logo from './Logo';
+
+const REPO_URL = 'https://github.com/EEddeenn/Prism';
+
+/** Octocat — the canonical GitHub mark. Inline so the footer link works
+ *  in any deploy environment without an external request. */
+function GitHubIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      width={14}
+      height={14}
+      aria-hidden
+      className={className}
+    >
+      <path
+        fillRule="evenodd"
+        d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
+      />
+    </svg>
+  );
+}
+
+/** The landing-page footer: a single, subtle row with the GitHub link.
+ *  Used only by the non-loaded states (idle / missing / error) — once a
+ *  bundle is open the Explorer takes the full viewport and renders its
+ *  own chrome. */
+function LandingFooter() {
+  return (
+    <footer className="flex items-center justify-center gap-2 py-4 text-mini text-muted border-t border-line">
+      <a
+        href={REPO_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Prism source on GitHub"
+        className="inline-flex items-center gap-1.5 hover:text-ink transition-colors"
+      >
+        <GitHubIcon />
+        <span>EEddeenn/Prism</span>
+      </a>
+    </footer>
+  );
+}
 
 type State =
   | { kind: 'idle' }
@@ -100,14 +144,18 @@ export default function WasmBundleLoader({ children }: { children: ReactNode }) 
 
   if (state.kind === 'loading') {
     return (
-      <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
+      <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-4">
+        <Logo size={44} className="text-accent opacity-80" />
         <p className="text-ink text-sm">Loading bundle…</p>
         <p className="text-muted text-xs font-mono break-all max-w-md">{state.sha}</p>
       </div>
     );
   }
 
-  // idle / missing / error: render the drop zone, with a hint when relevant.
+  // idle / missing / error: render the polished landing page (hero +
+  // drop zone + footer). When `?bundle=` was present but the bytes were
+  // missing or rejected, an extra hint appears between the dropzone and
+  // the deeper explanation.
   const hint =
     state.kind === 'missing'
       ? 'This bundle is not in this browser — re-upload the same .prismbundle to reopen it.'
@@ -116,21 +164,46 @@ export default function WasmBundleLoader({ children }: { children: ReactNode }) 
         : null;
 
   return (
-    <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-4">
-      <BundleDropzone />
-      {hint && (
-        <p
-          className={[
-            'text-xs max-w-md break-words',
-            state.kind === 'error' ? 'text-red-400' : 'text-muted',
-          ].join(' ')}
-        >
-          {hint}
-        </p>
-      )}
-      <p className="text-muted text-xs">
-        Or produce one with <code className="bg-panel-2 px-1.5 rounded">prism export bundle</code>.
-      </p>
+    <div className="flex flex-col min-h-full">
+      <main className="flex-1 flex flex-col items-center justify-center gap-7 px-6 py-12">
+        {/* Hero: logo + brand + tagline. The vertex tints on the logo
+            (sky / pink / gold) echo the H₀ / H₁ / H₂ palette used in the
+            TDA views, so the brand mark also reads as a small legend. */}
+        <header className="flex flex-col items-center gap-3 text-center">
+          <Logo size={64} className="text-accent" />
+          <h1 className="text-4xl font-extrabold tracking-tight text-accent leading-none">
+            Prism
+          </h1>
+          <p className="text-mini uppercase tracking-[2px] text-muted">
+            dependency topology
+          </p>
+        </header>
+
+        {/* Dropzone column, capped at a comfortable reading width so the
+            dashed border doesn't stretch across an ultrawide monitor. */}
+        <div className="w-full max-w-md flex flex-col gap-3">
+          <BundleDropzone />
+          {hint && (
+            <p
+              className={[
+                'text-xs text-center max-w-md break-words mx-auto',
+                state.kind === 'error' ? 'text-red-400' : 'text-muted',
+              ].join(' ')}
+              role={state.kind === 'error' ? 'alert' : undefined}
+            >
+              {hint}
+            </p>
+          )}
+          <p className="text-muted text-xs text-center">
+            Or produce one with{' '}
+            <code className="bg-panel-2 px-1.5 rounded">prism analyze</code>
+            {' / '}
+            <code className="bg-panel-2 px-1.5 rounded">prism export bundle</code>.
+          </p>
+        </div>
+      </main>
+
+      <LandingFooter />
     </div>
   );
 }

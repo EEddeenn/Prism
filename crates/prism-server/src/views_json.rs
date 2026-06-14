@@ -6,11 +6,12 @@
 //! the portable key.
 
 use prism_api::{
-    BarcodeView, CandidateView, ChokepointView, CycleView, DiamondReuseView, DuplicateClusterView,
-    DuplicateRootCauseView, ExplanationView, FiltrationSummary, FragmentationView, GraphEdgeView,
-    GraphNodeView, GraphStatsView, H2View, MinimalView, NeighborhoodView, OverlapView, PairView,
-    RiskProfileView, SccView, ScopeSummaryView, ShapeSignature, Subsystem, SupportObject,
-    SupportView, TopologyDistanceView, WorkspaceRegion,
+    BarcodeView, BudgetReport, CandidateView, ChokepointView, CycleView, DiamondReuseView,
+    DuplicateClusterView, DuplicateRootCauseView, ExplanationView, FidelityReport,
+    FiltrationSummary, FragmentationView, GraphEdgeView, GraphNodeView, GraphStatsView, H2View,
+    MinimalView, NeighborhoodView, OverlapView, OverlayReportView, PairView, RiskProfileView,
+    RunDiffView, SccView, ScopeSummaryView, ShapeSignature, Subsystem, SupportObject, SupportView,
+    TopologyDistanceView, WorkspaceRegion,
 };
 use prism_model::{CandidateReason, ExclusionReason};
 
@@ -629,6 +630,158 @@ pub fn overlap(w: &mut JsonWriter, v: &OverlapView) {
         w.field_str("a", &p.a);
         w.field_str("b", &p.b);
         w.field_u64("shared", p.shared as u64);
+        w.end_object();
+    }
+    w.end_array();
+    w.end_object();
+}
+
+/// Write per-metric fidelity caveats for a run.
+pub fn fidelity(w: &mut JsonWriter, r: &FidelityReport) {
+    w.begin_object();
+    w.field_u64("run", r.run.get());
+    w.field_str("tier", r.tier);
+    w.field_str("ecosystem", r.ecosystem);
+    w.key("notes");
+    w.begin_array();
+    for n in &r.notes {
+        w.begin_object();
+        w.field_str("topic", n.topic);
+        w.field_str("note", &n.note);
+        w.end_object();
+    }
+    w.end_array();
+    w.end_object();
+}
+
+/// Write the cross-run diff as a JSON object: scalar deltas, package/version
+/// add/remove lists, duplicate-family churn, cycle churn, per-scope shifts,
+/// and the top hotspot shifts. Signed integers ride the `f64` writer (counts
+/// never approach 2^53).
+pub fn run_diff(w: &mut JsonWriter, d: &RunDiffView) {
+    w.begin_object();
+    w.field_u64("base", d.base.get());
+    w.field_u64("head", d.head.get());
+    w.key("nodes_delta");
+    w.f64_value(d.nodes_delta as f64);
+    w.key("edges_delta");
+    w.f64_value(d.edges_delta as f64);
+    w.key("scc_delta");
+    w.f64_value(d.scc_delta as f64);
+    w.key("duplicate_families_delta");
+    w.f64_value(d.duplicate_families_delta as f64);
+    write_str_array(w, "added_packages", &d.added_packages);
+    write_str_array(w, "removed_packages", &d.removed_packages);
+    write_str_array(w, "added_versions", &d.added_versions);
+    write_str_array(w, "removed_versions", &d.removed_versions);
+    write_str_array(w, "new_duplicate_families", &d.new_duplicate_families);
+    write_str_array(w, "resolved_duplicate_families", &d.resolved_duplicate_families);
+    w.key("new_cycles");
+    w.begin_array();
+    for c in &d.new_cycles {
+        write_cycle_diff_entry(w, c);
+    }
+    w.end_array();
+    w.key("resolved_cycles");
+    w.begin_array();
+    for c in &d.resolved_cycles {
+        write_cycle_diff_entry(w, c);
+    }
+    w.end_array();
+    w.key("scope_shifts");
+    w.begin_array();
+    for s in &d.scope_shifts {
+        w.begin_object();
+        w.field_str("kind", s.kind);
+        w.key("footprint_delta");
+        w.f64_value(s.footprint_delta as f64);
+        w.key("exclusive_delta");
+        w.f64_value(s.exclusive_delta as f64);
+        w.end_object();
+    }
+    w.end_array();
+    w.key("new_hotspots");
+    w.begin_array();
+    for h in &d.new_hotspots {
+        w.begin_object();
+        w.field_str("package_purl", &h.package_purl);
+        w.field_u64("base_dominated", h.base_dominated as u64);
+        w.field_u64("head_dominated", h.head_dominated as u64);
+        w.end_object();
+    }
+    w.end_array();
+    w.end_object();
+}
+
+fn write_str_array(w: &mut JsonWriter, key: &str, items: &[String]) {
+    w.key(key);
+    w.begin_array();
+    for s in items {
+        w.str_value(s);
+    }
+    w.end_array();
+}
+
+fn write_cycle_diff_entry(w: &mut JsonWriter, c: &prism_api::CycleDiffEntry) {
+    w.begin_object();
+    w.field_u64("size", c.members.len() as u64);
+    w.field_str("class", c.class);
+    w.field_bool("runtime_relevant", c.runtime_relevant);
+    w.key("members");
+    w.begin_array();
+    for m in &c.members {
+        w.str_value(m);
+    }
+    w.end_array();
+    w.end_object();
+}
+
+/// Write a risk-overlay join report: per-finding priority, severity, blast
+/// radius, and reachability.
+pub fn overlay_report(w: &mut JsonWriter, r: &OverlayReportView) {
+    w.begin_object();
+    w.field_u64("run", r.run.get());
+    w.field_u64("entries", r.entries as u64);
+    w.field_u64("matched", r.matched as u64);
+    w.field_u64("production_findings", r.production_findings as u64);
+    w.key("findings");
+    w.begin_array();
+    for f in &r.findings {
+        w.begin_object();
+        w.field_str("purl", &f.purl);
+        w.field_str("category", &f.category);
+        w.field_str("severity", &f.severity);
+        w.field_str("note", &f.note);
+        w.field_u64("matched_occurrences", f.matched_occurrences as u64);
+        w.field_bool("production_reachable", f.production_reachable);
+        w.field_u64("blast_radius", f.blast_radius as u64);
+        w.field_u64("priority", f.priority as u64);
+        w.end_object();
+    }
+    w.end_array();
+    w.end_object();
+}
+
+/// Write a CI budget report: pass/fail, rules checked, and each violation.
+pub fn budget(w: &mut JsonWriter, r: &BudgetReport) {
+    w.begin_object();
+    w.field_u64("head", r.head.get());
+    w.key("base");
+    match r.base {
+        Some(b) => w.u64_value(b.get()),
+        None => w.null_value(),
+    }
+    w.field_bool("pass", r.pass);
+    w.field_u64("rules_checked", r.rules_checked as u64);
+    w.key("violations");
+    w.begin_array();
+    for v in &r.violations {
+        w.begin_object();
+        w.field_str("rule", &v.rule);
+        w.key("observed");
+        w.f64_value(v.observed as f64);
+        w.key("limit");
+        w.f64_value(v.limit as f64);
         w.end_object();
     }
     w.end_array();

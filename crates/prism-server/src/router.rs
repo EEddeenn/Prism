@@ -159,11 +159,15 @@ fn api_index_body() -> String {
         "/api/graph/dup-causes?run=",
         "/api/graph/risk?run=",
         "/api/graph/fragmentation?run=",
+        "/api/graph/fidelity?run=",
         "/api/graph/subsystems?run=",
         "/api/graph/diamonds?run=",
         "/api/graph/minimal?run=",
         "/api/graph/shared?run=",
         "/api/graph/distance?base=&head=",
+        "/api/graph/diff?base=&head=",
+        "/api/graph/overlay?run=&file=",
+        "/api/graph/budget?head=&file=",
         "/api/graph/shape?run=",
         "/api/graph/h2?run=",
         "/api/regions",
@@ -198,11 +202,15 @@ fn route_api(state: &AppState, rest: &str, q: &Query) -> ApiResult<String> {
         "graph/dup-causes" => api_dup_causes(state, q),
         "graph/risk" => api_risk(state, q),
         "graph/fragmentation" => api_fragmentation(state, q),
+        "graph/fidelity" => api_fidelity(state, q),
         "graph/subsystems" => api_subsystems(state, q),
         "graph/diamonds" => api_diamonds(state, q),
         "graph/minimal" => api_minimal(state, q),
         "graph/shared" => api_shared(state, q),
         "graph/distance" => api_distance(state, q),
+        "graph/diff" => api_diff(state, q),
+        "graph/overlay" => api_overlay(state, q),
+        "graph/budget" => api_budget(state, q),
         "graph/shape" => api_shape(state, q),
         "graph/h2" => api_h2(state, q),
         "regions" => api_regions(state),
@@ -569,6 +577,77 @@ fn api_fragmentation(state: &AppState, q: &Query) -> ApiResult<String> {
         let f = prism.fragmentation(run)?;
         let mut w = JsonWriter::new();
         views_json::fragmentation(&mut w, &f);
+        Ok(w.finish())
+    })
+}
+
+/// `GET /api/graph/fidelity?run=` — per-metric fidelity caveats.
+fn api_fidelity(state: &AppState, q: &Query) -> ApiResult<String> {
+    let run = run_param(q)?;
+    state.with_prism(|prism| {
+        let r = prism.fidelity_notes(run)?;
+        let mut w = JsonWriter::new();
+        views_json::fidelity(&mut w, &r);
+        Ok(w.finish())
+    })
+}
+
+/// `GET /api/graph/diff?base=&head=` — interpretive cross-run diff.
+fn api_diff(state: &AppState, q: &Query) -> ApiResult<String> {
+    let base = q
+        .u64("base")
+        .map(RunId::new)
+        .ok_or_else(|| ApiError::bad_request("missing or invalid 'base' parameter"))?;
+    let head = q
+        .u64("head")
+        .map(RunId::new)
+        .ok_or_else(|| ApiError::bad_request("missing or invalid 'head' parameter"))?;
+    state.with_prism(|prism| {
+        let d = prism.run_diff(base, head)?;
+        let mut w = JsonWriter::new();
+        views_json::run_diff(&mut w, &d);
+        Ok(w.finish())
+    })
+}
+
+/// `GET /api/graph/overlay?run=&file=` — join a risk overlay file to a run.
+/// The `file` parameter is a server-local path: the read-only service trusts
+/// its caller to point at a file on the same machine.
+fn api_overlay(state: &AppState, q: &Query) -> ApiResult<String> {
+    let run = run_param(q)?;
+    let file = q
+        .get("file")
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| ApiError::bad_request("missing 'file' parameter"))?;
+    let json = std::fs::read_to_string(file)
+        .map_err(|e| ApiError::bad_request(&format!("cannot read overlay file: {e}")))?;
+    state.with_prism(|prism| {
+        let r = prism.risk_overlay(run, &json)?;
+        let mut w = JsonWriter::new();
+        views_json::overlay_report(&mut w, &r);
+        Ok(w.finish())
+    })
+}
+
+/// `GET /api/graph/budget?head=[&base=]&file=` — CI topology budget gate.
+/// Returns the report unchanged; HTTP status stays 200 even when the report
+/// flags violations (the caller decides what to do with `pass: false`).
+fn api_budget(state: &AppState, q: &Query) -> ApiResult<String> {
+    let head = q
+        .u64("head")
+        .map(RunId::new)
+        .ok_or_else(|| ApiError::bad_request("missing or invalid 'head' parameter"))?;
+    let base = q.u64("base").map(RunId::new);
+    let file = q
+        .get("file")
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| ApiError::bad_request("missing 'file' parameter"))?;
+    let json = std::fs::read_to_string(file)
+        .map_err(|e| ApiError::bad_request(&format!("cannot read budget file: {e}")))?;
+    state.with_prism(|prism| {
+        let r = prism.ci_budget(head, base, &json)?;
+        let mut w = JsonWriter::new();
+        views_json::budget(&mut w, &r);
         Ok(w.finish())
     })
 }

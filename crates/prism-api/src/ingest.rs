@@ -549,9 +549,11 @@ impl Prism {
         req_seen.insert(dedup_key);
 
         // The declared target's resolved family (so REQS_BY_DST_PACKAGE indexes).
-        let dst = self
-            .intern_package(wb, pkg_cache, eco, &fact.declared_target, None)
-            .ok();
+        // Propagating the error here keeps the dedup table consistent with what
+        // was actually persisted: a transient failure to intern the target
+        // package family must NOT result in a Requirement with dst_package_id =
+        // None silently corrupting REQS_BY_DST_PACKAGE.
+        let dst = Some(self.intern_package(wb, pkg_cache, eco, &fact.declared_target, None)?);
         let constraint_ref = self.store.blobs().put(fact.raw_requirement.as_bytes())?;
         let condition_ref = match &fact.raw_condition {
             Some(c) => Some(self.store.blobs().put(c.as_bytes())?),

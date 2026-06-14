@@ -238,10 +238,8 @@ fn parse_pnpm_doc(text: &str) -> Result<PnpmDoc, ParseError> {
                     imp_kind = split_kv(content).and_then(|(k, _)| dep_kind(&k, true));
                     imp_dep = None;
                 }
-                6 => {
-                    if imp_kind.is_some() {
-                        imp_dep = split_kv(content).map(|(k, _)| k);
-                    }
+                6 if imp_kind.is_some() => {
+                    imp_dep = split_kv(content).map(|(k, _)| k);
                 }
                 8 => {
                     if let (Some(kind), Some(dep)) = (imp_kind, imp_dep.as_deref()) {
@@ -469,7 +467,12 @@ pub fn parse_pnpm_batch(text: &str) -> Result<CanonicalBatch, ParseError> {
             version_raw: vraw.clone(),
             released_at_unix: None,
             license_expr: None,
-            is_prerelease: vraw.contains('-'),
+            // SemVer-aware: `1.0.0+build-meta` is NOT prerelease (build metadata),
+            // while `contains('-')` falsely flagged it. An unparseable raw is
+            // treated as non-prerelease.
+            is_prerelease: prism_semver::Version::parse(&vraw)
+                .map(|v| v.is_prerelease())
+                .unwrap_or(false),
         }));
     }
     // Requirement facts from each unit's resolved deps.

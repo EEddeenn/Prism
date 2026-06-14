@@ -25,7 +25,11 @@ const PANELS: Record<TabId, ComponentType> = {
 };
 
 export default function SidePanel() {
-  const activeTab = useGraphStore((s) => s.activeTab) as TabId;
+  // Guarded lookup: a stale URL or persisted store value can carry a tab id
+  // that no longer exists. Fall back to overview instead of silently rendering
+  // the wrong panel via an unchecked cast.
+  const rawActiveTab = useGraphStore((s) => s.activeTab);
+  const activeTab: TabId = rawActiveTab in PANELS ? (rawActiveTab as TabId) : 'overview';
   const setActiveTab = useGraphStore((s) => s.setActiveTab);
   const duplicates = useGraphStore((s) => s.duplicates);
   const sccs = useGraphStore((s) => s.sccs);
@@ -39,7 +43,7 @@ export default function SidePanel() {
     diff: compareRun != null ? 1 : 0,
   };
 
-  const ActivePanel = PANELS[activeTab] ?? OverviewTab;
+  const ActivePanel = PANELS[activeTab];
 
   return (
     <aside className="flex flex-col w-[360px] shrink-0 bg-panel border-l border-line min-h-0">

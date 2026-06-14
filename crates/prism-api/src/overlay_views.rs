@@ -71,7 +71,7 @@ fn severity_weight(sev: &str) -> u32 {
         "high" => 4,
         "medium" => 2,
         "low" => 1,
-        _ => 1,
+        _ => 0,
     }
 }
 
@@ -212,7 +212,10 @@ mod tests {
     fn severity_weights_rank() {
         assert!(severity_weight("critical") > severity_weight("high"));
         assert!(severity_weight("high") > severity_weight("medium"));
-        assert_eq!(severity_weight("unknown"), 1);
+        assert!(severity_weight("medium") > severity_weight("low"));
+        // Unknown sorts below every scored severity, per the docstring contract.
+        assert_eq!(severity_weight("unknown"), 0);
+        assert!(severity_weight("low") > severity_weight("unknown"));
     }
 
     #[test]

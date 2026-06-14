@@ -27,6 +27,7 @@ const rgb01 = (hex: string): Rgb => {
 
 export default function Edges({ layout }: { layout: Layout3D }) {
   const edges = useGraphStore((s) => s.edges);
+  const run = useGraphStore((s) => s.run);
   const sel = useGraphStore((s) => s.sel);
   const fwd = useGraphStore((s) => s.fwd);
   const impact = useGraphStore((s) => s.impact);
@@ -116,8 +117,14 @@ export default function Edges({ layout }: { layout: Layout3D }) {
       </lineSegments>
       {lit.points.length > 0 && (
         <Line
-          // remount when the lit set changes so Line2 resizes its buffers
-          key={lit.points.length}
+          // Remount when Line2's buffer size MUST change (run swap, or the lit
+          // set grew/shrank). The previous key was `lit.points.length` alone,
+          // which collided across two runs that happen to share a lit count
+          // and reused the previous run's GPU buffer in place. Including the
+          // run id eliminates the collision; a within-run selection change
+          // that doesn't alter the buffer size now updates in place without
+          // a Line2 remount.
+          key={`lit-edges-${run ?? 'none'}-${lit.points.length}`}
           points={lit.points as [number, number, number][]}
           vertexColors={lit.colors}
           segments

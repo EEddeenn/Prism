@@ -17,6 +17,7 @@ const ZERO_STATS: MetricStats = {
 
 export default function Nodes({ layout }: { layout: Layout3D }) {
   const nodes = useGraphStore((s) => s.nodes);
+  const run = useGraphStore((s) => s.run);
   const sel = useGraphStore((s) => s.sel);
   const fwd = useGraphStore((s) => s.fwd);
   const impact = useGraphStore((s) => s.impact);
@@ -97,9 +98,10 @@ export default function Nodes({ layout }: { layout: Layout3D }) {
       {/* `key` forces a fresh instanced-buffer allocation when the node count
           changes — drei sizes its instanceMatrix/instanceColor arrays once at
           mount, so a larger run would otherwise overrun buffers sized to the
-          first run. */}
+          first run. Include the run id so two different runs that happen to
+          share a node count don't silently reuse the previous run's buffer. */}
       <Instances
-        key={placed.length}
+        key={`nodes-${run ?? 'none'}-${placed.length}`}
         limit={placed.length}
         range={placed.length}
         castShadow={false}

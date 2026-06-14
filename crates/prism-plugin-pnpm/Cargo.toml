@@ -10,6 +10,7 @@ description = "pnpm ecosystem plugin: pnpm-lock.yaml parsing into a resolved gra
 prism-model = { path = "../prism-model" }
 prism-plugin-api = { path = "../prism-plugin-api" }
 prism-plugin-npm = { path = "../prism-plugin-npm" }
+prism-semver = { path = "../prism-semver" }
 
 [lints]
 workspace = true

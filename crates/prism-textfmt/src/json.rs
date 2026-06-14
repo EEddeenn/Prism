@@ -445,9 +445,13 @@ impl<'a> Parser<'a> {
         let text = core::str::from_utf8(&self.bytes[start..self.pos])
             .map_err(|_| self.err("invalid number bytes"))?;
         if !is_float {
-            if let Ok(i) = text.parse::<i64>() {
-                return Ok(Json::Int(i));
-            }
+            // Integer-shaped literals (no `.`, no exponent) MUST fit in i64.
+            // Silently downgrading to f64 here would lose precision for ids and
+            // hashes past 2^53 — exactly the kind of bug that hides until a
+            // version number or checksum round-trips wrong. Reject explicitly.
+            return text.parse::<i64>().map(Json::Int).map_err(|_| {
+                self.err("integer out of range (exceeds i64)")
+            });
         }
         // RFC 8259 has no infinity/NaN: an in-grammar but oversized literal like
         // `1e999` parses to f64::INFINITY, which cannot be re-serialized as valid
@@ -493,9 +497,14 @@ mod tests {
         let v = parse_json("9007199254740993").unwrap();
         assert_eq!(v.as_i64(), Some(9007199254740993));
         assert!(matches!(v, Json::Int(_)));
-        // Too big for i64 falls back to float.
-        let big = parse_json("99999999999999999999999").unwrap();
-        assert!(matches!(big, Json::Float(_)));
+        // i64 boundary values round-trip exactly.
+        assert_eq!(parse_json("9223372036854775807").unwrap(), Json::Int(i64::MAX));
+        assert_eq!(parse_json("-9223372036854775808").unwrap(), Json::Int(i64::MIN));
+        // Integer-shaped literals that overflow i64 are now a typed error
+        // rather than a silent downgrade to f64 (which would lose precision
+        // for ids, hashes, and other identifiers past 2^53).
+        assert!(parse_json("99999999999999999999999").is_err());
+        assert!(parse_json("9223372036854775808").is_err()); // i64::MAX + 1
     }
 
     #[test]

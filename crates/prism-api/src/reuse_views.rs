@@ -119,11 +119,9 @@ impl Prism {
             nodes.truncate(limit);
         }
         let shown: u64 = nodes.iter().map(|d| d.reconvergence as u64).sum();
-        let top_share_pct = if total == 0 {
-            0
-        } else {
-            ((shown * 100 + total / 2) / total) as u32
-        };
+        let top_share_pct = (shown * 100 + total / 2)
+            .checked_div(total)
+            .unwrap_or(0) as u32;
 
         Ok(DiamondReuseView {
             run,

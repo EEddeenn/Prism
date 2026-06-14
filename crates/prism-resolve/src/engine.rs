@@ -206,8 +206,11 @@ where
                 // just-grown closure so the returned graph and `activation` agree
                 // (otherwise the graph reflects the previous, smaller closure),
                 // then flag truncated since the fixpoint had not converged.
+                // The iteration counter is held at `max_iterations` — the
+                // recovery pass is bookkeeping, not a real budgeted iteration,
+                // and overshooting the cap was a contract violation users
+                // could see via telemetry.
                 last = self.materialize(roots, &activation)?;
-                iterations += 1;
                 last.graph.truncated = true;
                 add_caveat(&mut last.graph, FidelityCaveats::BUDGET_TRUNCATED);
                 break;

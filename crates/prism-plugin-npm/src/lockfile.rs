@@ -38,7 +38,8 @@ use prism_model::{
     DependencyKind, EdgeFlags, FidelityCaveats, FidelityTier, GraphFidelity, NodeFlags, VersionId,
 };
 use prism_plugin_api::{
-    CanonicalBatch, CanonicalEvent, ParseError, RawDocument, RequirementFact, VersionFact,
+    CanonicalBatch, CanonicalEvent, PackageFact, PackageName, ParseError, RawDocument,
+    RequirementFact, VersionFact,
 };
 use prism_plugin_api::{LockfileParser, ResolvedEdge, ResolvedGraph};
 use prism_textfmt::{parse_json, Json};
@@ -81,12 +82,22 @@ pub fn lockfile_facts_value(json: &Json) -> Result<CanonicalBatch, ParseError> {
         let Some(version) = entry.get("version").and_then(Json::as_str) else {
             continue;
         };
+        // PackageSeen before VersionSeen, mirroring pnpm/uv/cargo so downstream
+        // consumers can rely on a monotonic fact ordering per package.
+        batch.push(CanonicalEvent::PackageSeen(PackageFact {
+            name: PackageName::new(name.to_string()),
+            namespace: None,
+            repository_url: None,
+            homepage_url: None,
+        }));
         batch.push(CanonicalEvent::VersionSeen(VersionFact {
             name: name.into(),
             version_raw: version.to_string(),
             released_at_unix: None,
             license_expr: entry.get("license").and_then(Json::as_str).map(str::to_string),
-            is_prerelease: version.contains('-'),
+            is_prerelease: prism_semver::Version::parse(version)
+                .map(|v| v.is_prerelease())
+                .unwrap_or(false),
         }));
 
         for (field, kind) in [
@@ -460,6 +471,54 @@ mod tests {
         assert_eq!(versions.len(), 4);
         assert!(versions.iter().any(|v| v.name.as_str() == "left-pad"
             && v.version_raw == "1.3.0"));
+    }
+
+    #[test]
+    fn every_version_seen_is_preceded_by_a_package_seen() {
+        // The plugin contract (matched by cargo/pnpm/uv) says PackageSeen MUST
+        // appear before the corresponding VersionSeen within the same batch.
+        // Locks downstream code that assumes monotonic per-package ordering.
+        let batch = NpmLockfile.parse_lockfile(&doc(LOCK_V3)).unwrap();
+        let mut seen_packages = std::collections::HashSet::new();
+        for ev in batch.iter() {
+            match ev {
+                CanonicalEvent::PackageSeen(p) => {
+                    seen_packages.insert(p.name.as_str().to_string());
+                }
+                CanonicalEvent::VersionSeen(v) => {
+                    let name = v.name.as_str();
+                    assert!(
+                        seen_packages.contains(name),
+                        "VersionSeen({name}) emitted without preceding PackageSeen"
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn prerelease_detection_is_semver_aware() {
+        // `1.0.0+build-hyphen` is build metadata, NOT a prerelease (the
+        // previous `contains('-')` heuristic falsely flagged it).
+        let src = r#"{
+          "name": "app", "lockfileVersion": 3,
+          "packages": {
+            "": { "version": "1.0.0" },
+            "node_modules/a": { "version": "1.0.0+build-meta" },
+            "node_modules/b": { "version": "1.0.0-rc.1" }
+          }
+        }"#;
+        let batch = NpmLockfile.parse_lockfile(&doc(src)).unwrap();
+        let v: std::collections::HashMap<&str, bool> = batch
+            .iter()
+            .filter_map(|e| match e {
+                CanonicalEvent::VersionSeen(v) => Some((v.version_raw.as_str(), v.is_prerelease)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(v.get("1.0.0+build-meta"), Some(&false));
+        assert_eq!(v.get("1.0.0-rc.1"), Some(&true));
     }
 
     #[test]

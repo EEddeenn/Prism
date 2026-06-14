@@ -599,7 +599,15 @@ impl<'a> Parser<'a> {
                     self.bump();
                 }
                 Some(b'\r') => {
+                    // CRLF and bare CR both normalize to LF, matching the
+                    // post-hoc `replace("\r\n", "\n")` in the literal-string
+                    // form so multiline basic and literal strings agree on
+                    // line endings.
                     self.pos += 1;
+                    if self.peek() == Some(b'\n') {
+                        self.pos += 1;
+                    }
+                    out.push('\n');
                 }
                 Some(b) => {
                     self.push_scalar(b, &mut out)?;
@@ -1039,6 +1047,19 @@ mod tests {
     fn line_ending_backslash_in_multiline() {
         let t = parse_toml("a = \"\"\"one \\\n   two\"\"\"\n").unwrap();
         assert_eq!(t.get("a").and_then(Toml::as_str), Some("one two"));
+    }
+
+    #[test]
+    fn multiline_basic_normalizes_crlf_and_bare_cr() {
+        // CRLF normalized to LF in multiline BASIC strings (basic and literal
+        // forms now agree on line-ending semantics).
+        let t = parse_toml("a = \"\"\"one\r\ntwo\"\"\"\n").unwrap();
+        assert_eq!(t.get("a").and_then(Toml::as_str), Some("one\ntwo"));
+        // Bare CR also normalizes to LF (previously dropped silently, producing
+        // "onetwo" — a data-loss bug on documents authored on classic-Mac line
+        // endings or pasted through transports that strip the LF).
+        let t = parse_toml("a = \"\"\"one\rtwo\"\"\"\n").unwrap();
+        assert_eq!(t.get("a").and_then(Toml::as_str), Some("one\ntwo"));
     }
 
     #[test]

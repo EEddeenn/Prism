@@ -33,20 +33,46 @@ COMMANDS:
     init [path]                                   create a .prism workspace (default: .)
     ingest <path>                                 ingest a manifest or lockfile
     status                                        summarize runs, packages, graphs
+    regions                                       every run as a comparable dependency region
+
+  graph queries:
     graph stats --run <id>                        graph size/depth/SCC/duplicates
     graph neighborhood --run <id> --node <id> --depth <n>
                                                   local dependency neighborhood
     graph impact --run <id> --node <id>           reverse dependency impact
     graph duplicates --run <id>                   package families at >1 version
+    graph scope --run <id>                        per-scope footprint summary
+    graph chokepoints --run <id> [--limit <n>]    structural gateway packages
+    graph why --run <id> --node <id>              why a dependency is present
+    graph cycles --run <id>                       classified dependency cycles
+    graph dup-causes --run <id>                   duplicate-version root cause
+    graph risk --run <id>                         structural risk profile
+    graph fragmentation --run <id>                connected-component breakdown
+    graph fidelity --run <id>                     per-metric fidelity notes
+    graph subsystems --run <id>                   top-level subsystem partition
+    graph diamonds --run <id> [--limit <n>]       diamond-reuse foundations
+    graph minimal --run <id>                      minimal (dominator-tree) explanation
+    graph shared --run <id> [--limit <n>]         higher-order overlap across subsystems
+    graph overlay --run <id> --file <path>        join an external risk overlay
+    graph distance --base <id> --head <id>        topology shape distance
+    graph diff --base <id> --head <id>            interpretive cross-run diff
+    graph budget --head <id> [--base <id>] --file <path>
+                                                  CI topology budget gate
+
+  TDA:
     tda run --run <id> [--filtration depth]       build a filtration + persistence
     tda support --pair <id>                       graph support of a persistence pair
+    tda compare --run <id>                        topology under multiple filtration lenses
+    tda h2 --run <id>                             experimental H2 (void) homology
+
+  candidates / conflicts / resolve / export:
     candidates --requirement <id>                 candidate ranges for a requirement
     candidates --package <purl> --constraint <e>  candidate ranges for a constraint
     conflicts --package <purl>                    same-package conflict pressure
     resolve <manifest> [--policy lowest|highest|locked]
                                                   synthetic resolve a manifest
     export json --run <id>                        emit the graph as JSON
-    export graphml --run <id>                      emit the graph as GraphML (XML)
+    export graphml --run <id>                     emit the graph as GraphML (XML)
 
     help, -h, --help                              show this help
     --version, -V                                 show the version
@@ -156,6 +182,27 @@ mod tests {
         assert_eq!(code, exit::OK);
         assert!(out.contains("USAGE"));
         assert!(out.contains("graph stats"));
+    }
+
+    /// Guard against doc/impl drift: every documented subcommand must appear in
+    /// the HELP text. Adding a new command in args.rs without listing it here is
+    /// caught by this test, not by an irritated user.
+    #[test]
+    fn help_lists_every_command() {
+        let documented = [
+            "init", "ingest", "status", "regions",
+            "graph stats", "graph neighborhood", "graph impact", "graph duplicates",
+            "graph scope", "graph chokepoints", "graph why", "graph cycles",
+            "graph dup-causes", "graph risk", "graph fragmentation", "graph fidelity",
+            "graph subsystems", "graph diamonds", "graph minimal", "graph shared",
+            "graph overlay", "graph distance", "graph diff", "graph budget",
+            "tda run", "tda support", "tda compare", "tda h2",
+            "candidates", "conflicts", "resolve",
+            "export json", "export graphml",
+        ];
+        for cmd in documented {
+            assert!(HELP.contains(cmd), "HELP missing `{cmd}`");
+        }
     }
 
     #[test]

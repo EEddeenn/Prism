@@ -100,6 +100,9 @@ export default function Graph2D() {
   }, [nodes, world, fit]);
 
   // Recenter when something requests focus (search, duplicate highlight, …).
+  // Depend on `pos` too so a focus that arrives BEFORE the layout finishes (or a
+  // layout that changes after focus) still ends with the camera on the node, not
+  // its stale coordinates. `apply` is stable across renders so it doesn't churn.
   useEffect(() => {
     if (focusTarget == null) return;
     const p = pos.get(focusTarget);
@@ -108,8 +111,7 @@ export default function Graph2D() {
     T.current.x = w / 2 - p.x * T.current.k;
     T.current.y = h / 2 - p.y * T.current.k;
     apply();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusNonce]);
+  }, [focusNonce, focusTarget, pos, size, apply]);
 
   const zoomAt = (px: number, py: number, factor: number) => {
     const k0 = T.current.k;

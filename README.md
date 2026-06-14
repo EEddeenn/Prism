@@ -34,6 +34,9 @@ Rust core (a Cargo workspace under `crates/`), with a hermetic local web UI on t
 | `prism-plugin-api` | Object-safe ecosystem plugin traits + canonical fact events. |
 | `prism-plugin-cargo` | Cargo plugin: `Cargo.toml` / `Cargo.lock` parsing and semantics. |
 | `prism-plugin-npm` | npm plugin: `package.json` / `package-lock.json` parsing and semantics. |
+| `prism-plugin-bun` | Bun plugin: `bun.lock` (jsonc-like) ingestion reshaped into npm semantics. |
+| `prism-plugin-pnpm` | pnpm plugin: native `pnpm-lock.yaml` (v5–v9) ingestion via the flat `snapshots:` graph. |
+| `prism-plugin-uv` | uv plugin: native `uv.lock` (PyPI) ingestion with marker conditions. |
 | `prism-graph` | Immutable CSR graph snapshots, traversal, SCC, duplicate-version analysis, `.pcsr` format. |
 | `prism-resolve` | Synthetic two-phase fixpoint resolver engine (cycle guard, budgets, feature activation). |
 | `prism-tda` | Persistent homology over the dependency graph: filtrations, H0/H1, generator support, `.ptda` format. |
@@ -72,16 +75,31 @@ cargo build -p prism-cli           # builds the `prism` binary at target/debug/p
 
 prism init .                       # create a .prism/ workspace
 prism ingest Cargo.lock            # parse a lockfile into a resolved graph snapshot
+                                   # (also: package-lock.json, bun.lock, pnpm-lock.yaml, uv.lock)
 prism status                       # → runs / packages / graphs summary
+prism regions                      # every run as a comparable dependency region
 prism graph stats --run <id>       # nodes, edges, SCCs, cycles, duplicate versions
 prism graph impact --run <id> --node <id>   # reverse-dependency impact
+prism graph chokepoints --run <id>          # structural gateway packages
+prism graph why --run <id> --node <id>      # why a dependency is present
+prism graph diamonds --run <id>             # diamond-reuse foundations
+prism graph fidelity --run <id>             # per-metric fidelity notes
+prism graph diff --base <a> --head <b>      # interpretive cross-run diff
+prism graph budget --head <id> --file budget.json   # CI topology budget gate
 prism candidates --package pkg:cargo/serde --constraint "^1.0"  # candidate version ranges
 prism conflicts --package pkg:cargo/serde   # same-package conflict pressure
 prism resolve Cargo.toml --policy highest   # synthetic resolve a manifest (lowest|highest|locked)
 prism tda run --run <id> --filtration depth # persistent homology (H0/H1) barcode
+prism tda compare --run <id>                # topology under multiple filtration lenses
+prism tda h2 --run <id>                     # experimental H2 (void) homology
 prism export json --run <id>       # emit the resolved graph as JSON
 prism export graphml --run <id>    # emit the resolved graph as GraphML (XML)
 ```
+
+See `prism help` for the full list (status, regions, graph {stats, neighborhood, impact,
+duplicates, scope, chokepoints, why, cycles, dup-causes, risk, fragmentation, fidelity,
+subsystems, diamonds, minimal, shared, overlay, distance, diff, budget}, tda {run, support,
+compare, h2}, candidates, conflicts, resolve, export {json, graphml}).
 
 Example: ingesting a Cargo.lock for `sample-app → {serde → serde_derive, rand → rand_core}`
 yields a 5-node / 4-edge graph (depths 0→2); `graph impact` on `serde_derive` reports `serde`

@@ -202,10 +202,7 @@ pub fn flag_homology(graph: &GraphSnapshot, node_values: &[f64]) -> Result<FlagH
     let mut paired_birth = vec![false; staged.len()]; // cell i is paired as a birth
     for j in 0..columns.len() {
         // Reduce column j by repeatedly cancelling its low against an earlier col.
-        loop {
-            let Some(&low) = columns[j].iter().max() else {
-                break; // empty column -> positive cell
-            };
+        while let Some(&low) = columns[j].iter().max() {
             if let Some(&k) = pivot_of.get(&low) {
                 symmetric_difference(&mut columns, j, k);
             } else {

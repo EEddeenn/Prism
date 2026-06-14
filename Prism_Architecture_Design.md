@@ -157,18 +157,22 @@ prism-codec
 prism-store
   Object segments, typed indexes, blob store, manifest, compaction
 
-prism-fetch
-  HTTP/file fetch scheduler, cache policy, provenance capture, source policies
+prism-textfmt
+  Hand-rolled JSON + (subset) TOML parsers for offline manifest/lockfile ingestion
 
 prism-plugin-api
-  Traits for ecosystems: fetch, parse, version, requirement, condition, resolve
+  Traits for ecosystems: parse, version, requirement, condition, resolve.
+  (Fetch responsibilities live inside each ecosystem plugin; the originally
+  planned standalone `prism-fetch` crate has been folded into the plugins.)
 
 prism-plugin-npm
 prism-plugin-cargo
-prism-plugin-pypi
-prism-plugin-maven
-prism-plugin-go
-  Ecosystem implementations
+prism-plugin-bun
+prism-plugin-pnpm
+prism-plugin-uv
+  Ecosystem implementations (npm, cargo, bun-as-npm, pnpm-as-npm, uv/PyPI).
+  Other ecosystems such as maven/go can be added as new plugins implementing
+  the same trait.
 
 prism-resolve
   Native resolver adapters and synthetic resolver policies
@@ -2877,15 +2881,20 @@ prism/
     prism-model/
     prism-codec/
     prism-store/
-    prism-fetch/
+    prism-textfmt/
+    prism-semver/
     prism-plugin-api/
     prism-plugin-cargo/
     prism-plugin-npm/
+    prism-plugin-bun/
+    prism-plugin-pnpm/
+    prism-plugin-uv/
     prism-resolve/
     prism-graph/
     prism-tda/
     prism-api/
     prism-cli/
+    prism-server/
 
   apps/
     prism-desktop/

@@ -271,6 +271,11 @@ export default function CommandPalette() {
           spellCheck={false}
           placeholder="Search packages, runs, cycles, actions…"
           aria-label="Command palette search"
+          role="combobox"
+          aria-expanded={items.length > 0}
+          aria-controls="command-palette-list"
+          aria-autocomplete="list"
+          aria-activedescendant={items.length ? `cp-opt-${active}` : undefined}
           value={term}
           onChange={(e) => {
             setTerm(e.target.value);
@@ -280,7 +285,13 @@ export default function CommandPalette() {
           className="w-full px-4 py-3 text-sm bg-panel-2 border-0 border-b border-line rounded-none placeholder:text-muted"
         />
 
-        <div ref={listRef} className="overflow-y-auto min-h-0 py-1">
+        <div
+          ref={listRef}
+          id="command-palette-list"
+          role="listbox"
+          aria-label="Search results"
+          className="overflow-y-auto min-h-0 py-1"
+        >
           {!items.length ? (
             <div className="px-4 py-6 text-center text-sm text-muted">No matches.</div>
           ) : (
@@ -297,6 +308,7 @@ export default function CommandPalette() {
                   )}
                   <div
                     data-idx={i}
+                    id={`cp-opt-${i}`}
                     role="option"
                     aria-selected={isActive}
                     onMouseMove={() => active !== i && setActive(i)}

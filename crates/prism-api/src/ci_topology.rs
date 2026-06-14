@@ -195,7 +195,7 @@ impl Prism {
                 change_pct,
             });
         }
-        deltas.sort_by(|x, y| y.change_pct.abs().cmp(&x.change_pct.abs()));
+        deltas.sort_by_key(|d| std::cmp::Reverse(d.change_pct.abs()));
         let distance_pct = (abs_sum / am.len() as i64).max(0) as u32;
 
         Ok(TopologyDistanceView {

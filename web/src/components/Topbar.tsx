@@ -144,6 +144,7 @@ export default function Topbar() {
         type="button"
         onClick={copyLink}
         title="Copy a deep link to this exact view"
+        aria-label="Copy a deep link to this exact view"
         className="px-2.5 py-1.5 text-body font-semibold rounded-md border border-line-2 bg-panel-2 text-ink hover:border-accent hover:bg-panel-3"
       >
         {copied ? 'Copied ✓' : 'Copy link'}
@@ -152,6 +153,7 @@ export default function Topbar() {
       <button
         type="button"
         onClick={() => loadRuns()}
+        aria-label="Reload runs"
         className="px-2.5 py-1.5 text-body font-semibold rounded-md border border-line-2 bg-panel-2 text-ink hover:border-accent hover:bg-panel-3"
       >
         Reload

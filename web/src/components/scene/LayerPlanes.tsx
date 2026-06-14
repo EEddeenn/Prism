@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import { Html } from '@react-three/drei';
 import { rampHex } from '@/lib/palette';
@@ -11,6 +12,15 @@ import type { LayerPlane } from '@/lib/layout3d';
  * depth colour. */
 export default function LayerPlanes({ planes }: { planes: LayerPlane[] }) {
   const maxD = planes.reduce((m, p) => Math.max(m, p.depth), 1);
+
+  // Share ONE unit-square geometry across every plane and scale per-instance.
+  // Inline `<planeGeometry>` inside a `.map()` allocates a fresh buffer per
+  // plane every render, and JSX never disposes the orphaned ones on mode/run
+  // switch — that's the GPU leak. A single shared geometry has no such failure
+  // mode and runs strictly faster.
+  const sharedGeom = useMemo(() => new THREE.PlaneGeometry(1, 1), []);
+  useEffect(() => () => sharedGeom.dispose(), [sharedGeom]);
+
   return (
     <group>
       {planes.map((pl) => {
@@ -18,8 +28,12 @@ export default function LayerPlanes({ planes }: { planes: LayerPlane[] }) {
         const tint = rampHex(pl.depth / maxD);
         return (
           <group key={pl.depth}>
-            <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, pl.y, 0]}>
-              <planeGeometry args={[2 * R, 2 * R]} />
+            <mesh
+              geometry={sharedGeom}
+              rotation={[-Math.PI / 2, 0, 0]}
+              position={[0, pl.y, 0]}
+              scale={[2 * R, 2 * R, 1]}
+            >
               <meshBasicMaterial
                 color={tint}
                 transparent

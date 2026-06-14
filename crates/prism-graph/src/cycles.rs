@@ -69,7 +69,7 @@ impl CycleInfo {
 
 /// Whether a node has a self-loop (an out-edge back to itself).
 fn has_self_loop(g: &GraphSnapshot, node: GraphNodeId) -> Result<bool> {
-    Ok(g.out_neighbors(node)?.iter().any(|&v| v == node))
+    Ok(g.out_neighbors(node)?.contains(&node))
 }
 
 /// Classify every non-trivial cycle in `g`, largest first.

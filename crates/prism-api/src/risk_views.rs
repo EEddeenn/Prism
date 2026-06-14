@@ -235,7 +235,7 @@ impl Prism {
                 detached_from_roots,
             });
         }
-        subsystem_islands.sort_by(|a, b| b.size.cmp(&a.size));
+        subsystem_islands.sort_by_key(|i| std::cmp::Reverse(i.size));
 
         let note = format!(
             "{} component(s): 1 main graph of {largest}, {} detached subsystem(s), {artifact_singletons} isolated peer/optional artifact(s)",

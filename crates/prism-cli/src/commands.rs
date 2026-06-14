@@ -338,6 +338,54 @@ pub fn graph_dup_causes(out: &mut dyn Write, run: u64) -> Result<()> {
     Ok(())
 }
 
+/// `prism graph distance --base <id> --head <id>` — topology shape distance.
+pub fn graph_distance(out: &mut dyn Write, base: u64, head: u64) -> Result<()> {
+    let prism = open_here()?;
+    let d = prism.topology_distance(RunId::new(base), RunId::new(head))?;
+    writeln!(
+        out,
+        "topology distance run {base} → run {head}: {}% mean shape change",
+        d.distance_pct
+    )
+    .map_err(PrismError::Io)?;
+    for m in &d.deltas {
+        writeln!(
+            out,
+            "  {:<20} {:>8} → {:<8} ({:+}%)",
+            m.metric, m.base, m.head, m.change_pct
+        )
+        .map_err(PrismError::Io)?;
+    }
+    Ok(())
+}
+
+/// `prism graph budget --head <id> [--base <id>] --file <path>` — CI gate.
+/// Prints the report and returns a non-zero exit (via `Other`) on any violation.
+pub fn graph_budget(out: &mut dyn Write, head: u64, base: Option<u64>, file: &str) -> Result<()> {
+    let prism = open_here()?;
+    let json = std::fs::read_to_string(file).map_err(PrismError::Io)?;
+    let report = prism.ci_budget(RunId::new(head), base.map(RunId::new), &json)?;
+    writeln!(
+        out,
+        "topology budget for run {head}{}: {} rule(s) checked — {}",
+        report.base.map(|b| format!(" vs base {}", b.get())).unwrap_or_default(),
+        report.rules_checked,
+        if report.pass { "PASS" } else { "FAIL" }
+    )
+    .map_err(PrismError::Io)?;
+    for v in &report.violations {
+        writeln!(out, "  ✗ {}: {} exceeds limit {}", v.rule, v.observed, v.limit)
+            .map_err(PrismError::Io)?;
+    }
+    if !report.pass {
+        return Err(PrismError::Other(format!(
+            "topology budget exceeded: {} violation(s)",
+            report.violations.len()
+        )));
+    }
+    Ok(())
+}
+
 /// `prism graph overlay --run <id> --file <path>` — join a risk overlay file,
 /// weighting findings by production reachability and blast radius.
 pub fn graph_overlay(out: &mut dyn Write, run: u64, file: &str) -> Result<()> {

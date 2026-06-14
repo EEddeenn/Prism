@@ -95,6 +95,8 @@ where
         Command::GraphDiamonds { run, limit } => commands::graph_diamonds(out, *run, *limit),
         Command::GraphMinimal { run } => commands::graph_minimal(out, *run),
         Command::GraphOverlay { run, file } => commands::graph_overlay(out, *run, file),
+        Command::GraphDistance { base, head } => commands::graph_distance(out, *base, *head),
+        Command::GraphBudget { head, base, file } => commands::graph_budget(out, *head, *base, file),
         Command::Regions => commands::regions(out),
         Command::TdaRun { run, filtration } => commands::tda_run(out, *run, filtration),
         Command::TdaSupport { pair } => commands::tda_support(out, *pair),

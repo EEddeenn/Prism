@@ -51,6 +51,10 @@ pub enum Command {
     GraphMinimal { run: u64 },
     /// `prism graph overlay --run <id> --file <path>` — join a risk overlay.
     GraphOverlay { run: u64, file: String },
+    /// `prism graph distance --base <id> --head <id>` — topology shape distance.
+    GraphDistance { base: u64, head: u64 },
+    /// `prism graph budget --head <id> [--base <id>] --file <path>` — CI gate.
+    GraphBudget { head: u64, base: Option<u64>, file: String },
     /// `prism regions` — every run as a comparable dependency region.
     Regions,
     /// `prism tda run --run <id> [--filtration depth]`.
@@ -358,6 +362,29 @@ fn parse_graph<'a, I: Iterator<Item = &'a str>>(mut it: I) -> Result<Command, Pa
                 .ok_or_else(|| ParseError::MissingArg { what: "--file".into() })?;
             flags.finish()?;
             Ok(Command::GraphOverlay { run, file })
+        }
+        "distance" => {
+            let mut flags = Flags::parse(it)?;
+            let base = flags.take_u64("--base")?;
+            let head = flags.take_u64("--head")?;
+            flags.finish()?;
+            Ok(Command::GraphDistance { base, head })
+        }
+        "budget" => {
+            let mut flags = Flags::parse(it)?;
+            let head = flags.take_u64("--head")?;
+            let base = match flags.take_opt("--base") {
+                Some(s) => Some(s.parse::<u64>().map_err(|_| ParseError::BadValue {
+                    flag: "--base".into(),
+                    value: s,
+                })?),
+                None => None,
+            };
+            let file = flags
+                .take_opt("--file")
+                .ok_or_else(|| ParseError::MissingArg { what: "--file".into() })?;
+            flags.finish()?;
+            Ok(Command::GraphBudget { head, base, file })
         }
         other => Err(ParseError::UnknownCommand(format!("graph {other}"))),
     }

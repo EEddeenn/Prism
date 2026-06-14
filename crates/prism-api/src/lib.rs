@@ -31,6 +31,7 @@
 
 mod candidate_views;
 mod candidates;
+mod ci_topology;
 mod clusters;
 mod duplicate_rootcause;
 mod ecosystem;
@@ -55,6 +56,9 @@ mod test_util;
 
 pub use candidate_views::{
     CandidateExclusion, CandidateVersion, CandidateView, ConflictPair, ConflictReportView,
+};
+pub use ci_topology::{
+    BudgetReport, BudgetViolation, MetricDelta, ShapeSignature, TopologyDistanceView,
 };
 pub use clusters::{Subsystem, WorkspaceRegion};
 pub use duplicate_rootcause::{

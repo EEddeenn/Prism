@@ -38,6 +38,7 @@ mod query;
 mod raw;
 mod resolve;
 mod resolve_store;
+mod structure_views;
 mod tda;
 mod tda_views;
 mod views;
@@ -51,6 +52,9 @@ pub use candidate_views::{
 pub use ecosystem::{Ecosystem, CARGO_ECOSYSTEM_ID, NPM_ECOSYSTEM_ID};
 pub use ingest::{LockfileIngest, ManifestIngest};
 pub use resolve::SyntheticResolve;
+pub use structure_views::{
+    kind_label, ChokepointView, CycleView, ExplanationView, IntroducerView, ScopeSummaryView,
+};
 pub use tda_views::{BarcodeDim, BarcodeView, PairView, SupportObject, SupportView};
 pub use views::{
     DuplicateClusterView, GraphEdgeView, GraphNodeView, GraphStatsView, NeighborhoodView, SccView,

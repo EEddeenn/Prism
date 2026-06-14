@@ -165,6 +165,137 @@ pub fn graph_duplicates(out: &mut dyn Write, run: u64) -> Result<()> {
     Ok(())
 }
 
+/// `prism graph scope --run <id>` — per-scope dependency footprint summary.
+pub fn graph_scope(out: &mut dyn Write, run: u64) -> Result<()> {
+    let prism = open_here()?;
+    let rows = prism.scope_summary(RunId::new(run))?;
+    if rows.is_empty() {
+        writeln!(out, "no scoped dependency edges in run {run}").map_err(PrismError::Io)?;
+        return Ok(());
+    }
+    writeln!(out, "scope footprints for run {run}:").map_err(PrismError::Io)?;
+    writeln!(
+        out,
+        "  {:<10} {:>7} {:>9} {:>9} {:>9}",
+        "scope", "edges", "footprint", "exclusive", "max-depth"
+    )
+    .map_err(PrismError::Io)?;
+    for r in &rows {
+        writeln!(
+            out,
+            "  {:<10} {:>7} {:>9} {:>9} {:>9}",
+            r.kind, r.direct_edges, r.footprint, r.exclusive, r.max_depth
+        )
+        .map_err(PrismError::Io)?;
+    }
+    writeln!(
+        out,
+        "(footprint = reachable from roots under production+scope; exclusive = added beyond production)"
+    )
+    .map_err(PrismError::Io)?;
+    Ok(())
+}
+
+/// `prism graph chokepoints --run <id> [--limit <n>]` — packages that
+/// structurally control access to large parts of the graph.
+pub fn graph_chokepoints(out: &mut dyn Write, run: u64, limit: u32) -> Result<()> {
+    let prism = open_here()?;
+    let cps = prism.chokepoints(RunId::new(run), limit as usize)?;
+    if cps.is_empty() {
+        writeln!(out, "no chokepoints in run {run} (graph is a flat fan-out)")
+            .map_err(PrismError::Io)?;
+        return Ok(());
+    }
+    writeln!(out, "top {} chokepoint(s) in run {run}:", cps.len()).map_err(PrismError::Io)?;
+    for c in &cps {
+        writeln!(
+            out,
+            "  {:>5} dominated  node {} {} (depth {})",
+            c.dominated,
+            c.node.id.get(),
+            c.node.purl,
+            c.node.depth
+        )
+        .map_err(PrismError::Io)?;
+    }
+    writeln!(
+        out,
+        "(dominated = occurrences reachable from the roots only through this package)"
+    )
+    .map_err(PrismError::Io)?;
+    Ok(())
+}
+
+/// `prism graph why --run <id> --node <id>` — explain a dependency's presence.
+pub fn graph_why(out: &mut dyn Write, run: u64, node: u32) -> Result<()> {
+    let prism = open_here()?;
+    let ex = prism
+        .explain_node(RunId::new(run), GraphNodeId::new(node), 4)
+        .map_err(id_not_found)?;
+    writeln!(out, "why is node {} {} here?", ex.target.id.get(), ex.target.purl)
+        .map_err(PrismError::Io)?;
+    let reach = if ex.production_reachable {
+        "production-reachable"
+    } else if ex.non_production_only {
+        "non-production only (dev/build/test)"
+    } else {
+        "not reachable from any root"
+    };
+    writeln!(out, "  reachability: {reach}").map_err(PrismError::Io)?;
+    match &ex.nearest_owner {
+        Some(o) => writeln!(
+            out,
+            "  nearest first-party owner: {} (distance {})",
+            o.purl, ex.owner_distance
+        )
+        .map_err(PrismError::Io)?,
+        None => writeln!(out, "  nearest first-party owner: (none)").map_err(PrismError::Io)?,
+    }
+    writeln!(out, "  introducers ({}):", ex.introducers.len()).map_err(PrismError::Io)?;
+    for i in &ex.introducers {
+        writeln!(out, "    {} [{}]", i.node.purl, i.kinds.join(", ")).map_err(PrismError::Io)?;
+    }
+    writeln!(out, "  paths from a root ({}):", ex.paths.len()).map_err(PrismError::Io)?;
+    for p in &ex.paths {
+        let chain: Vec<&str> = p.iter().map(|n| n.purl.as_str()).collect();
+        writeln!(out, "    {}", chain.join(" → ")).map_err(PrismError::Io)?;
+    }
+    Ok(())
+}
+
+/// `prism graph cycles --run <id>` — classified dependency cycles.
+pub fn graph_cycles(out: &mut dyn Write, run: u64) -> Result<()> {
+    let prism = open_here()?;
+    let cycles = prism.classified_cycles(RunId::new(run))?;
+    if cycles.is_empty() {
+        writeln!(out, "no dependency cycles in run {run}").map_err(PrismError::Io)?;
+        return Ok(());
+    }
+    writeln!(out, "{} cycle(s) in run {run}:", cycles.len()).map_err(PrismError::Io)?;
+    for (i, c) in cycles.iter().enumerate() {
+        writeln!(
+            out,
+            "  [{}] {} members, {} internal edges — {} [{}]",
+            i + 1,
+            c.members.len(),
+            c.internal_edges,
+            c.class,
+            c.kinds.join(", ")
+        )
+        .map_err(PrismError::Io)?;
+        writeln!(
+            out,
+            "      runtime-relevant: {}  first-party: {}  external dependents: {}",
+            c.runtime_relevant, c.touches_root, c.external_dependents
+        )
+        .map_err(PrismError::Io)?;
+        let names: Vec<&str> = c.members.iter().map(|m| m.purl.as_str()).collect();
+        writeln!(out, "      members: {}", names.join(" ⇄ ")).map_err(PrismError::Io)?;
+        writeln!(out, "      {}", c.advice).map_err(PrismError::Io)?;
+    }
+    Ok(())
+}
+
 /// Map an out-of-range node/pair id (a user-supplied id that is not in the run)
 /// to `NotFound` (exit 3), so a plain bad-id typo is distinguishable from a
 /// corrupt-store decode bounds failure (which keeps `OutOfBounds`, exit 5).

@@ -184,7 +184,7 @@ impl Prism {
     // --- internal -----------------------------------------------------------
 
     /// Resolve one snapshot-local node id into a display view.
-    fn node_view(&self, g: &GraphSnapshot, node: GraphNodeId) -> Result<GraphNodeView> {
+    pub(crate) fn node_view(&self, g: &GraphSnapshot, node: GraphNodeId) -> Result<GraphNodeView> {
         let version = g.node_version(node)?;
         Ok(GraphNodeView {
             id: node,

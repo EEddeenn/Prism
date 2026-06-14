@@ -82,6 +82,10 @@ where
         }
         Command::GraphImpact { run, node } => commands::graph_impact(out, *run, *node),
         Command::GraphDuplicates { run } => commands::graph_duplicates(out, *run),
+        Command::GraphScope { run } => commands::graph_scope(out, *run),
+        Command::GraphChokepoints { run, limit } => commands::graph_chokepoints(out, *run, *limit),
+        Command::GraphWhy { run, node } => commands::graph_why(out, *run, *node),
+        Command::GraphCycles { run } => commands::graph_cycles(out, *run),
         Command::TdaRun { run, filtration } => commands::tda_run(out, *run, filtration),
         Command::TdaSupport { pair } => commands::tda_support(out, *pair),
         Command::Candidates {

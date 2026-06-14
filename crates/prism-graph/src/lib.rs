@@ -25,17 +25,24 @@
 //! [`prism_codec`] byte primitives; no I/O is performed here (callers own files).
 
 pub mod builder;
+pub mod cycles;
 pub mod duplicate;
 pub mod format;
 pub mod scc;
 pub mod snapshot;
+pub mod structure;
 pub mod traversal;
 
 pub use builder::{kind_from_u16, kind_to_u16, BuildEdge, BuildNode, GraphBuilder};
+pub use cycles::{classify_cycles, CycleClass, CycleInfo};
 pub use duplicate::{family_clusters, version_clusters, FamilyCluster, VersionCluster};
 pub use format::{read_pcsr, write_pcsr, PCSR_FORMAT_VERSION, PCSR_MAGIC};
 pub use scc::{condensation_topo_order, tarjan_scc, SccResult};
 pub use snapshot::GraphSnapshot;
+pub use structure::{
+    dominators, explain, roots, scope_footprint, scope_summary, Chokepoint, DomTree, Explanation,
+    Introducer, ScopeFootprint, PRODUCTION_KINDS,
+};
 pub use traversal::{
     forward_reachable, reverse_reachable, EdgeKindMask, Reachable, TraversalOptions,
 };

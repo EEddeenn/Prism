@@ -25,6 +25,14 @@ pub enum Command {
     GraphImpact { run: u64, node: u32 },
     /// `prism graph duplicates --run <id>`.
     GraphDuplicates { run: u64 },
+    /// `prism graph scope --run <id>` — per-scope footprint summary.
+    GraphScope { run: u64 },
+    /// `prism graph chokepoints --run <id> [--limit <n>]` — structural gateways.
+    GraphChokepoints { run: u64, limit: u32 },
+    /// `prism graph why --run <id> --node <id>` — why a dependency is present.
+    GraphWhy { run: u64, node: u32 },
+    /// `prism graph cycles --run <id>` — classified dependency cycles.
+    GraphCycles { run: u64 },
     /// `prism tda run --run <id> [--filtration depth]`.
     TdaRun { run: u64, filtration: String },
     /// `prism tda support --pair <id>`.
@@ -229,6 +237,38 @@ fn parse_graph<'a, I: Iterator<Item = &'a str>>(mut it: I) -> Result<Command, Pa
             let run = flags.take_u64("--run")?;
             flags.finish()?;
             Ok(Command::GraphDuplicates { run })
+        }
+        "scope" => {
+            let mut flags = Flags::parse(it)?;
+            let run = flags.take_u64("--run")?;
+            flags.finish()?;
+            Ok(Command::GraphScope { run })
+        }
+        "chokepoints" => {
+            let mut flags = Flags::parse(it)?;
+            let run = flags.take_u64("--run")?;
+            let limit = match flags.take_opt("--limit") {
+                Some(s) => s.parse::<u32>().map_err(|_| ParseError::BadValue {
+                    flag: "--limit".into(),
+                    value: s,
+                })?,
+                None => 20,
+            };
+            flags.finish()?;
+            Ok(Command::GraphChokepoints { run, limit })
+        }
+        "why" => {
+            let mut flags = Flags::parse(it)?;
+            let run = flags.take_u64("--run")?;
+            let node = flags.take_u32("--node")?;
+            flags.finish()?;
+            Ok(Command::GraphWhy { run, node })
+        }
+        "cycles" => {
+            let mut flags = Flags::parse(it)?;
+            let run = flags.take_u64("--run")?;
+            flags.finish()?;
+            Ok(Command::GraphCycles { run })
         }
         other => Err(ParseError::UnknownCommand(format!("graph {other}"))),
     }

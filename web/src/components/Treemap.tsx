@@ -160,6 +160,7 @@ export default function Treemap() {
   const matches = useGraphStore((s) => s.matches);
   const dupVersionIds = useGraphStore((s) => s.dupVersionIds);
   const selectNode = useGraphStore((s) => s.selectNode);
+  const clearSelection = useGraphStore((s) => s.clearSelection);
   const requestFocus = useGraphStore((s) => s.requestFocus);
 
   const [signal, setSignal] = useState<AreaSignal>('revReach');
@@ -257,7 +258,16 @@ export default function Treemap() {
         </div>
       )}
 
-      <div ref={hostRef} className="absolute inset-0">
+      <div
+        ref={hostRef}
+        className="absolute inset-0"
+        onClick={(e) => {
+          // Tiles call stopPropagation, so this fires only on a click that
+          // landed on the host's own background (the inter-tile gaps + any
+          // padding) — treat as a "deselect" gesture, mirroring 2D / 3D.
+          if (e.target === e.currentTarget && sel != null) clearSelection();
+        }}
+      >
         {tiles.map((t, ti) => {
           const n = byId?.get(t.id);
           if (!n) return null;
@@ -324,7 +334,14 @@ export default function Treemap() {
               tabIndex={focusable ? 0 : -1}
               aria-label={`${shortLabel(n.purl)} — ${SIGNAL_META.label} ${rawValue(t.id)}, depth ${n.depth}`}
               title={`${n.purl}\n${SIGNAL_META.label} = ${rawValue(t.id)} · depth ${n.depth}`}
-              onClick={activate}
+              onClick={(e) => {
+                // Stop the click from bubbling to the host container's
+                // empty-space-deselect handler — a tile activation
+                // immediately followed by a deselect would clear the
+                // selection we just installed.
+                e.stopPropagation();
+                activate();
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();

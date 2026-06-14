@@ -57,6 +57,7 @@ export default function Graph2D() {
   const metrics = index?.metrics;
   const stats = index?.stats ?? ZERO_STATS;
   const selectNode = useGraphStore((s) => s.selectNode);
+  const clearSelection = useGraphStore((s) => s.clearSelection);
   const setHovered = useGraphStore((s) => s.setHovered);
   const focusNonce = useGraphStore((s) => s.focusNonce);
   const focusTarget = useGraphStore((s) => s.focusTarget);
@@ -382,6 +383,12 @@ export default function Graph2D() {
     if (ng?.dataset.id != null) {
       e.stopPropagation();
       void selectNode(Number(ng.dataset.id));
+    } else if (hasSel) {
+      // Click landed on empty SVG background (or a non-node decoration —
+      // edges, layer rules, labels). Treat as a "deselect" gesture so
+      // users have an in-view way out of a selection, mirroring the
+      // Command Palette's "Reset selection" action.
+      clearSelection();
     }
   };
 

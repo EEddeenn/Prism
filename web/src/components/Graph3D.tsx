@@ -75,6 +75,8 @@ export default function Graph3D() {
   const setMode3d = useGraphStore((s) => s.setMode3d);
   const signal = useGraphStore((s) => s.signal);
   const setSignal = useGraphStore((s) => s.setSignal);
+  const clearSelection = useGraphStore((s) => s.clearSelection);
+  const hasSel = useGraphStore((s) => s.sel != null);
   const [spin, setSpin] = useState(false);
   const [fitNonce, setFitNonce] = useState(0);
 
@@ -84,6 +86,13 @@ export default function Graph3D() {
         camera={{ fov: 52, position: [400, 320, 400], near: 1, far: 20000 }}
         gl={{ antialias: true }}
         dpr={[1, 2]}
+        onPointerMissed={(e) => {
+          // R3F fires this on pointer-up only when the gesture hit no
+          // 3D object AND was not a drag (camera orbits suppress it).
+          // Restrict to the primary mouse button so right/middle-click
+          // gestures the camera controls reserve don't deselect.
+          if (e.button === 0 && hasSel) clearSelection();
+        }}
       >
         <SceneContent fitNonce={fitNonce} spin={spin} />
       </Canvas>

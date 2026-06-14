@@ -172,15 +172,20 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   },
 
   selectRun: async (run, opts) => {
-    // Picking the current compare run as the primary would diff a run against
-    // itself — drop the now-redundant compare slot instead.
-    if (get().compareRun === run) set({ compareRun: null, compareData: null });
-
     // `preserveUi` is meaningful only on a same-run refresh (the Topbar's
-    // Reload button). When the run number changes the user IS switching
+    // Refresh button). When the run number changes the user IS switching
     // contexts, and keeping their old selection / search / panel tab makes
     // no semantic sense.
     const preserve = opts?.preserveUi === true && get().run === run;
+
+    // Picking the current compare run as the primary would diff a run against
+    // itself — drop the now-redundant compare slot. Skip this on a same-run
+    // refresh so a `preserveUi` refresh never spuriously clears a compare
+    // slot that the user set up. (The UI already disables the conflicting
+    // option in the picker, but defense in depth.)
+    if (!preserve && get().compareRun === run) {
+      set({ compareRun: null, compareData: null });
+    }
     const cur = get();
     const preservedSel = preserve ? cur.sel : null;
     const preservedFeature = preserve ? cur.feature : null;

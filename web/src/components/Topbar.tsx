@@ -66,13 +66,12 @@ export default function Topbar() {
   const setView = useGraphStore((s) => s.setView);
   const setEdgeFilter = useGraphStore((s) => s.setEdgeFilter);
   const runSearch = useGraphStore((s) => s.runSearch);
-  const loadRuns = useGraphStore((s) => s.loadRuns);
   const [copied, setCopied] = useState(false);
-  // Local busy state — guards the Reload button against concurrent presses
-  // and drives its visible label. We can't read it off the store's
-  // `statusText` because a node-click sets statusText to 'Tracing…' too,
-  // and we don't want to disable Reload for unrelated activity.
-  const [reloading, setReloading] = useState(false);
+  // Local busy state — guards the Refresh button against concurrent presses
+  // and drives its visible spin. Local (not store.statusText) because a
+  // node-click sets statusText to 'Tracing…' too, and we don't want to
+  // disable Refresh for unrelated activity.
+  const [refreshing, setRefreshing] = useState(false);
 
   const copyLink = async () => {
     try {
@@ -210,24 +209,30 @@ export default function Topbar() {
       <button
         type="button"
         onClick={async () => {
-          if (reloading) return;
-          setReloading(true);
+          // Skip if already running OR there is no run to refresh.
+          // We bypass loadRuns entirely: in the static+WASM model the runs
+          // list is fixed by the loaded bundle, so re-fetching it cannot
+          // change anything and only flashes a misleading 'Loading runs…'
+          // status. Calling selectRun directly with `preserveUi: true`
+          // does the only thing this button can meaningfully do — refresh
+          // the current run's graph + side-panel data from the WASM
+          // singleton, keeping the user's selection, search, panel tab,
+          // and TDA feature highlight in place.
+          if (refreshing || run == null) return;
+          setRefreshing(true);
           try {
-            // Pass the current run so the refresh keeps the user on the run
-            // they were viewing instead of silently snapping to runs[0],
-            // and preserveUi so their selection/search/panel tab survive.
-            await loadRuns(run ?? undefined, { preserveUi: true });
+            await selectRun(run, { preserveUi: true });
           } finally {
-            setReloading(false);
+            setRefreshing(false);
           }
         }}
-        disabled={reloading}
-        aria-busy={reloading}
-        title={reloading ? 'Reloading…' : 'Reload runs'}
-        aria-label={reloading ? 'Reloading runs' : 'Reload runs'}
+        disabled={refreshing || run == null}
+        aria-busy={refreshing}
+        title={refreshing ? 'Refreshing…' : run == null ? 'No run to refresh' : 'Refresh view'}
+        aria-label={refreshing ? 'Refreshing view' : 'Refresh view'}
         className="inline-flex items-center justify-center w-8 h-8 rounded-md border border-line-2 bg-panel-2 text-ink hover:border-accent hover:bg-panel-3 disabled:opacity-60 disabled:cursor-wait disabled:hover:border-line-2 disabled:hover:bg-panel-2"
       >
-        <ReloadIcon className={reloading ? 'animate-spin' : ''} />
+        <ReloadIcon className={refreshing ? 'animate-spin' : ''} />
       </button>
 
       <span

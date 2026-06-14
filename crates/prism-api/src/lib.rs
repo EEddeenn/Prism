@@ -77,6 +77,7 @@ pub use run_diff::{CycleDiffEntry, HotspotShift, RunDiffView, ScopeShift};
 pub use structure_views::{
     kind_label, ChokepointView, CycleView, ExplanationView, IntroducerView, ScopeSummaryView,
 };
+pub use tda::FiltrationSummary;
 pub use tda_views::{BarcodeDim, BarcodeView, PairView, SupportObject, SupportView};
 pub use views::{
     DuplicateClusterView, GraphEdgeView, GraphNodeView, GraphStatsView, NeighborhoodView, SccView,

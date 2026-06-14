@@ -17,6 +17,12 @@ pub enum FiltrationType {
     Depth = 0,
     /// `f(node) = age/staleness in days` (caller-supplied scalar).
     Staleness = 1,
+    /// `f(node) = -(direct dependents)`. High-centrality hubs appear first, so a
+    /// loop's persistence reflects how central its members are.
+    Centrality = 2,
+    /// `f(node) = 0` for production-reachable nodes, `1` otherwise. Production
+    /// structure is born first; non-production structure appears later.
+    Scope = 3,
     /// A caller-defined scalar with no fixed semantics.
     Custom = 0xFFFF,
 }
@@ -34,6 +40,8 @@ impl FiltrationType {
         match v {
             0 => FiltrationType::Depth,
             1 => FiltrationType::Staleness,
+            2 => FiltrationType::Centrality,
+            3 => FiltrationType::Scope,
             _ => FiltrationType::Custom,
         }
     }

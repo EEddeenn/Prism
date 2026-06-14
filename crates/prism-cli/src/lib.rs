@@ -101,6 +101,7 @@ where
         Command::Regions => commands::regions(out),
         Command::TdaRun { run, filtration } => commands::tda_run(out, *run, filtration),
         Command::TdaSupport { pair } => commands::tda_support(out, *pair),
+        Command::TdaCompare { run } => commands::tda_compare(out, *run),
         Command::Candidates {
             requirement,
             package,

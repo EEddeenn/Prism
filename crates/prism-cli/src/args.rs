@@ -63,6 +63,8 @@ pub enum Command {
     TdaRun { run: u64, filtration: String },
     /// `prism tda support --pair <id>`.
     TdaSupport { pair: u64 },
+    /// `prism tda compare --run <id>` — topology under multiple filtration lenses.
+    TdaCompare { run: u64 },
     /// `prism candidates --requirement <id>` or
     /// `prism candidates --package <purl> --constraint <expr>`.
     Candidates {
@@ -424,6 +426,12 @@ fn parse_tda<'a, I: Iterator<Item = &'a str>>(mut it: I) -> Result<Command, Pars
             let pair = flags.take_u64("--pair")?;
             flags.finish()?;
             Ok(Command::TdaSupport { pair })
+        }
+        "compare" => {
+            let mut flags = Flags::parse(it)?;
+            let run = flags.take_u64("--run")?;
+            flags.finish()?;
+            Ok(Command::TdaCompare { run })
         }
         other => Err(ParseError::UnknownCommand(format!("tda {other}"))),
     }

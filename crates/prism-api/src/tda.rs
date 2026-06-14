@@ -11,10 +11,14 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use prism_graph::GraphSnapshot;
+use prism_graph::{
+    forward_reachable, roots as graph_roots, EdgeKindMask, GraphSnapshot, TraversalOptions,
+    PRODUCTION_KINDS,
+};
 use prism_model::{FiltrationId, GraphEdgeId, GraphNodeId, PairId, PrismError, Result, RunId};
 use prism_tda::{
-    depth_filtration, read_ptda, write_ptda, Complex, ObjectType, PersistenceResult, Ptda,
+    depth_filtration, read_ptda, write_ptda, Complex, Filtration, FiltrationType, ObjectType,
+    PersistenceResult, Ptda,
 };
 
 use crate::tda_views::{BarcodeDim, BarcodeView, PairView, SupportObject, SupportView};
@@ -30,14 +34,9 @@ impl Prism {
     /// [`FiltrationId`].
     pub fn tda_run(&mut self, run: RunId, filtration: &str) -> Result<BarcodeView> {
         self.ensure_writable()?;
-        if !matches!(filtration, "depth" | "" | "default") {
-            return Err(PrismError::Other(format!(
-                "unsupported filtration {filtration:?} (only \"depth\" in v0.1)"
-            )));
-        }
         // Load the snapshot, build the filtered complex, compute homology.
         let g = self.load_graph(run)?;
-        let filt = depth_filtration(&g)?;
+        let filt = self.build_filtration(&g, filtration)?;
         let complex = Complex::build(&g, filt.values())?;
 
         // A fresh, store-global id for this filtration (the object counter is the
@@ -156,7 +155,87 @@ impl Prism {
         })
     }
 
+    /// Compare a run's topology under several filtration **lenses**.
+    ///
+    /// The underlying 1-complex — and therefore the H₀/H₁ Betti numbers — is the
+    /// same under every filtration; what changes is the *persistence* (how
+    /// long-lived each feature is). So this reports, per lens, the total and
+    /// maximum persistence of the finite bars: under `depth`, deep-tree loops are
+    /// long-lived; under `centrality`, loops among high-dependent hubs are; under
+    /// `scope`, production structure is born before non-production structure.
+    pub fn tda_compare(&self, run: RunId) -> Result<Vec<FiltrationSummary>> {
+        let g = self.load_graph(run)?;
+        let mut out = Vec::new();
+        for name in ["depth", "centrality", "scope"] {
+            let filt = self.build_filtration(&g, name)?;
+            let complex = Complex::build(&g, filt.values())?;
+            let persistence = PersistenceResult::compute(&complex, 0)?;
+            let (mut h0_finite, mut h1_finite, mut h0_ess, mut h1_ess) = (0u32, 0u32, 0u32, 0u32);
+            let mut total_persistence = 0.0f64;
+            let mut max_persistence = 0.0f64;
+            for p in persistence.pairs() {
+                let essential = p.death_cell.is_none();
+                match (p.dim, essential) {
+                    (0, true) => h0_ess += 1,
+                    (0, false) => h0_finite += 1,
+                    (1, true) => h1_ess += 1,
+                    (1, false) => h1_finite += 1,
+                    _ => {}
+                }
+                if let Some(death) = p.death_value {
+                    let life = death - p.birth_value;
+                    if life > 0.0 {
+                        total_persistence += life;
+                        if life > max_persistence {
+                            max_persistence = life;
+                        }
+                    }
+                }
+            }
+            out.push(FiltrationSummary {
+                filtration: name,
+                h0_components: h0_ess,
+                h1_loops: h1_ess + h1_finite,
+                finite_bars: h0_finite + h1_finite,
+                total_persistence,
+                max_persistence,
+            });
+        }
+        Ok(out)
+    }
+
     // --- internal -----------------------------------------------------------
+
+    /// Build the named filtration scalar over `g`.
+    ///
+    /// `depth` (distance from roots), `centrality` (−direct-dependents, so hubs
+    /// are born first), and `scope` (0 for production-reachable, 1 otherwise) are
+    /// supported; an unknown name is a [`PrismError::Other`].
+    fn build_filtration(&self, g: &GraphSnapshot, name: &str) -> Result<Filtration> {
+        match name {
+            "depth" | "" | "default" => depth_filtration(g),
+            "centrality" => {
+                let mut values = Vec::with_capacity(g.node_count());
+                for i in 0..g.node_count() as u32 {
+                    let node = GraphNodeId::new(i);
+                    // Distinct direct dependents (collapse parallel edges).
+                    let mut preds: Vec<u32> = g.in_neighbors(node)?.iter().map(|p| p.get()).collect();
+                    preds.sort_unstable();
+                    preds.dedup();
+                    values.push(-(preds.len() as f64));
+                }
+                Ok(Filtration::new(FiltrationType::Centrality, values))
+            }
+            "scope" => {
+                let prod = production_reachable(g)?;
+                let values = prod.iter().map(|&r| if r { 0.0 } else { 1.0 }).collect();
+                Ok(Filtration::new(FiltrationType::Scope, values))
+            }
+            other => Err(PrismError::Other(format!(
+                "unsupported filtration {other:?} (use depth, centrality, or scope)"
+            ))),
+        }
+    }
 
     /// Read back and parse the `.ptda` for `(run, filtration)`.
     fn load_ptda(&self, run: RunId, filtration: FiltrationId) -> Result<Ptda> {
@@ -175,6 +254,41 @@ impl Prism {
             depth: g.node_depth(node)?,
         })
     }
+}
+
+/// A run's topology summary under one filtration lens.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FiltrationSummary {
+    /// The filtration name (`depth`/`centrality`/`scope`).
+    pub filtration: &'static str,
+    /// H₀ Betti number (connected components) — invariant across lenses.
+    pub h0_components: u32,
+    /// H₁ Betti number (independent loops) — invariant across lenses.
+    pub h1_loops: u32,
+    /// Number of finite (born-and-died) bars under this lens.
+    pub finite_bars: u32,
+    /// Total persistence (Σ death−birth over finite bars) under this lens.
+    pub total_persistence: f64,
+    /// Longest single bar's persistence under this lens.
+    pub max_persistence: f64,
+}
+
+/// Production-reachable mask: nodes reachable from any root along production
+/// ([`PRODUCTION_KINDS`]) edges, including the roots themselves.
+fn production_reachable(g: &GraphSnapshot) -> Result<Vec<bool>> {
+    let mut reached = vec![false; g.node_count()];
+    let mask = EdgeKindMask::from_kinds(PRODUCTION_KINDS);
+    for root in graph_roots(g)? {
+        let opts = TraversalOptions {
+            kinds: mask,
+            include_root: true,
+            ..Default::default()
+        };
+        for nd in forward_reachable(g, root, opts)?.nodes {
+            reached[nd.get() as usize] = true;
+        }
+    }
+    Ok(reached)
 }
 
 /// Build a [`BarcodeView`] of per-dimension finite/essential counts.

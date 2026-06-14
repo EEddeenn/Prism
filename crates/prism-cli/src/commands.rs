@@ -790,6 +790,33 @@ pub fn tda_run(out: &mut dyn Write, run: u64, filtration: &str) -> Result<()> {
     Ok(())
 }
 
+/// `prism tda compare --run <id>` — topology under multiple filtration lenses.
+pub fn tda_compare(out: &mut dyn Write, run: u64) -> Result<()> {
+    let prism = open_here()?;
+    let rows = prism.tda_compare(RunId::new(run))?;
+    writeln!(out, "topology under filtration lenses for run {run}:").map_err(PrismError::Io)?;
+    writeln!(
+        out,
+        "  {:<11} {:>5} {:>5} {:>6} {:>14} {:>10}",
+        "lens", "H0", "H1", "finite", "total-persist", "max-bar"
+    )
+    .map_err(PrismError::Io)?;
+    for r in &rows {
+        writeln!(
+            out,
+            "  {:<11} {:>5} {:>5} {:>6} {:>14.1} {:>10.1}",
+            r.filtration, r.h0_components, r.h1_loops, r.finite_bars, r.total_persistence, r.max_persistence
+        )
+        .map_err(PrismError::Io)?;
+    }
+    writeln!(
+        out,
+        "(H0/H1 are filtration-invariant; persistence shows which features each lens makes prominent)"
+    )
+    .map_err(PrismError::Io)?;
+    Ok(())
+}
+
 /// `prism tda support --pair <id>` — locate the persisted `.ptda` owning the
 /// pair and render its generator support. Pair ids are store-global, so the
 /// owning `(run, filtration)` is recovered by scanning persisted filtrations.

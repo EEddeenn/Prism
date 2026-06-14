@@ -33,6 +33,8 @@ pub enum Command {
     GraphWhy { run: u64, node: u32 },
     /// `prism graph cycles --run <id>` — classified dependency cycles.
     GraphCycles { run: u64 },
+    /// `prism graph dup-causes --run <id>` — duplicate-version root cause.
+    GraphDupCauses { run: u64 },
     /// `prism tda run --run <id> [--filtration depth]`.
     TdaRun { run: u64, filtration: String },
     /// `prism tda support --pair <id>`.
@@ -269,6 +271,12 @@ fn parse_graph<'a, I: Iterator<Item = &'a str>>(mut it: I) -> Result<Command, Pa
             let run = flags.take_u64("--run")?;
             flags.finish()?;
             Ok(Command::GraphCycles { run })
+        }
+        "dup-causes" => {
+            let mut flags = Flags::parse(it)?;
+            let run = flags.take_u64("--run")?;
+            flags.finish()?;
+            Ok(Command::GraphDupCauses { run })
         }
         other => Err(ParseError::UnknownCommand(format!("graph {other}"))),
     }

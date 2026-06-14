@@ -31,6 +31,7 @@
 
 mod candidate_views;
 mod candidates;
+mod duplicate_rootcause;
 mod ecosystem;
 mod ingest;
 mod parse;
@@ -48,6 +49,9 @@ mod test_util;
 
 pub use candidate_views::{
     CandidateExclusion, CandidateVersion, CandidateView, ConflictPair, ConflictReportView,
+};
+pub use duplicate_rootcause::{
+    ConstraintIntroducer, DuplicateRootCauseView, DuplicateVersionCause,
 };
 pub use ecosystem::{Ecosystem, CARGO_ECOSYSTEM_ID, NPM_ECOSYSTEM_ID};
 pub use ingest::{LockfileIngest, ManifestIngest};

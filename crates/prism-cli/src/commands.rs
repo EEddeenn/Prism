@@ -296,6 +296,78 @@ pub fn graph_cycles(out: &mut dyn Write, run: u64) -> Result<()> {
     Ok(())
 }
 
+/// `prism graph dup-causes --run <id>` — duplicate-version root-cause analysis:
+/// who pins each version, the family's blast radius, and a convergence verdict.
+pub fn graph_dup_causes(out: &mut dyn Write, run: u64) -> Result<()> {
+    let prism = open_here()?;
+    let causes = prism.duplicate_root_causes(RunId::new(run))?;
+    if causes.is_empty() {
+        writeln!(out, "no duplicate-version families in run {run}").map_err(PrismError::Io)?;
+        return Ok(());
+    }
+    writeln!(
+        out,
+        "{} duplicate-version famil{} in run {run} (by risk):",
+        causes.len(),
+        if causes.len() == 1 { "y" } else { "ies" }
+    )
+    .map_err(PrismError::Io)?;
+    for c in &causes {
+        writeln!(
+            out,
+            "  {} — {} versions, {} occurrences, blast {}, {} — risk {}",
+            c.package_purl,
+            c.versions.len(),
+            c.occurrence_count,
+            c.blast_radius,
+            c.convergence,
+            c.risk_score
+        )
+        .map_err(PrismError::Io)?;
+        for v in &c.versions {
+            writeln!(
+                out,
+                "      {} ({}×) ← {}",
+                version_tail(&v.purl),
+                v.occurrences,
+                introducer_brief(&v.introducers)
+            )
+            .map_err(PrismError::Io)?;
+        }
+    }
+    Ok(())
+}
+
+/// The version tail of a purl for compact display (`…@1.2.3` → `1.2.3`).
+fn version_tail(purl: &str) -> &str {
+    purl.rsplit_once('@').map(|(_, v)| v).unwrap_or(purl)
+}
+
+/// A short "constraint←who" summary of the first few introducers.
+fn introducer_brief(introducers: &[prism_api::ConstraintIntroducer]) -> String {
+    if introducers.is_empty() {
+        return "(roots / no recorded requirement)".to_string();
+    }
+    let shown: Vec<String> = introducers
+        .iter()
+        .take(3)
+        .map(|i| {
+            let who = i.introducer_purl.rsplit('/').next().unwrap_or(&i.introducer_purl);
+            if i.constraint.is_empty() {
+                who.to_string()
+            } else {
+                format!("{who} wants {}", i.constraint)
+            }
+        })
+        .collect();
+    let more = introducers.len().saturating_sub(3);
+    if more > 0 {
+        format!("{} (+{more} more)", shown.join("; "))
+    } else {
+        shown.join("; ")
+    }
+}
+
 /// Map an out-of-range node/pair id (a user-supplied id that is not in the run)
 /// to `NotFound` (exit 3), so a plain bad-id typo is distinguishable from a
 /// corrupt-store decode bounds failure (which keeps `OutOfBounds`, exit 5).
